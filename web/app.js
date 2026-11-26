@@ -5,6 +5,9 @@ if ('serviceWorker' in navigator) {
 const $ = (id) => document.getElementById(id);
 let selectedFile = null;
 let selectedStyle = 'classic';
+let selectedLines = 2;
+let selectedHookStyle = 'pill-white';
+let selectedHookY = 16;
 let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
 let deferredPrompt = null;
@@ -74,17 +77,64 @@ function animateOverlay(style) {
 
 function syncOverlay(animate = false) {
   const ov = $('liveOverlay');
-  ov.className = 'live-overlay style-' + selectedStyle;
+  ov.className = 'live-overlay style-' + selectedStyle + (selectedLines === 1 ? ' is-one-line' : '');
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
   ov.style.top = $('posY').value + '%';
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
+    $('hookOverlay')?.style.setProperty('--accent', $('accentColor').value);
   } else {
     ov.style.removeProperty('--accent');
+    $('hookOverlay')?.style.removeProperty('--accent');
   }
   $('posYVal').textContent = $('posY').value + '%';
   if (animate) animateOverlay(selectedStyle);
 }
+
+$('linesGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $('linesGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    selectedLines = Number(btn.dataset.lines || 2);
+    syncOverlay(true);
+  });
+});
+
+$('hookStyleGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $('hookStyleGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    selectedHookStyle = btn.dataset.hstyle || 'pill-white';
+    const ho = $('hookOverlay');
+    if (ho) ho.className = 'hook-overlay hook-' + selectedHookStyle;
+  });
+});
+
+// Make Hook Title draggable vertically inside the phone preview
+(() => {
+  const ho = $('hookOverlay'), frame = $('previewWrap');
+  if (!ho || !frame) return;
+  let dragging = false, startY = 0, origPct = 16;
+  ho.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    ho.setPointerCapture(e.pointerId);
+    startY = e.clientY;
+    origPct = selectedHookY;
+    e.preventDefault();
+  });
+  ho.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = frame.getBoundingClientRect();
+    if (!rect.height) return;
+    const dy = ((e.clientY - startY) / rect.height) * 100;
+    selectedHookY = Math.round(Math.max(8, Math.min(55, origPct + dy)));
+    ho.style.top = selectedHookY + '%';
+    ho.dataset.hy = String(selectedHookY);
+  });
+  const stop = () => { dragging = false; };
+  ho.addEventListener('pointerup', stop);
+  ho.addEventListener('pointercancel', stop);
+})();
 
 $('customColorToggle')?.addEventListener('change', () => {
   $('accentColor').disabled = !$('customColorToggle').checked;
@@ -148,6 +198,9 @@ $('hookTitleInput')?.addEventListener('input', () => {
   const ho = $('hookOverlay');
   ho.textContent = val;
   ho.hidden = !val;
+  $('hookStylesBox').hidden = !val;
+  ho.className = 'hook-overlay hook-' + selectedHookStyle;
+  ho.style.top = selectedHookY + '%';
 });
 
 $('videoFile').addEventListener('change', (e) => {
@@ -350,9 +403,12 @@ $('generateBtn').addEventListener('click', async () => {
         style: selectedStyle,
         accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
         pos_y: Number($('posY').value),
+        caption_lines: selectedLines,
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,
         hook_title: ($('hookTitleInput')?.value || '').trim(),
+        hook_style: selectedHookStyle,
+        hook_y: selectedHookY,
         resolution: selectedResolution,
       }),
     });

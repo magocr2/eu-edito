@@ -182,9 +182,12 @@ def _run_render_pipeline(job_id, opts):
             width=out_w,
             height=out_h,
             style_id=opts.get("style", "classic"),
-            accent_hex=opts.get("accent_color", "#22C55E"),
+            accent_hex=opts.get("accent_color", ""),
             pos_y_pct=float(opts.get("pos_y", 74)),
+            caption_lines=int(opts.get("caption_lines", 2)),
             hook_title=opts.get("hook_title", ""),
+            hook_style=opts.get("hook_style", "pill-white"),
+            hook_y_pct=float(opts.get("hook_y", 16)),
         )
 
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")

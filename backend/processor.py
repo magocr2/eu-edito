@@ -159,7 +159,7 @@ def probe_video(video_path):
     _, ffprobe = find_ffmpeg()
     cmd = [
         ffprobe, "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate,duration:format=duration",
+        "-show_streams", "-show_format",
         "-of", "json", str(video_path),
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
@@ -169,6 +169,21 @@ def probe_video(video_path):
     w = int(stream.get("width") or 1080)
     h = int(stream.get("height") or 1920)
     dur = float(stream.get("duration") or fmt.get("duration") or 0.0)
+
+    # Check display matrix / rotate metadata so vertical iPhone/Android videos stay 9:16
+    rot = 0
+    try:
+        tags = stream.get("tags") or {}
+        if "rotate" in tags:
+            rot = int(float(tags["rotate"]))
+        for sd in (stream.get("side_data_list") or []):
+            if "rotation" in sd:
+                rot = int(float(sd["rotation"]))
+    except Exception:
+        rot = 0
+    if abs(rot) in (90, 270):
+        w, h = h, w
+
     return {"width": w, "height": h, "duration": dur}
 
 
@@ -400,7 +415,14 @@ def apply_manual_caption_cuts(keep_ranges, edited_captions):
         c_copy = dict(c)
         c_copy["s"] = round(ns, 3)
         c_copy["e"] = round(ne, 3)
-        c_copy["words"] = []
+        remapped_words = []
+        for w in (c.get("words") or []):
+            wos = float(w.get("orig_s", w.get("s", os_t)))
+            woe = float(w.get("orig_e", w.get("e", wos + 0.15)))
+            wns = map_time_to_edited(wos, new_keep)
+            wne = max(wns + 0.08, map_time_to_edited(woe, new_keep))
+            remapped_words.append({"w": w["w"], "s": round(wns, 3), "e": round(wne, 3), "orig_s": round(wos, 3), "orig_e": round(woe, 3)})
+        c_copy["words"] = remapped_words
         remapped.append(c_copy)
     return new_keep, remapped
 
@@ -500,63 +522,63 @@ def generate_srt(captions, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, hook_title=""):
-    """Render faithful multi-style ASS captions matching each of the 11 Hogus/Eu Edito models."""
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=2, hook_title="", hook_style="pill-white", hook_y_pct=16):
+    """Render faithful word-by-word animated ASS captions matching all 11 models + 1/2 line layout + hook styles."""
     styles_cfg = {
         "classic": {
-            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 82, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise", "inline": False,
+            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 78, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "model-07": {
-            "small_font": "Geist", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Liberation Serif", "main_size": 88, "main_bold": -1, "main_italic": -1,
-            "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFD66C", "anim": "pop", "inline": False,
+            "small_font": "Geist", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Liberation Serif", "main_size": 84, "main_bold": -1, "main_italic": -1,
+            "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
-            "small_font": "DM Sans", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans", "main_size": 80, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "pop", "inline": False,
+            "small_font": "DM Sans", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans", "main_size": 78, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 74, "main_bold": 0, "main_italic": 0,
-            "upper": True, "outline": 2, "shadow": 3, "default_accent": "#FFFFFF", "anim": "slide", "inline": False,
+            "small_font": "Liberation Serif", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 72, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 2, "shadow": 3, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean-14": {
-            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 92, "main_bold": 0, "main_italic": -1,
-            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#FFDFC4", "anim": "pop", "inline": False,
+            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 88, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#FFDFC4", "anim": "pop",
         },
         "clean-9": {
-            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_size": 66, "main_bold": 0, "main_italic": 0,
-            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "drop", "inline": False,
+            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "blur",
         },
         "clean-10": {
             "small_font": "Creato Display", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 58, "main_bold": -1, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#A375FA", "anim": "rise", "inline": True,
+            "main_font": "Creato Display", "main_size": 60, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
-            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 90, "main_bold": 0, "main_italic": -1,
-            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "cut", "inline": False,
+            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 88, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "cut",
         },
         "clean-15": {
-            "small_font": "Creato Display", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 72, "main_bold": -1, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "rise", "inline": False,
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 70, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "clean-lavish": {
-            "small_font": "Lavish", "small_size": 46, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_size": 86, "main_bold": 0, "main_italic": 0,
-            "upper": True, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "slide", "inline": False,
+            "small_font": "Lavish", "small_size": 48, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_size": 84, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Liberation Serif", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 74, "main_bold": 0, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1", "anim": "slide", "inline": False,
+            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 72, "main_bold": 0, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1", "anim": "slide",
         },
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
@@ -581,66 +603,93 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
 Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H000A0E0C,&H80000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
+Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
-    shift_px = max(14, int(30 * scale_f))
-    gap_y = max(24, int(m_size * 0.62))
+    one_line = (int(caption_lines or 2) == 1)
 
-    def _anim_tag(x, y):
+    def _word_anim(rel_ms, is_main):
         an = cfg["anim"]
-        if an == "rise":
-            return f"\\move({x},{y + shift_px},{x},{y},0,240)\\fad(80,40)"
-        if an == "drop":
-            return f"\\move({x},{y - shift_px},{x},{y},0,260)\\blur1.2\\t(0,220,\\blur0)\\fad(90,40)"
-        if an == "slide":
-            return f"\\move({x + shift_px},{y},{x},{y},0,240)\\fad(70,40)"
+        t_start = max(0, int(rel_ms))
+        if an == "cut":
+            return f"\\alpha&HFF&\\t({t_start},{t_start + 25},\\alpha&H00&)"
         if an == "pop":
-            return f"\\pos({x},{y})\\fscx20\\fscy20\\t(0,200,\\fscx106\\fscy106)\\t(200,300,\\fscx100\\fscy100)\\fad(40,40)"
-        return f"\\pos({x},{y})"
+            end_pop = t_start + 150
+            return f"\\alpha&HFF&\\fscx25\\fscy25\\t({t_start},{end_pop},\\alpha&H00&\\fscx108\\fscy108)\\t({end_pop},{end_pop + 90},\\fscx100\\fscy100)"
+        if an == "blur":
+            return f"\\alpha&HFF&\\blur4\\t({t_start},{t_start + 200},\\alpha&H00&\\blur0)"
+        if an == "slide":
+            return f"\\alpha&HFF&\\fscx112\\t({t_start},{t_start + 170},\\alpha&H00&\\fscx100)"
+        # 'rise' / default
+        return f"\\alpha&HFF&\\fscy72\\t({t_start},{t_start + 160},\\alpha&H00&\\fscy100)"
+
+    def _format_words_seq(w_list, cap_s, main_idx_ref, offset_idx=0):
+        parts = []
+        for i, w in enumerate(w_list):
+            g_idx = offset_idx + i
+            is_main = (g_idx == main_idx_ref)
+            rel_ms = max(0, int((float(w["s"]) - cap_s) * 1000))
+            txt = (w["w"].upper() if (is_main and cfg["upper"]) else w["w"])
+            anim = _word_anim(rel_ms, is_main)
+            if is_main:
+                parts.append(f"{{\\rMain\\c{accent_ass}{anim}}}{txt}{{\\rSmall}}")
+            else:
+                parts.append(f"{{\\rSmall{anim}}}{txt}")
+        return " ".join(parts)
 
     for c in captions:
         text = (c.get("text") or "").strip()
         if not text:
             continue
-        tokens = text.split()
-        t0 = _fmt_ass_time(c["s"])
-        t1 = _fmt_ass_time(c["e"] + 0.08)
+        cap_s = float(c["s"])
+        cap_e = float(c["e"])
+        words = c.get("words") or []
+        if not words:
+            toks = text.split()
+            step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
+            words = [{"w": tok, "s": cap_s + i * step, "e": cap_s + (i + 1) * step} for i, tok in enumerate(toks)]
 
-        # Pick strongest/longest word as Main highlight
-        main_idx = max(range(len(tokens)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", tokens[i])))
+        t0 = _fmt_ass_time(cap_s)
+        t1 = _fmt_ass_time(cap_e + 0.08)
+        main_idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", words[i]["w"])))
 
-        if cfg["inline"] or len(tokens) < 2:
-            inline_parts = []
-            for idx, tok in enumerate(tokens):
-                if idx == main_idx:
-                    w_txt = tok.upper() if cfg["upper"] else tok
-                    inline_parts.append(f"{{\\rMain\\c{accent_ass}}}{w_txt}{{\\rSmall}}")
-                else:
-                    inline_parts.append(tok)
-            tag = _anim_tag(pos_x, pos_y)
-            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{tag}}}" + " ".join(inline_parts))
+        if one_line or style_id == "clean-10" or len(words) < 2:
+            seq = _format_words_seq(words, cap_s, main_idx, 0)
+            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5\\pos({pos_x},{pos_y})}}{seq}")
         else:
-            before = " ".join(tokens[:main_idx]).strip()
-            main_w = tokens[main_idx].upper() if cfg["upper"] else tokens[main_idx]
-            after = " ".join(tokens[main_idx + 1:]).strip()
-            if before:
-                y_top = pos_y - gap_y
-                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_anim_tag(pos_x, y_top)}}}{before}")
-            events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_anim_tag(pos_x, pos_y)}}}{main_w}")
-            if after:
-                y_bot = pos_y + gap_y
-                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_anim_tag(pos_x, y_bot)}}}{after}")
+            # 2-line balanced split: line 1 (before main or first half), line 2 (main + rest or second half)
+            split_at = main_idx if main_idx > 0 else max(1, len(words) // 2)
+            line1_words = words[:split_at]
+            line2_words = words[split_at:]
+            seq1 = _format_words_seq(line1_words, cap_s, main_idx, 0)
+            seq2 = _format_words_seq(line2_words, cap_s, main_idx, split_at)
+            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5\\pos({pos_x},{pos_y})}}{seq1}\\N{seq2}")
 
     hook = (hook_title or "").strip()
     if hook:
-        hy = int(height * 0.16)
-        hsize = max(26, int(52 * scale_f))
-        events.append(
-            f"Dialogue: 2,0:00:00.00,0:00:03.50,Main,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c{accent_ass}\\bord{max(3, outline)}\\fad(120,200)}}{hook}"
-        )
+        hy = int(height * max(8, min(55, float(hook_y_pct or 16))) / 100.0)
+        h_st = (hook_style or "pill-white").strip()
+        if h_st == "pill-accent":
+            events.append(
+                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookBox,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\c&H0008140C&\\3c{accent_ass}\\4c{accent_ass}\\fad(120,200)}}{hook}"
+            )
+        elif h_st == "glass-dark":
+            events.append(
+                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookDark,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fad(120,200)}}{hook}"
+            )
+        elif h_st == "clean-shadow":
+            hsize = max(28, int(48 * scale_f))
+            events.append(
+                f"Dialogue: 2,0:00:00.00,0:00:03.50,Main,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c&H00000000&\\bord{max(2, outline)}\\shad3\\fad(120,200)}}{hook}"
+            )
+        else:  # pill-white
+            events.append(
+                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookBox,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fad(120,200)}}{hook}"
+            )
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
