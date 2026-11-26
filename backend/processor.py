@@ -236,6 +236,7 @@ def _transcribe_groq(audio_mp3_path, api_key, language="pt"):
         headers={
             "Authorization": f"Bearer {api_key.strip()}",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "EuEdito/1.0",
         },
         method="POST",
     )
