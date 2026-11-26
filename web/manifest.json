@@ -1,0 +1,18 @@
+{
+  "name": "Eu Edito",
+  "short_name": "Eu Edito",
+  "description": "Edite seus vídeos no celular: legendas animadas, decupagem automática e vídeo pronto em Full HD ou 4K.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060b08",
+  "theme_color": "#22c55e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
