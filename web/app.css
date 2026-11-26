@@ -1,8 +1,13 @@
+[hidden] { display: none !important; }
 @font-face { font-family: 'CreatoDisplay'; src: url('/fonts/CreatoDisplay-Regular.otf') format('opentype'); font-weight: 400; }
-@font-face { font-family: 'CreatoDisplay'; src: url('/fonts/CreatoDisplay-Bold.otf') format('opentype'); font-weight: 800; }
+@font-face { font-family: 'CreatoMedium'; src: url('/fonts/CreatoDisplay-Medium.otf') format('opentype'); font-weight: 500; }
+@font-face { font-family: 'CreatoDisplay'; src: url('/fonts/CreatoDisplay-Bold.otf') format('opentype'); font-weight: 700; }
+@font-face { font-family: 'CreatoExtraBold'; src: url('/fonts/CreatoDisplay-ExtraBold.otf') format('opentype'); font-weight: 800; }
 @font-face { font-family: 'CreatoLight'; src: url('/fonts/CreatoDisplay-Light.otf') format('opentype'); font-weight: 300; }
-@font-face { font-family: 'AppleGaramond'; src: url('/fonts/AppleGaramond-Italic.ttf') format('truetype'); font-style: italic; }
+@font-face { font-family: 'AppleGaramond'; src: url('/fonts/AppleGaramond-Italic.ttf') format('truetype'); font-style: italic; font-weight: 400; }
+@font-face { font-family: 'AppleGaramondBold'; src: url('/fonts/AppleGaramond-BoldItalic.ttf') format('truetype'); font-style: italic; font-weight: 700; }
 @font-face { font-family: 'DMSans'; src: url('/fonts/DMSans.ttf') format('truetype'); }
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist.ttf') format('truetype'); }
 @font-face { font-family: 'Lavish'; src: url('/fonts/lavish.otf') format('opentype'); }
 
 :root {
@@ -101,30 +106,30 @@ body {
 .live-overlay small { display: block; font-size: 13px; color: #fff; }
 .live-overlay strong, .live-overlay em { display: block; font-size: 21px; color: var(--accent, #22C55E); line-height: 1.1; }
 
-/* Authentic 11 caption model styles in preview */
+/* Authentic 11 caption model styles in preview (matched 1-to-1 with ASS output) */
 .live-overlay.style-classic small { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; }
-.live-overlay.style-classic strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 800; text-transform: uppercase; }
-.live-overlay.style-model-07 small { font-family: sans-serif; font-weight: 500; }
-.live-overlay.style-model-07 strong { font-family: Georgia, serif; font-style: italic; font-weight: 700; color: var(--accent, #ffd66c); }
-.live-overlay.style-clean-12 small { font-family: 'DMSans', sans-serif; font-weight: 500; }
-.live-overlay.style-clean-12 strong { font-family: 'DMSans', sans-serif; font-weight: 800; text-transform: uppercase; }
-.live-overlay.style-clean-13 small { font-family: Georgia, serif; }
-.live-overlay.style-clean-13 strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 600; }
+.live-overlay.style-classic strong { font-family: 'CreatoExtraBold', 'CreatoDisplay', sans-serif; font-weight: 800; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-model-07 small { font-family: 'Geist', sans-serif; font-weight: 400; }
+.live-overlay.style-model-07 strong { font-family: 'AppleGaramondBold', 'AppleGaramond', Georgia, serif; font-style: italic; font-weight: 700; text-transform: uppercase; color: var(--accent, #ffd66c); font-size: 24px; }
+.live-overlay.style-clean-12 small { font-family: 'DMSans', sans-serif; font-weight: 400; }
+.live-overlay.style-clean-12 strong { font-family: 'DMSans', sans-serif; font-weight: 800; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-13 small { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; }
+.live-overlay.style-clean-13 strong { font-family: 'CreatoMedium', 'CreatoDisplay', sans-serif; font-weight: 500; text-transform: uppercase; color: var(--accent, #ffffff); }
 .live-overlay.style-clean-14 small { font-family: 'CreatoDisplay', sans-serif; }
 .live-overlay.style-clean-14 em { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; font-size: 24px; color: var(--accent, #ffdfc4); }
 .live-overlay.style-clean-9 small { font-family: 'CreatoLight', sans-serif; }
-.live-overlay.style-clean-9 strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; }
+.live-overlay.style-clean-9 strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; color: var(--accent, #ffffff); }
 .live-overlay.style-clean-10 { display: block; }
 .live-overlay.style-clean-10 small, .live-overlay.style-clean-10 strong { display: inline; font-family: 'CreatoDisplay', sans-serif; font-size: 16px; margin: 0 3px; }
-.live-overlay.style-clean-10 strong { color: var(--accent, #a375fa); font-weight: 800; text-shadow: 0 0 10px rgba(163,117,250,.55); }
+.live-overlay.style-clean-10 strong { color: var(--accent, #a375fa); font-weight: 700; text-shadow: 0 0 10px rgba(163,117,250,.55); }
 .live-overlay.style-clean-11 small { font-family: 'CreatoLight', sans-serif; }
-.live-overlay.style-clean-11 strong { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; font-size: 24px; font-weight: 500; }
+.live-overlay.style-clean-11 strong { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; font-size: 24px; font-weight: 400; color: var(--accent, #ffffff); }
 .live-overlay.style-clean-15 small { font-family: 'CreatoDisplay', sans-serif; }
-.live-overlay.style-clean-15 strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 700; }
+.live-overlay.style-clean-15 strong { font-family: 'CreatoDisplay', sans-serif; font-weight: 700; color: var(--accent, #ffffff); }
 .live-overlay.style-clean-lavish small, .live-overlay.style-clean-lavish strong { font-family: 'Lavish', Georgia, serif; }
-.live-overlay.style-clean-lavish strong { font-size: 23px; letter-spacing: -0.02em; }
-.live-overlay.style-clean small { font-family: Georgia, serif; }
-.live-overlay.style-clean strong { font-family: 'CreatoDisplay', sans-serif; color: var(--accent, #3ea4f1); font-weight: 600; }
+.live-overlay.style-clean-lavish strong { font-size: 23px; letter-spacing: -0.02em; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-clean small { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; }
+.live-overlay.style-clean strong { font-family: 'CreatoMedium', 'CreatoDisplay', sans-serif; color: var(--accent, #ffffff); font-weight: 500; }
 
 .cat-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
 .cat-tab {
@@ -145,7 +150,7 @@ body {
 }
 .mini-sample b, .mini-sample i { color: var(--green-bright); font-style: normal; }
 .mini-sample.s-c14 i, .mini-sample.s-c11 i { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; font-size: 13px; }
-.mini-sample.s-m07 b { font-family: Georgia, serif; font-style: italic; color: #ffd66c; }
+.mini-sample.s-m07 b { font-family: 'AppleGaramondBold', Georgia, serif; font-style: italic; color: #ffd66c; }
 .mini-sample.s-lavish b { font-family: 'Lavish', Georgia, serif; }
 .style-pill strong { display: block; font-size: 11.5px; line-height: 1.2; }
 .style-pill.is-active { border-color: var(--green-bright); background: rgba(34, 197, 94, 0.14); }

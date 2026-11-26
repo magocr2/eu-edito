@@ -15,6 +15,34 @@ let lastVideoUrl = '';
 let currentJobId = '';
 let currentCaptions = [];
 let flowStage = 'transcribe'; // 'transcribe' -> 'render'
+let maxExportRes = '1080p';
+
+function setStickyVisible(vis) {
+  const cta = document.querySelector('.sticky-cta');
+  if (cta) cta.hidden = !vis;
+}
+
+function updateResTagDisplay() {
+  let label = selectedResolution === '4k' ? '4K UHD' : selectedResolution === '1080p' ? '1080p HD' : 'Original';
+  if (maxExportRes === '720p' && (selectedResolution === '1080p' || selectedResolution === '4k')) {
+    label = '720p HD';
+  }
+  $('resTag').textContent = label;
+}
+
+fetch('/api/hardware').then((r) => r.json()).then((hw) => {
+  if (hw && hw.max_export_res === '720p') {
+    maxExportRes = '720p';
+    const b1080 = $('resGrid')?.querySelector('[data-res="1080p"]');
+    if (b1080) {
+      b1080.querySelector('strong').textContent = '720p HD';
+      b1080.querySelector('small').textContent = 'Nuvem rápida';
+    }
+    const b4k = $('resGrid')?.querySelector('[data-res="4k"]');
+    if (b4k) b4k.hidden = true;
+    updateResTagDisplay();
+  }
+}).catch(() => {});
 
 const EXAMPLES = {
   'classic': '<small>só que eu</small><strong>FARIA DIFERENTE</strong><small>hoje</small>',
@@ -158,6 +186,10 @@ $('styleGrid').querySelectorAll('.style-pill').forEach((btn) => {
     btn.classList.add('is-active');
     selectedStyle = btn.dataset.style;
     syncOverlay(true);
+    if (flowStage === 'render' && !$('resultBox').hidden) {
+      $('generateBtn').textContent = '🎨 Gerar novamente com este modelo →';
+      setStickyVisible(true);
+    }
   });
 });
 
@@ -178,7 +210,7 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
     $('resGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
     btn.classList.add('is-active');
     selectedResolution = btn.dataset.res;
-    $('resTag').textContent = selectedResolution === '4k' ? '4K UHD' : selectedResolution === '1080p' ? '1080p HD' : 'Original';
+    updateResTagDisplay();
   });
 });
 
@@ -222,6 +254,7 @@ $('videoFile').addEventListener('change', (e) => {
   flowStage = 'transcribe';
   $('reviewCard').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
+  setStickyVisible(true);
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto para enviar';
   try {
@@ -362,6 +395,7 @@ $('newVideoBtn')?.addEventListener('click', () => {
   $('errorMsg').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
   $('generateBtn').disabled = true;
+  setStickyVisible(true);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -467,6 +501,7 @@ $('generateBtn').addEventListener('click', async () => {
         $('resultBox').hidden = false;
         $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
         $('generateBtn').disabled = false;
+        setStickyVisible(false);
         break;
       }
       if (st.status === 'error') throw new Error(st.message || 'Erro ao renderizar o vídeo.');

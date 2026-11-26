@@ -35,6 +35,7 @@ app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 600 * 1024 * 1024  # 600 MB
 
 HW_PROFILE = detect_hardware()
+HW_PROFILE["max_export_res"] = "720p" if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else "4k"
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
