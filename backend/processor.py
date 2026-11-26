@@ -498,12 +498,20 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
         v_chain = "[vcat]"
         a_map = "[acat]"
 
-    # Scale to exact target export resolution (1080p / 4K / Original) with Lanczos sharpness
-    scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags=lanczos,pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black,"
+    low_ram = hw.get("ram_gb", 8.0) <= 1.2
 
-    # Smooth ease-in-out zoom pulse on key impact moments
+    # Scale to exact target export resolution (capped to 1080p on 512MB containers to prevent OOM 502)
+    if low_ram and max(w_even, h_even) > 1920:
+        if h_even >= w_even:
+            w_even, h_even = 1080, 1920
+        else:
+            w_even, h_even = 1920, 1080
+    scale_flags = "bilinear" if low_ram else "lanczos"
+    scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black,"
+
+    # Smooth ease-in-out zoom pulse on key impact moments (skipped on <=1.2GB RAM to avoid OOM)
     zoom_filter = ""
-    if zoom_enabled and impact_times:
+    if zoom_enabled and impact_times and not low_ram:
         terms = []
         for idx, (imp_s, imp_e) in enumerate(impact_times[:8]):
             dur = max(0.9, min(2.4, (imp_e - imp_s) + 0.7))
@@ -530,11 +538,18 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
         if r.returncode == 0 and Path(out_path).exists():
             return
 
-    cpu_preset = "ultrafast" if hw.get("ram_gb", 8.0) <= 1.2 else ("fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast")
-    cpu_cmd = base_cmd + [
-        "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
-        "-threads", str(hw.get("cpu_threads", 0)), str(out_path)
-    ]
+    if low_ram:
+        cpu_cmd = base_cmd + [
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+            "-rc-lookahead", "10", "-refs", "1", "-bf", "0",
+            "-threads", "1", str(out_path)
+        ]
+    else:
+        cpu_preset = "fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast"
+        cpu_cmd = base_cmd + [
+            "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
+            "-threads", str(hw.get("cpu_threads", 0)), str(out_path)
+        ]
     r = subprocess.run(cpu_cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"Erro no FFmpeg: {(r.stderr or '')[-400:]}")
