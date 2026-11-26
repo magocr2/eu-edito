@@ -89,13 +89,14 @@ def detect_hardware():
     except Exception:
         pass
 
-    ffmpeg_exe, _ = find_ffmpeg()
     nvenc_ready = False
-    try:
-        r = subprocess.run([ffmpeg_exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=4)
-        nvenc_ready = "h264_nvenc" in (r.stdout or "")
-    except Exception:
-        pass
+    if cuda_ready:
+        ffmpeg_exe, _ = find_ffmpeg()
+        try:
+            r = subprocess.run([ffmpeg_exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=4)
+            nvenc_ready = "h264_nvenc" in (r.stdout or "")
+        except Exception:
+            pass
 
     if cuda_ready:
         model, device, compute, threads, beam = "large-v3-turbo", "cuda", cuda_compute, min(cores, 6), 5
@@ -171,8 +172,31 @@ def probe_video(video_path):
     return {"width": w, "height": h, "duration": dur}
 
 
+def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type, cpu_threads, beam, language):
+    """Run Whisper in an isolated subprocess so OS reclaims 100% of C++ RAM on exit."""
+    import sys
+    code = (
+        "import json, sys; from faster_whisper import WhisperModel; "
+        "a, m, d, ct, th, bm, lang = sys.argv[1:8]; "
+        "kw = {'device': d, 'compute_type': ct}; "
+        "\nif d == 'cpu': kw['cpu_threads'] = int(th)\n"
+        "wm = WhisperModel(m, **kw); "
+        "segs, info = wm.transcribe(a, language=lang, beam_size=int(bm), vad_filter=True, word_timestamps=True, "
+        "condition_on_previous_text=(int(bm)>1), initial_prompt='Transcrição em português brasileiro com acentuação e pontuação corretas.'); "
+        "words = [{'w': (w.word or '').strip(), 's': round(float(w.start),3), 'e': round(float(w.end),3)} for s in segs for w in (s.words or []) if (w.word or '').strip()]; "
+        "print(json.dumps({'words': words, 'duration': float(getattr(info, 'duration', 0.0) or 0.0)}, ensure_ascii=False))"
+    )
+    res = subprocess.run(
+        [sys.executable, "-c", code, str(audio_input), str(model_name), str(device), str(compute_type), str(cpu_threads), str(beam), str(language or "pt")],
+        capture_output=True, text=True, timeout=240
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"Whisper subprocess failed ({res.returncode}): {(res.stderr or '')[-300:]}")
+    data = json.loads((res.stdout or "{}").strip().splitlines()[-1])
+    return data.get("words", []), float(data.get("duration", 0.0))
+
+
 def transcribe_video(video_path, hw, language="pt"):
-    import gc
     ffmpeg, _ = find_ffmpeg()
     # Extract lightweight 16kHz mono WAV so Whisper doesn't decode full HD/4K video frames in RAM
     wav_path = Path(video_path).with_suffix(".16k.wav")
@@ -185,31 +209,36 @@ def transcribe_video(video_path, hw, language="pt"):
         pass
     audio_input = str(wav_path) if (wav_path.exists() and wav_path.stat().st_size > 1000) else str(video_path)
 
-    model, beam = _get_whisper_model(hw)
-    segments, info = model.transcribe(
-        audio_input,
-        language=language or "pt",
-        beam_size=beam,
-        vad_filter=True,
-        word_timestamps=True,
-        condition_on_previous_text=(beam > 1),
-        initial_prompt="Transcrição em português brasileiro com acentuação e pontuação corretas.",
-    )
-    words = []
-    for seg in segments:
-        for w in (seg.words or []):
-            txt = (w.word or "").strip()
-            if txt:
-                words.append({"w": txt, "s": round(float(w.start), 3), "e": round(float(w.end), 3)})
     try:
-        wav_path.unlink(missing_ok=True)
-    except Exception:
-        pass
-    if hw.get("ram_gb", 8.0) <= 1.2:
-        _WHISPER_CACHE.clear()
-        del model
-        gc.collect()
-    return words, float(getattr(info, "duration", 0.0) or 0.0)
+        if hw.get("ram_gb", 8.0) <= 1.2:
+            # Isolated subprocess guarantees 100% C++ memory release before FFmpeg runs
+            return _transcribe_worker_subprocess(
+                audio_input, hw["whisper_model"], hw["device"], hw["compute_type"],
+                hw["cpu_threads"], hw["beam_size"], language
+            )
+
+        model, beam = _get_whisper_model(hw)
+        segments, info = model.transcribe(
+            audio_input,
+            language=language or "pt",
+            beam_size=beam,
+            vad_filter=True,
+            word_timestamps=True,
+            condition_on_previous_text=(beam > 1),
+            initial_prompt="Transcrição em português brasileiro com acentuação e pontuação corretas.",
+        )
+        words = []
+        for seg in segments:
+            for w in (seg.words or []):
+                txt = (w.word or "").strip()
+                if txt:
+                    words.append({"w": txt, "s": round(float(w.start), 3), "e": round(float(w.end), 3)})
+        return words, float(getattr(info, "duration", 0.0) or 0.0)
+    finally:
+        try:
+            wav_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def compute_keep_ranges(words, duration, cuts_enabled=True, rhythm="natural"):
@@ -466,6 +495,8 @@ def resolve_export_size(src_w, src_h, resolution="1080p"):
         tw, th = (2160, 3840) if portrait else (3840, 2160)
     elif res == "1080p":
         tw, th = (1080, 1920) if portrait else (1920, 1080)
+    elif res == "720p":
+        tw, th = (720, 1280) if portrait else (1280, 720)
     else:
         tw, th = src_w, src_h
     return tw - (tw % 2), th - (th % 2)
@@ -500,12 +531,12 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
 
     low_ram = hw.get("ram_gb", 8.0) <= 1.2
 
-    # Scale to exact target export resolution (capped to 1080p on 512MB containers to prevent OOM 502)
-    if low_ram and max(w_even, h_even) > 1920:
+    # Cap export resolution to 720p on 512MB containers to prevent OOM 502 during x264+libass
+    if low_ram and max(w_even, h_even) > 1280:
         if h_even >= w_even:
-            w_even, h_even = 1080, 1920
+            w_even, h_even = 720, 1280
         else:
-            w_even, h_even = 1920, 1080
+            w_even, h_even = 1280, 720
     scale_flags = "bilinear" if low_ram else "lanczos"
     scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black,"
 

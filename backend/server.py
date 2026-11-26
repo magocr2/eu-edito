@@ -139,6 +139,8 @@ def _run_pipeline(job_id, opts):
         out_mp4 = jdir / "eu_edito_pronto.mp4"
 
         res_choice = opts.get("resolution", "1080p")
+        if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 and res_choice in ("1080p", "4k"):
+            res_choice = "720p"
         out_w, out_h = resolve_export_size(info["width"], info["height"], res_choice)
 
         generate_srt(captions, srt_path)
