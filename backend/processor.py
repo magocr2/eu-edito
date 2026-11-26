@@ -101,18 +101,15 @@ def detect_hardware():
     if cuda_ready:
         model, device, compute, threads, beam = "large-v3-turbo", "cuda", cuda_compute, min(cores, 6), 5
         label = "GPU NVIDIA (CUDA + NVENC)" if nvenc_ready else "GPU NVIDIA (CUDA)"
-    elif ram_gb <= 1.2:
+    elif ram_gb < 0.9:
         model, device, compute, threads, beam = "base", "cpu", "int8", max(1, min(cores, 2)), 4
         label = f"Modo Econômico ({model} · {ram_gb}GB RAM)"
-    elif ram_gb <= 8.5 or cores <= 4:
-        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 6)), 5
-        label = f"Modo Equilibrado ({model} · {threads} threads)"
-    elif ram_gb <= 14.0 or cores <= 8:
-        model, device, compute, threads, beam = "medium", "cpu", "int8", max(2, cores - 1), 2
-        label = f"Modo Equilibrado ({model} · {threads} threads)"
+    elif ram_gb < 3.5:
+        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 4)), 5
+        label = f"Modo Preciso ({model} · {ram_gb}GB RAM)"
     else:
-        model, device, compute, threads, beam = "large-v3-turbo", "cpu", "int8", min(cores, 8), 3
-        label = f"CPU Turbo ({model} · {threads} threads)"
+        model, device, compute, threads, beam = "large-v3-turbo", "cpu", "int8", max(2, min(cores, 8)), 5
+        label = f"Modo Máxima Precisão ({model} · {threads} threads)"
 
     os.environ["OMP_NUM_THREADS"] = str(threads)
     os.environ["MKL_NUM_THREADS"] = str(threads)
@@ -196,8 +193,8 @@ def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type,
         "kw = {'device': d, 'compute_type': ct}; "
         "\nif d == 'cpu': kw['cpu_threads'] = int(th)\n"
         "wm = WhisperModel(m, **kw); "
-        "segs, info = wm.transcribe(a, language=lang, beam_size=int(bm), temperature=0.0, no_speech_threshold=0.55, vad_filter=True, vad_parameters={'min_silence_duration_ms': 250}, word_timestamps=True, "
-        "condition_on_previous_text=True); "
+        "segs, info = wm.transcribe(a, language=lang, beam_size=int(bm), temperature=0.0, no_speech_threshold=0.6, vad_filter=False, word_timestamps=True, "
+        "condition_on_previous_text=False, repetition_penalty=1.15, no_repeat_ngram_size=3); "
         "words = [{'w': (w.word or '').strip(), 's': round(float(w.start),3), 'e': round(float(w.end),3)} for s in segs for w in (s.words or []) if (w.word or '').strip()]; "
         "print(json.dumps({'words': words, 'duration': float(getattr(info, 'duration', 0.0) or 0.0)}, ensure_ascii=False))"
     )
@@ -213,11 +210,11 @@ def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type,
 
 def transcribe_video(video_path, hw, language="pt"):
     ffmpeg, _ = find_ffmpeg()
-    # Extract lightweight 16kHz mono WAV with highpass filter for cleaner speech recognition
+    # Extract clean, volume-normalized 16kHz mono WAV so quiet phone speech is crystal clear
     wav_path = Path(video_path).with_suffix(".16k.wav")
     try:
         subprocess.run(
-            [ffmpeg, "-y", "-i", str(video_path), "-vn", "-af", "highpass=f=80", "-ac", "1", "-ar", "16000", "-f", "wav", str(wav_path)],
+            [ffmpeg, "-y", "-i", str(video_path), "-vn", "-af", "highpass=f=80,loudnorm=I=-16:TP=-1.5", "-ac", "1", "-ar", "16000", "-f", "wav", str(wav_path)],
             capture_output=True, timeout=120
         )
     except Exception:
@@ -238,11 +235,12 @@ def transcribe_video(video_path, hw, language="pt"):
             language=language or "pt",
             beam_size=beam,
             temperature=0.0,
-            no_speech_threshold=0.55,
-            vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 250},
+            no_speech_threshold=0.6,
+            vad_filter=False,
             word_timestamps=True,
-            condition_on_previous_text=True,
+            condition_on_previous_text=False,
+            repetition_penalty=1.15,
+            no_repeat_ngram_size=3,
         )
         words = []
         for seg in segments:
