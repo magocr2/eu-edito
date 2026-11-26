@@ -184,6 +184,16 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
 
 $('accentColor').addEventListener('input', () => syncOverlay(false));
 $('posY').addEventListener('input', () => syncOverlay(false));
+
+// Initialize accent color input state on load (customColorToggle starts checked)
+(function initColorToggle() {
+  const toggle = $('customColorToggle');
+  const colorInput = $('accentColor');
+  if (toggle && colorInput) {
+    colorInput.disabled = !toggle.checked;
+  }
+})();
+
 syncOverlay(false);
 
 $('safeZoneBtn')?.addEventListener('click', () => {
@@ -217,12 +227,21 @@ $('videoFile').addEventListener('change', (e) => {
   try {
     const vid = $('previewVideo');
     vid.src = URL.createObjectURL(f);
-    vid.muted = false;
+    vid.muted = true; // must be muted for autoplay first-frame trick on mobile
     vid.hidden = false;
     $('emptyStage').hidden = true;
-    // Force iOS Safari / Android Chrome to paint the first video frame immediately without needing Play
-    vid.addEventListener('loadeddata', () => {
-      try { if (vid.currentTime < 0.05) vid.currentTime = 0.05; } catch {}
+    // Force first video frame to render immediately (no black screen before play)
+    vid.addEventListener('loadedmetadata', () => {
+      try {
+        vid.currentTime = 0.001;
+        // On mobile, autoplay muted briefly then pause to paint first frame
+        vid.play().then(() => {
+          setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; }, 80);
+        }).catch(() => {
+          vid.muted = false;
+          try { if (vid.currentTime < 0.05) vid.currentTime = 0.05; } catch {}
+        });
+      } catch {}
     }, { once: true });
     vid.load();
   } catch {}

@@ -124,7 +124,9 @@ def _run_transcribe_pipeline(job_id, opts):
         _set_job(job_id, status="probing", progress=18, message="Analisando formato do vídeo…")
         info = probe_video(src_path)
 
-        _set_job(job_id, status="transcribing", progress=45, message=f"Transcrevendo fala ({HW_PROFILE['accel_label']})…")
+        groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+        accel_label = "Groq Whisper large-v3-turbo (nuvem ☁️)" if groq_key else HW_PROFILE["accel_label"]
+        _set_job(job_id, status="transcribing", progress=45, message=f"Transcrevendo fala ({accel_label})…")
         words, dur = transcribe_video(src_path, HW_PROFILE, language=opts.get("language", "pt"))
         duration = dur or info.get("duration") or 0.0
 

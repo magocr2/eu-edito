@@ -579,17 +579,22 @@ def generate_srt(captions, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
+
 def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=2, hook_title="", hook_style="pill-white", hook_y_pct=16):
-    """Render clean, non-overlapping, word-by-word animated ASS captions for all 11 models (1 or 2 lines)."""
+    """
+    One Dialogue event per word with absolute \\pos(x,y) or \\move(x,y,...).
+    No \\N newlines, no \\r style resets, no BackColour box — clean professional captions.
+    Main (highlight) word uses Main ASS style (larger font, accent colour, stronger outline).
+    """
     styles_cfg = {
         "classic": {
             "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_size": 76, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 4, "shadow": 5, "default_accent": "#FFFFFF", "anim": "rise",
+            "upper": True, "outline": 4, "shadow": 5, "default_accent": "#FFDE59", "anim": "rise",
         },
         "model-07": {
             "small_font": "Geist", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Liberation Serif", "main_size": 80, "main_bold": -1, "main_italic": -1,
+            "main_font": "Geist", "main_size": 80, "main_bold": -1, "main_italic": 0,
             "upper": True, "outline": 4, "shadow": 6, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
@@ -598,7 +603,7 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
             "upper": True, "outline": 4, "shadow": 5, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Liberation Serif", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display Medium", "main_size": 70, "main_bold": 0, "main_italic": 0,
             "upper": True, "outline": 3, "shadow": 5, "default_accent": "#FFFFFF", "anim": "slide",
         },
@@ -633,7 +638,7 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
             "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display Medium", "main_size": 70, "main_bold": 0, "main_italic": 0,
             "upper": False, "outline": 3, "shadow": 4, "default_accent": "#3EA4F1", "anim": "slide",
         },
@@ -649,6 +654,7 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
 
+    # BackColour = &H00000000 -> FULLY TRANSPARENT - absolutely no black box
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -658,8 +664,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H28000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
-Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H000A0E0C,&H28000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H00050804,&H00000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H00050804,&H00000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline + 1},{shadow + 1},5,40,40,40,1
 Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 
@@ -668,53 +674,58 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
     one_line = (int(caption_lines or 2) == 1) or (style_id == "clean-10")
-    shift_px = max(12, int(24 * scale_f))
+    anim = cfg["anim"]
 
-    def _word_reveal(rel_ms):
-        """Pure alpha/blur reveal keeps every word in its exact fixed X slot (zero horizontal jumping)."""
-        t_start = max(0, int(rel_ms))
-        an = cfg["anim"]
-        if an == "cut":
-            return f"\\alpha&HFF&\\t({t_start},{t_start + 20},\\alpha&H00&)"
-        if an == "blur":
-            return f"\\alpha&HFF&\\blur3\\t({t_start},{t_start + 180},\\alpha&H00&\\blur0)"
-        return f"\\alpha&HFF&\\t({t_start},{t_start + 130},\\alpha&H00&)"
+    def _cw(size):
+        """Approximate pixel width per character."""
+        return size * 0.52
 
-    def _line_motion(x, y):
-        an = cfg["anim"]
-        if an == "rise":
-            return f"\\move({x},{y + shift_px},{x},{y},0,220)"
-        if an == "slide":
-            return f"\\move({x + shift_px},{y},{x},{y},0,220)"
-        if an == "blur":
-            return f"\\move({x},{y - shift_px},{x},{y},0,220)"
-        if an == "pop":
-            return f"\\pos({x},{y})\\fscx78\\fscy78\\t(0,170,\\fscx104\\fscy104)\\t(170,260,\\fscx100\\fscy100)"
-        return f"\\pos({x},{y})"
+    def _space(size):
+        """Approximate space width."""
+        return size * 0.25
 
-    def _format_inline_words(w_list, cap_s, main_idx_ref, base_is_main=False):
-        parts = []
-        for i, w in enumerate(w_list):
-            is_main = (i == main_idx_ref)
-            rel_ms = max(0, int((float(w["s"]) - cap_s) * 1000))
-            txt = (w["w"].upper() if (is_main and cfg["upper"]) else w["w"])
-            rev = _word_reveal(rel_ms)
-            if is_main:
-                if base_is_main:
-                    parts.append(f"{{{rev}\\c{accent_ass}}}{txt}")
-                else:
-                    parts.append(
-                        f"{{{rev}\\fn{cfg['main_font']}\\b{abs(cfg['main_bold'])}\\i{abs(cfg['main_italic'])}\\c{accent_ass}}}{txt}"
-                        f"{{\\fn{cfg['small_font']}\\b{abs(cfg['small_bold'])}\\i{abs(cfg['small_italic'])}\\c&H00FFFFFF&}}"
-                    )
-            else:
-                if base_is_main:
-                    parts.append(
-                        f"{{{rev}\\fn{cfg['small_font']}\\fs{s_size}\\b{abs(cfg['small_bold'])}\\i{abs(cfg['small_italic'])}\\c&H00FFFFFF&}}{txt}"
-                    )
-                else:
-                    parts.append(f"{{{rev}\\c&H00FFFFFF&}}{txt}")
-        return " ".join(parts)
+    def _reveal(rel_ms):
+        t0 = max(0, int(rel_ms))
+        if anim == "cut":
+            return f"\\alpha&HFF&\\t({t0},{t0 + 20},\\alpha&H00&)"
+        if anim == "blur":
+            return f"\\alpha&HFF&\\blur4\\t({t0},{t0 + 180},\\alpha&H00&\\blur0)"
+        return f"\\alpha&HFF&\\t({t0},{t0 + 150},\\alpha&H00&)"
+
+    def _entry(wx, wy):
+        """Block entry animation tag giving position + optional movement."""
+        d = int(26 * scale_f)
+        t1 = 220
+        if anim == "rise":
+            return f"\\move({wx},{wy + d},{wx},{wy},0,{t1})"
+        if anim == "slide":
+            return f"\\move({wx + d},{wy},{wx},{wy},0,{t1})"
+        if anim == "blur":
+            return f"\\move({wx},{wy - d},{wx},{wy},0,{t1})"
+        if anim == "pop":
+            return f"\\pos({wx},{wy})\\fscx78\\fscy78\\t(0,180,\\fscx104\\fscy104)\\t(180,270,\\fscx100\\fscy100)"
+        return f"\\pos({wx},{wy})"
+
+    def _word_score(w):
+        clean = re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", w["w"])
+        sc = len(clean)
+        if clean.lower() in _IMPACT_WORDS:
+            sc += 12
+        return sc
+
+    def _layout(word_list, y_row, main_local):
+        """Return list of (wx, wy, is_main, word_dict). Centred layout."""
+        sizes = [m_size if i == main_local else s_size for i in range(len(word_list))]
+        widths = [len(w["w"]) * _cw(sizes[i]) for i, w in enumerate(word_list)]
+        gaps = [_space(max(sizes[i], sizes[i + 1])) for i in range(len(word_list) - 1)]
+        total_w = sum(widths) + sum(gaps)
+        x = pos_x - total_w / 2
+        result = []
+        for i, w in enumerate(word_list):
+            wx = int(x + widths[i] / 2)
+            result.append((wx, y_row, i == main_local, w))
+            x += widths[i] + (gaps[i] if i < len(gaps) else 0)
+        return result
 
     for c in captions:
         text = (c.get("text") or "").strip()
@@ -728,34 +739,54 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
             words = [{"w": tok, "s": cap_s + i * step, "e": cap_s + (i + 1) * step} for i, tok in enumerate(toks)]
 
-        t0 = _fmt_ass_time(cap_s)
-        t1 = _fmt_ass_time(cap_e + 0.08)
-        main_idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", words[i]["w"])))
+        t0s = _fmt_ass_time(cap_s)
+        t1s = _fmt_ass_time(cap_e + 0.10)
+        main_idx = max(range(len(words)), key=lambda i: _word_score(words[i]))
+
+        def _emit(layout_items):
+            for wx, wy, is_main, w in layout_items:
+                rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
+                rev = _reveal(rel_ms)
+                ent = _entry(wx, wy)
+                if is_main:
+                    txt = w["w"].upper() if cfg["upper"] else w["w"]
+                    fn, fs, fb, fi = cfg["main_font"], m_size, abs(cfg["main_bold"]), abs(cfg["main_italic"])
+                    tag = f"\\an5{ent}\\fn{fn}\\fs{fs}\\b{fb}\\i{fi}\\c{accent_ass}\\3c&H00050804&{rev}"
+                    events.append(f"Dialogue: 1,{t0s},{t1s},Main,,0,0,0,,{{{tag}}}{txt}")
+                else:
+                    txt = w["w"]
+                    fn, fs, fb, fi = cfg["small_font"], s_size, abs(cfg["small_bold"]), abs(cfg["small_italic"])
+                    tag = f"\\an5{ent}\\fn{fn}\\fs{fs}\\b{fb}\\i{fi}\\c&H00FFFFFF&\\3c&H00050804&{rev}"
+                    events.append(f"Dialogue: 0,{t0s},{t1s},Small,,0,0,0,,{{{tag}}}{txt}")
 
         if one_line or len(words) < 2:
-            seq = _format_inline_words(words, cap_s, main_idx, base_is_main=False)
-            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, pos_y)}}}{seq}")
+            _emit(_layout(words, pos_y, main_idx))
         else:
-            # 2-line stacked editorial layout with tight CapCut-like spacing
-            y_top = pos_y - int(m_size * 0.50)
-            y_bot = pos_y + int(m_size * 0.36)
+            # 2-row split: aim for balanced char count, main word always on bottom row
+            n = len(words)
+            total_chars = sum(len(w["w"]) for w in words)
+            half, cum, split = total_chars / 2, 0, 1
+            for i, w in enumerate(words):
+                cum += len(w["w"])
+                if cum >= half:
+                    split = i + 1
+                    break
+            if main_idx < split:
+                split = main_idx
+            split = max(1, min(n - 1, split))
 
-            before = words[:main_idx]
-            main_w = words[main_idx]
-            after = words[main_idx + 1:]
+            top_w = words[:split]
+            bot_w = words[split:]
+            main_local_bot = main_idx - split
 
-            if before:
-                seq_top = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in before)
-                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{seq_top}")
-                bot_words = [main_w] + after
-                seq_bot = _format_inline_words(bot_words, cap_s, 0, base_is_main=True)
-                events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_bot)}}}{seq_bot}")
-            else:
-                m_txt = main_w["w"].upper() if cfg["upper"] else main_w["w"]
-                events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{m_txt}")
-                seq_bot = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in after)
-                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, y_bot)}}}{seq_bot}")
+            line_gap = int(m_size * 0.92)
+            y_top = pos_y - line_gap // 2
+            y_bot = pos_y + line_gap // 2
 
+            _emit(_layout(top_w, y_top, -1))          # top row: no main word
+            _emit(_layout(bot_w, y_bot, main_local_bot))  # bottom row: contains main word
+
+    # Hook overlay
     hook = (hook_title or "").strip()
     if hook:
         hy = int(height * max(8, min(55, float(hook_y_pct or 16))) / 100.0)
