@@ -349,6 +349,32 @@ def build_captions(words, keep_ranges, max_chars=26):
     return captions
 
 
+def sync_edited_captions(edited_captions):
+    """Ensure edited caption texts have valid word-level timestamps for ASS rendering."""
+    synced = []
+    for cap in (edited_captions or []):
+        text = (cap.get("text") or "").strip()
+        if not text:
+            continue
+        s = float(cap.get("s", 0.0))
+        e = max(s + 0.15, float(cap.get("e", s + 0.5)))
+        orig_words = cap.get("words") or []
+        new_tokens = text.split()
+        if len(new_tokens) == len(orig_words) and orig_words:
+            words = [
+                {"w": tok, "s": float(orig_words[i]["s"]), "e": float(orig_words[i]["e"])}
+                for i, tok in enumerate(new_tokens)
+            ]
+        else:
+            step = (e - s) / max(1, len(new_tokens))
+            words = [
+                {"w": tok, "s": round(s + i * step, 3), "e": round(s + (i + 1) * step, 3)}
+                for i, tok in enumerate(new_tokens)
+            ]
+        synced.append({"s": round(s, 3), "e": round(e, 3), "text": text, "words": words})
+    return synced
+
+
 def pick_impact_moments(captions, min_gap_s=6.0, max_ratio=0.30):
     if not captions:
         return []

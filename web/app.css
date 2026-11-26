@@ -211,3 +211,10 @@ body {
 .transcript-box { margin-top: 12px; background: #08120d; border-radius: 12px; padding: 10px 12px; font-size: 12px; }
 .transcript-box summary { cursor: pointer; font-weight: 600; color: var(--green-bright); }
 .transcript-box p { color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+
+.review-hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; line-height: 1.4; }
+.caption-editor-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.cap-edit-row { display: flex; align-items: center; gap: 8px; background: #08120d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 8px 10px; }
+.cap-edit-time { font-size: 11px; font-weight: 700; color: var(--green-bright); flex-shrink: 0; min-width: 38px; }
+.cap-edit-input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font-size: 13.5px; outline: none; }
+.cap-edit-input:focus { color: #fff; }

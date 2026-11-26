@@ -9,6 +9,9 @@ let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
 let deferredPrompt = null;
 let lastVideoUrl = '';
+let currentJobId = '';
+let currentCaptions = [];
+let flowStage = 'transcribe'; // 'transcribe' -> 'render'
 
 const EXAMPLES = {
   'classic': '<small>só que eu</small><strong>FARIA DIFERENTE</strong><small>hoje</small>',
@@ -128,6 +131,11 @@ $('videoFile').addEventListener('change', (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
   selectedFile = f;
+  currentJobId = '';
+  currentCaptions = [];
+  flowStage = 'transcribe';
+  $('reviewCard').hidden = true;
+  $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto para enviar';
   try {
@@ -191,17 +199,44 @@ function uploadWithProgress(file) {
   });
 }
 
+function renderCaptionEditor(captions) {
+  currentCaptions = (captions || []).map((c) => ({ ...c }));
+  const list = $('captionEditorList');
+  list.replaceChildren();
+  currentCaptions.forEach((cap, idx) => {
+    const row = document.createElement('div');
+    row.className = 'cap-edit-row';
+    const tm = document.createElement('span');
+    tm.className = 'cap-edit-time';
+    tm.textContent = Number(cap.s || 0).toFixed(1) + 's';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'cap-edit-input';
+    inp.value = cap.text || '';
+    inp.addEventListener('input', () => {
+      currentCaptions[idx].text = inp.value;
+    });
+    row.append(tm, inp);
+    list.append(row);
+  });
+}
+
 $('newVideoBtn')?.addEventListener('click', () => {
   selectedFile = null;
   lastVideoUrl = '';
+  currentJobId = '';
+  currentCaptions = [];
+  flowStage = 'transcribe';
   $('videoFile').value = '';
   $('uploadTitle').textContent = 'Escolher vídeo do celular';
   $('uploadSub').textContent = 'Toque para abrir sua galeria (iPhone ou Android)';
   $('previewVideo').hidden = true;
   $('emptyStage').hidden = false;
   $('liveOverlay').hidden = false;
+  $('reviewCard').hidden = true;
   $('resultBox').hidden = true;
   $('errorMsg').hidden = true;
+  $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
   $('generateBtn').disabled = true;
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
@@ -212,35 +247,74 @@ $('generateBtn').addEventListener('click', async () => {
   $('errorMsg').hidden = true;
   $('resultBox').hidden = true;
   $('progressBox').hidden = false;
-  $('progressText').textContent = 'Enviando vídeo do celular…';
-  $('progressPct').textContent = '5%';
-  $('progressFill').style.width = '5%';
   $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
 
   try {
-    const up = await uploadWithProgress(selectedFile);
-    const procRes = await fetch('/api/process', {
+    if (flowStage === 'transcribe') {
+      $('progressText').textContent = 'Enviando vídeo do celular…';
+      $('progressPct').textContent = '5%';
+      $('progressFill').style.width = '5%';
+
+      const up = await uploadWithProgress(selectedFile);
+      currentJobId = up.job_id;
+      const trRes = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: currentJobId,
+          cuts: $('cutsToggle').checked,
+          rhythm: selectedRhythm,
+        }),
+      });
+      const tr = await safeJson(trRes);
+      if (tr.error) throw new Error(tr.error);
+
+      while (true) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
+        $('progressText').textContent = st.message || 'Transcrevendo…';
+        $('progressPct').textContent = (st.progress || 0) + '%';
+        $('progressFill').style.width = (st.progress || 0) + '%';
+
+        if (st.status === 'review') {
+          renderCaptionEditor(st.captions || []);
+          $('progressBox').hidden = true;
+          $('reviewCard').hidden = false;
+          $('reviewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          flowStage = 'render';
+          $('generateBtn').textContent = '2. Gerar Vídeo Pronto →';
+          $('generateBtn').disabled = false;
+          return;
+        }
+        if (st.status === 'error') throw new Error(st.message || 'Erro na transcrição.');
+      }
+    }
+
+    // Stage 2: Render video with edited captions
+    $('progressText').textContent = 'Aplicando legendas revisadas…';
+    $('progressPct').textContent = '60%';
+    $('progressFill').style.width = '60%';
+
+    const renRes = await fetch('/api/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        job_id: up.job_id,
+        job_id: currentJobId,
+        captions: currentCaptions,
         style: selectedStyle,
         accent_color: $('accentColor').value,
         pos_y: Number($('posY').value),
-        cuts: $('cutsToggle').checked,
-        rhythm: selectedRhythm,
         zoom: $('zoomToggle').checked,
         resolution: selectedResolution,
       }),
     });
-    const proc = await safeJson(procRes);
-    if (proc.error) throw new Error(proc.error);
+    const ren = await safeJson(renRes);
+    if (ren.error) throw new Error(ren.error);
 
     while (true) {
       await new Promise((r) => setTimeout(r, 1400));
-      const stRes = await fetch('/api/jobs/' + up.job_id);
-      const st = await safeJson(stRes);
-      $('progressText').textContent = st.message || 'Processando…';
+      const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
+      $('progressText').textContent = st.message || 'Renderizando…';
       $('progressPct').textContent = (st.progress || 0) + '%';
       $('progressFill').style.width = (st.progress || 0) + '%';
 
@@ -266,9 +340,7 @@ $('generateBtn').addEventListener('click', async () => {
         $('generateBtn').disabled = false;
         break;
       }
-      if (st.status === 'error') {
-        throw new Error(st.message || 'Erro ao processar o vídeo.');
-      }
+      if (st.status === 'error') throw new Error(st.message || 'Erro ao renderizar o vídeo.');
     }
   } catch (err) {
     $('errorMsg').textContent = err?.message || 'Falha no processamento.';

@@ -21,6 +21,7 @@ from processor import (
     probe_video,
     render_video,
     resolve_export_size,
+    sync_edited_captions,
     transcribe_video,
 )
 
@@ -114,24 +115,50 @@ def api_upload():
     return jsonify({"job_id": job_id, "filename": safe_name})
 
 
-def _run_pipeline(job_id, opts):
+def _run_transcribe_pipeline(job_id, opts):
     try:
         j = _get_job(job_id)
         src_path = Path(j["src_path"])
-        jdir = JOBS_DIR / job_id
 
-        _set_job(job_id, status="probing", progress=15, message="Analisando formato do vídeo…")
+        _set_job(job_id, status="probing", progress=18, message="Analisando formato do vídeo…")
         info = probe_video(src_path)
 
-        _set_job(job_id, status="transcribing", progress=30, message=f"Transcrevendo fala ({HW_PROFILE['accel_label']})…")
+        _set_job(job_id, status="transcribing", progress=45, message=f"Transcrevendo fala ({HW_PROFILE['accel_label']})…")
         words, dur = transcribe_video(src_path, HW_PROFILE, language=opts.get("language", "pt"))
         duration = dur or info.get("duration") or 0.0
 
-        _set_job(job_id, status="cutting", progress=60, message="Aplicando decupagem e análise de impacto…")
+        _set_job(job_id, status="cutting", progress=85, message="Preparando decupagem e legendas para revisão…")
         cuts_on = bool(opts.get("cuts", True))
         rhythm = opts.get("rhythm", "natural")
         keep_ranges = compute_keep_ranges(words, duration, cuts_enabled=cuts_on, rhythm=rhythm)
         captions = build_captions(words, keep_ranges, max_chars=int(opts.get("max_chars", 26)))
+
+        _set_job(
+            job_id,
+            status="review",
+            progress=100,
+            message="Transcrição pronta! Confira e corrija as legendas antes de gerar o vídeo.",
+            info=info,
+            duration=duration,
+            keep_ranges=keep_ranges,
+            captions=captions,
+            transcript=" ".join(w["w"] for w in words),
+        )
+    except Exception as exc:
+        _set_job(job_id, status="error", progress=0, message=str(exc))
+
+
+def _run_render_pipeline(job_id, opts):
+    try:
+        j = _get_job(job_id)
+        src_path = Path(j["src_path"])
+        jdir = JOBS_DIR / job_id
+        info = j.get("info") or probe_video(src_path)
+        duration = float(j.get("duration") or info.get("duration") or 0.0)
+        keep_ranges = j.get("keep_ranges") or [{"s": 0.0, "e": round(duration, 3)}]
+
+        raw_captions = opts.get("captions")
+        captions = sync_edited_captions(raw_captions) if raw_captions is not None else (j.get("captions") or [])
         impacts = pick_impact_moments(captions)
 
         ass_path = jdir / "captions.ass"
@@ -149,7 +176,7 @@ def _run_pipeline(job_id, opts):
             ass_path,
             width=out_w,
             height=out_h,
-            style_id=opts.get("style", "dynamic-bold"),
+            style_id=opts.get("style", "classic"),
             accent_hex=opts.get("accent_color", "#22C55E"),
             pos_y_pct=float(opts.get("pos_y", 74)),
         )
@@ -183,22 +210,34 @@ def _run_pipeline(job_id, opts):
                 "impacts": len(impacts),
                 "resolution": f"{out_w}x{out_h}",
             },
-            transcript=" ".join(w["w"] for w in words),
+            transcript=" ".join(c["text"] for c in captions),
         )
     except Exception as exc:
         _set_job(job_id, status="error", progress=0, message=str(exc))
 
 
-@app.route("/api/process", methods=["POST"])
-def api_process():
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
     j = _get_job(job_id) if job_id else None
     if not j:
         return jsonify({"error": "Job não encontrado."}), 404
-    _set_job(job_id, status="queued", progress=12, message="Na fila para processamento…")
-    t = threading.Thread(target=_run_pipeline, args=(job_id, data), daemon=True)
-    t.start()
+    _set_job(job_id, status="queued", progress=15, message="Iniciando transcrição…")
+    threading.Thread(target=_run_transcribe_pipeline, args=(job_id, data), daemon=True).start()
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/render", methods=["POST"])
+@app.route("/api/process", methods=["POST"])
+def api_render():
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    j = _get_job(job_id) if job_id else None
+    if not j:
+        return jsonify({"error": "Job não encontrado."}), 404
+    _set_job(job_id, status="rendering", progress=60, message="Preparando renderização do vídeo…")
+    threading.Thread(target=_run_render_pipeline, args=(job_id, data), daemon=True).start()
     return jsonify({"ok": True, "job_id": job_id})
 
 
