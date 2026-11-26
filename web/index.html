@@ -51,6 +51,13 @@
           <div id="emptyStage" class="empty-stage">
             <span>Prévia do modelo sobre o vídeo</span>
           </div>
+          <div id="safeZones" class="safe-zones" hidden>
+            <div class="sz-top">Área topo</div>
+            <div class="sz-right"><span>❤️</span><span>💬</span><span>↗️</span></div>
+            <div class="sz-bottom">Legenda / Botões Reels &amp; TikTok</div>
+          </div>
+          <div id="hookOverlay" class="hook-overlay" hidden></div>
+          <button type="button" id="safeZoneBtn" class="sz-btn">📱 Área segura</button>
           <span id="resTag" class="res-tag">1080p HD</span>
           <div id="liveOverlay" class="live-overlay style-classic">
             <small>SÓ QUE EU</small>
@@ -166,6 +173,22 @@
             <input type="checkbox" id="zoomToggle" checked>
             <span class="slider"></span>
           </span>
+        </label>
+
+        <label class="toggle-row">
+          <div>
+            <strong>🎙️ Voz de Estúdio (limpar áudio)</strong>
+            <small>Reduz ruído e equilibra volume da fala</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="studioAudioToggle" checked>
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="field hook-field">
+          <span>🎯 Título de Gancho no topo (3,5s iniciais · opcional)</span>
+          <input type="text" id="hookTitleInput" maxlength="55" placeholder="Ex.: O segredo que ninguém te conta…">
         </label>
 
         <div class="res-section">

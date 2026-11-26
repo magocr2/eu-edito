@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
 from processor import (
+    apply_manual_caption_cuts,
     build_captions,
     compute_keep_ranges,
     detect_hardware,
@@ -158,7 +159,11 @@ def _run_render_pipeline(job_id, opts):
         keep_ranges = j.get("keep_ranges") or [{"s": 0.0, "e": round(duration, 3)}]
 
         raw_captions = opts.get("captions")
-        captions = sync_edited_captions(raw_captions) if raw_captions is not None else (j.get("captions") or [])
+        if raw_captions is not None:
+            keep_ranges, raw_captions = apply_manual_caption_cuts(keep_ranges, raw_captions)
+            captions = sync_edited_captions(raw_captions)
+        else:
+            captions = j.get("captions") or []
         impacts = pick_impact_moments(captions)
 
         ass_path = jdir / "captions.ass"
@@ -179,6 +184,7 @@ def _run_render_pipeline(job_id, opts):
             style_id=opts.get("style", "classic"),
             accent_hex=opts.get("accent_color", "#22C55E"),
             pos_y_pct=float(opts.get("pos_y", 74)),
+            hook_title=opts.get("hook_title", ""),
         )
 
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
@@ -192,6 +198,7 @@ def _run_render_pipeline(job_id, opts):
             zoom_enabled=bool(opts.get("zoom", True)),
             width=out_w,
             height=out_h,
+            studio_audio=bool(opts.get("studio_audio", False)),
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)

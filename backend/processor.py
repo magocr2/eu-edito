@@ -320,7 +320,7 @@ def build_captions(words, keep_ranges, max_chars=26):
         me = map_time_to_edited(w["e"], keep_ranges)
         if me <= ms:
             me = ms + 0.12
-        mapped_words.append({"w": w["w"], "s": round(ms, 3), "e": round(me, 3), "orig_s": round(w["s"], 3)})
+        mapped_words.append({"w": w["w"], "s": round(ms, 3), "e": round(me, 3), "orig_s": round(w["s"], 3), "orig_e": round(w["e"], 3)})
 
     captions = []
     cur = []
@@ -333,6 +333,7 @@ def build_captions(words, keep_ranges, max_chars=26):
                 "s": cur[0]["s"],
                 "e": cur[-1]["e"],
                 "orig_s": cur[0]["orig_s"],
+                "orig_e": cur[-1]["orig_e"],
                 "text": " ".join(x["w"] for x in cur),
                 "words": cur,
             })
@@ -345,10 +346,61 @@ def build_captions(words, keep_ranges, max_chars=26):
             "s": cur[0]["s"],
             "e": cur[-1]["e"],
             "orig_s": cur[0]["orig_s"],
+            "orig_e": cur[-1]["orig_e"],
             "text": " ".join(x["w"] for x in cur),
             "words": cur,
         })
     return captions
+
+
+def apply_manual_caption_cuts(keep_ranges, edited_captions):
+    """Subtract manually cut caption intervals from keep_ranges and remap kept captions."""
+    cut_spans = []
+    kept_caps = []
+    for c in (edited_captions or []):
+        if c.get("cut"):
+            os_t = float(c.get("orig_s", c.get("s", 0.0)))
+            oe_t = float(c.get("orig_e", c.get("e", os_t + 0.3)))
+            cut_spans.append((max(0.0, os_t - 0.04), oe_t + 0.04))
+        else:
+            kept_caps.append(c)
+
+    if not cut_spans:
+        return keep_ranges, kept_caps
+
+    new_keep = []
+    for seg in keep_ranges:
+        pieces = [(float(seg["s"]), float(seg["e"]))]
+        for cs, ce in cut_spans:
+            next_pieces = []
+            for ps, pe in pieces:
+                if ce <= ps or cs >= pe:
+                    next_pieces.append((ps, pe))
+                else:
+                    if cs - ps >= 0.15:
+                        next_pieces.append((ps, cs))
+                    if pe - ce >= 0.15:
+                        next_pieces.append((ce, pe))
+            pieces = next_pieces
+        for ps, pe in pieces:
+            new_keep.append({"s": round(ps, 3), "e": round(pe, 3)})
+
+    if not new_keep:
+        new_keep = keep_ranges
+
+    # Remap kept captions onto updated timeline using their original timestamps
+    remapped = []
+    for c in kept_caps:
+        os_t = float(c.get("orig_s", c.get("s", 0.0)))
+        oe_t = float(c.get("orig_e", c.get("e", os_t + 0.4)))
+        ns = map_time_to_edited(os_t, new_keep)
+        ne = max(ns + 0.15, map_time_to_edited(oe_t, new_keep))
+        c_copy = dict(c)
+        c_copy["s"] = round(ns, 3)
+        c_copy["e"] = round(ne, 3)
+        c_copy["words"] = []
+        remapped.append(c_copy)
+    return new_keep, remapped
 
 
 def sync_edited_captions(edited_captions):
@@ -446,7 +498,7 @@ def generate_srt(captions, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="#22C55E", pos_y_pct=74):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="#22C55E", pos_y_pct=74, hook_title=""):
     styles_cfg = {
         "classic":      {"font": "Creato Display", "size": 74, "upper": True,  "italic": False, "outline": 5, "shadow": 3, "default_accent": "#FFFFFF"},
         "model-07":     {"font": "Georgia",        "size": 74, "upper": True,  "italic": True,  "outline": 4, "shadow": 4, "default_accent": "#FFD66C"},
@@ -510,6 +562,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         line_text = f"{{\\an5\\pos({pos_x},{pos_y})\\fad(70,50)}}" + " ".join(parts)
         events.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,{line_text}")
 
+    hook = (hook_title or "").strip()
+    if hook:
+        hy = int(height * 0.16)
+        hsize = max(26, int(52 * scale_f))
+        events.append(
+            f"Dialogue: 1,0:00:00.00,0:00:03.50,Default,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c{accent_ass}\\bord{max(3, outline)}\\fad(120,200)}}{hook}"
+        )
+
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
@@ -530,7 +590,7 @@ def resolve_export_size(src_w, src_h, resolution="1080p"):
     return tw - (tw % 2), th - (th % 2)
 
 
-def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zoom_enabled=True, width=1080, height=1920):
+def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zoom_enabled=True, width=1080, height=1920, studio_audio=False):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
     fonts_escaped = str(FONTS_DIR).replace("\\", "/").replace(":", "\\:")
@@ -580,12 +640,16 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
             zoom_filter = f"scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':eval=frame,crop=w={w_even}:h={h_even},"
 
     sub_filter = f"{scale_base}{zoom_filter}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'"
+    af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if studio_audio else ""
     if fc_parts:
         fc_parts.append(f"{v_chain}{sub_filter}[vout]")
+        if af_chain:
+            fc_parts.append(f"{a_map}{af_chain}[aout]")
+            a_map = "[aout]"
         fc = ";".join(fc_parts)
         map_args = ["-filter_complex", fc, "-map", "[vout]", "-map", a_map]
     else:
-        map_args = ["-vf", sub_filter, "-map", "0:v:0", "-map", "0:a?"]
+        map_args = ["-vf", sub_filter] + (["-af", af_chain] if af_chain else []) + ["-map", "0:v:0", "-map", "0:a?"]
 
     base_cmd = [ffmpeg, "-y", "-i", str(src_path)] + map_args + [
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"

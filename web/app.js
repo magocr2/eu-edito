@@ -127,6 +127,20 @@ $('accentColor').addEventListener('input', () => syncOverlay(false));
 $('posY').addEventListener('input', () => syncOverlay(false));
 syncOverlay(false);
 
+$('safeZoneBtn')?.addEventListener('click', () => {
+  const sz = $('safeZones');
+  const on = sz.hidden;
+  sz.hidden = !on;
+  $('safeZoneBtn').classList.toggle('is-on', on);
+});
+
+$('hookTitleInput')?.addEventListener('input', () => {
+  const val = $('hookTitleInput').value.trim();
+  const ho = $('hookOverlay');
+  ho.textContent = val;
+  ho.hidden = !val;
+});
+
 $('videoFile').addEventListener('change', (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
@@ -229,7 +243,17 @@ function renderCaptionEditor(captions) {
     inp.addEventListener('input', () => {
       currentCaptions[idx].text = inp.value;
     });
-    row.append(playBtn, tm, inp);
+    const cutBtn = document.createElement('button');
+    cutBtn.type = 'button';
+    cutBtn.className = 'cap-edit-cut';
+    cutBtn.textContent = cap.cut ? 'Voltar' : '✂️';
+    cutBtn.title = 'Remover esta fala do vídeo';
+    cutBtn.addEventListener('click', () => {
+      currentCaptions[idx].cut = !currentCaptions[idx].cut;
+      row.classList.toggle('is-cut', !!currentCaptions[idx].cut);
+      cutBtn.textContent = currentCaptions[idx].cut ? 'Voltar' : '✂️';
+    });
+    row.append(playBtn, tm, inp, cutBtn);
     list.append(row);
   });
 }
@@ -318,6 +342,8 @@ $('generateBtn').addEventListener('click', async () => {
         accent_color: $('accentColor').value,
         pos_y: Number($('posY').value),
         zoom: $('zoomToggle').checked,
+        studio_audio: $('studioAudioToggle').checked,
+        hook_title: ($('hookTitleInput')?.value || '').trim(),
         resolution: selectedResolution,
       }),
     });
