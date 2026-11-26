@@ -521,72 +521,72 @@ def generate_srt(captions, out_path):
 
 
 def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=2, hook_title="", hook_style="pill-white", hook_y_pct=16):
-    """Render faithful word-by-word animated ASS captions matching all 11 models + 1/2 line layout + hook styles."""
+    """Render clean, non-overlapping, word-by-word animated ASS captions for all 11 models (1 or 2 lines)."""
     styles_cfg = {
         "classic": {
-            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 78, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise",
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 68, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "model-07": {
-            "small_font": "Geist", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Liberation Serif", "main_size": 84, "main_bold": -1, "main_italic": -1,
+            "small_font": "Geist", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Liberation Serif", "main_size": 72, "main_bold": -1, "main_italic": -1,
             "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
-            "small_font": "DM Sans", "small_size": 46, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans", "main_size": 78, "main_bold": -1, "main_italic": 0,
+            "small_font": "DM Sans", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans", "main_size": 68, "main_bold": -1, "main_italic": 0,
             "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Liberation Serif", "small_size": 46, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 72, "main_bold": 0, "main_italic": 0,
+            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 64, "main_bold": 0, "main_italic": 0,
             "upper": True, "outline": 2, "shadow": 3, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean-14": {
-            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 88, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 76, "main_bold": 0, "main_italic": -1,
             "upper": False, "outline": 2, "shadow": 3, "default_accent": "#FFDFC4", "anim": "pop",
         },
         "clean-9": {
-            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 66, "main_bold": 0, "main_italic": 0,
+            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 60, "main_bold": 0, "main_italic": 0,
             "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "blur",
         },
         "clean-10": {
             "small_font": "Creato Display", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 60, "main_bold": -1, "main_italic": 0,
+            "main_font": "Creato Display", "main_size": 52, "main_bold": -1, "main_italic": 0,
             "upper": False, "outline": 2, "shadow": 3, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
-            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 88, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 74, "main_bold": 0, "main_italic": -1,
             "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "cut",
         },
         "clean-15": {
-            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 70, "main_bold": -1, "main_italic": 0,
+            "small_font": "Creato Display", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 62, "main_bold": -1, "main_italic": 0,
             "upper": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "clean-lavish": {
-            "small_font": "Lavish", "small_size": 48, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_size": 84, "main_bold": 0, "main_italic": 0,
+            "small_font": "Lavish", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_size": 72, "main_bold": 0, "main_italic": 0,
             "upper": True, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 72, "main_bold": 0, "main_italic": 0,
+            "small_font": "Liberation Serif", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 64, "main_bold": 0, "main_italic": 0,
             "upper": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1", "anim": "slide",
         },
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
     scale_f = min(width, height) / 1080.0
     s_size = max(22, int(cfg["small_size"] * scale_f))
-    m_size = max(30, int(cfg["main_size"] * scale_f))
+    m_size = max(28, int(cfg["main_size"] * scale_f))
     outline = max(1, int(cfg["outline"] * scale_f))
     shadow = max(1, int(cfg["shadow"] * scale_f))
     pos_x = int(width * 0.5)
-    pos_y = int(height * max(14, min(86, float(pos_y_pct))) / 100.0)
+    pos_y = int(height * max(16, min(84, float(pos_y_pct))) / 100.0)
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
 
@@ -608,35 +608,45 @@ Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFF
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
-    one_line = (int(caption_lines or 2) == 1)
+    one_line = (int(caption_lines or 2) == 1) or (style_id == "clean-10")
+    shift_px = max(12, int(24 * scale_f))
 
-    def _word_anim(rel_ms, is_main):
-        an = cfg["anim"]
+    def _word_reveal(rel_ms):
+        """Pure alpha/blur reveal keeps every word in its exact fixed X slot (zero horizontal jumping)."""
         t_start = max(0, int(rel_ms))
+        an = cfg["anim"]
         if an == "cut":
-            return f"\\alpha&HFF&\\t({t_start},{t_start + 25},\\alpha&H00&)"
-        if an == "pop":
-            end_pop = t_start + 150
-            return f"\\alpha&HFF&\\fscx25\\fscy25\\t({t_start},{end_pop},\\alpha&H00&\\fscx108\\fscy108)\\t({end_pop},{end_pop + 90},\\fscx100\\fscy100)"
+            return f"\\alpha&HFF&\\t({t_start},{t_start + 20},\\alpha&H00&)"
         if an == "blur":
-            return f"\\alpha&HFF&\\blur4\\t({t_start},{t_start + 200},\\alpha&H00&\\blur0)"
-        if an == "slide":
-            return f"\\alpha&HFF&\\fscx112\\t({t_start},{t_start + 170},\\alpha&H00&\\fscx100)"
-        # 'rise' / default
-        return f"\\alpha&HFF&\\fscy72\\t({t_start},{t_start + 160},\\alpha&H00&\\fscy100)"
+            return f"\\alpha&HFF&\\blur3\\t({t_start},{t_start + 180},\\alpha&H00&\\blur0)"
+        return f"\\alpha&HFF&\\t({t_start},{t_start + 130},\\alpha&H00&)"
 
-    def _format_words_seq(w_list, cap_s, main_idx_ref, offset_idx=0):
+    def _line_motion(x, y):
+        an = cfg["anim"]
+        if an == "rise":
+            return f"\\move({x},{y + shift_px},{x},{y},0,220)"
+        if an == "slide":
+            return f"\\move({x + shift_px},{y},{x},{y},0,220)"
+        if an == "blur":
+            return f"\\move({x},{y - shift_px},{x},{y},0,220)"
+        if an == "pop":
+            return f"\\pos({x},{y})\\fscx78\\fscy78\\t(0,170,\\fscx104\\fscy104)\\t(170,260,\\fscx100\\fscy100)"
+        return f"\\pos({x},{y})"
+
+    def _format_inline_words(w_list, cap_s, main_idx_ref, same_size=True):
         parts = []
         for i, w in enumerate(w_list):
-            g_idx = offset_idx + i
-            is_main = (g_idx == main_idx_ref)
+            is_main = (i == main_idx_ref)
             rel_ms = max(0, int((float(w["s"]) - cap_s) * 1000))
             txt = (w["w"].upper() if (is_main and cfg["upper"]) else w["w"])
-            anim = _word_anim(rel_ms, is_main)
+            rev = _word_reveal(rel_ms)
             if is_main:
-                parts.append(f"{{\\rMain\\c{accent_ass}{anim}}}{txt}{{\\rSmall}}")
+                if same_size:
+                    parts.append(f"{{\\fn{cfg['main_font']}\\b{abs(cfg['main_bold'])}\\i{abs(cfg['main_italic'])}\\c{accent_ass}{rev}}}{txt}{{\\rSmall}}")
+                else:
+                    parts.append(f"{{\\c{accent_ass}{rev}}}{txt}{{\\rMain}}")
             else:
-                parts.append(f"{{\\rSmall{anim}}}{txt}")
+                parts.append(f"{{{rev}}}{txt}")
         return " ".join(parts)
 
     for c in captions:
@@ -655,17 +665,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         t1 = _fmt_ass_time(cap_e + 0.08)
         main_idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", words[i]["w"])))
 
-        if one_line or style_id == "clean-10" or len(words) < 2:
-            seq = _format_words_seq(words, cap_s, main_idx, 0)
-            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5\\pos({pos_x},{pos_y})}}{seq}")
+        if one_line or len(words) < 2:
+            seq = _format_inline_words(words, cap_s, main_idx, same_size=True)
+            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, pos_y)}}}{seq}")
         else:
-            # 2-line balanced split: line 1 (before main or first half), line 2 (main + rest or second half)
-            split_at = main_idx if main_idx > 0 else max(1, len(words) // 2)
-            line1_words = words[:split_at]
-            line2_words = words[split_at:]
-            seq1 = _format_words_seq(line1_words, cap_s, main_idx, 0)
-            seq2 = _format_words_seq(line2_words, cap_s, main_idx, split_at)
-            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5\\pos({pos_x},{pos_y})}}{seq1}\\N{seq2}")
+            # 2-line stacked editorial layout with generous non-overlapping spacing
+            y_top = pos_y - int(m_size * 0.68)
+            y_bot = pos_y + int(m_size * 0.42)
+
+            before = words[:main_idx]
+            main_w = words[main_idx]
+            after = words[main_idx + 1:]
+
+            if before:
+                # Top line = supporting words, Bottom line = emphasized Main word (+ trailing words if any)
+                seq_top = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in before)
+                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{seq_top}")
+                bot_words = [main_w] + after
+                seq_bot = _format_inline_words(bot_words, cap_s, 0, same_size=False)
+                events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_bot)}}}{seq_bot}")
+            else:
+                # Main word is first: put Main on top, rest on bottom
+                m_txt = main_w["w"].upper() if cfg["upper"] else main_w["w"]
+                events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{m_txt}")
+                seq_bot = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in after)
+                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, y_bot)}}}{seq_bot}")
 
     hook = (hook_title or "").strip()
     if hook:
@@ -684,7 +708,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.append(
                 f"Dialogue: 2,0:00:00.00,0:00:03.50,Main,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c&H00000000&\\bord{max(2, outline)}\\shad3\\fad(120,200)}}{hook}"
             )
-        else:  # pill-white
+        else:
             events.append(
                 f"Dialogue: 2,0:00:00.00,0:00:03.50,HookBox,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fad(120,200)}}{hook}"
             )

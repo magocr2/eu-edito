@@ -215,10 +215,16 @@ $('videoFile').addEventListener('change', (e) => {
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto para enviar';
   try {
-    $('previewVideo').src = URL.createObjectURL(f);
-    $('previewVideo').muted = false;
-    $('previewVideo').hidden = false;
+    const vid = $('previewVideo');
+    vid.src = URL.createObjectURL(f);
+    vid.muted = false;
+    vid.hidden = false;
     $('emptyStage').hidden = true;
+    // Force iOS Safari / Android Chrome to paint the first video frame immediately without needing Play
+    vid.addEventListener('loadeddata', () => {
+      try { if (vid.currentTime < 0.05) vid.currentTime = 0.05; } catch {}
+    }, { once: true });
+    vid.load();
   } catch {}
   $('liveOverlay').hidden = false;
   $('resultBox').hidden = true;

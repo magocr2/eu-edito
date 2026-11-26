@@ -47,7 +47,7 @@
         </label>
 
         <div id="previewWrap" class="phone-frame">
-          <video id="previewVideo" playsinline controls hidden></video>
+          <video id="previewVideo" playsinline webkit-playsinline preload="auto" controls hidden></video>
           <div id="emptyStage" class="empty-stage">
             <span>Prévia do modelo sobre o vídeo</span>
           </div>
@@ -126,8 +126,8 @@
 
         <div class="row-2">
           <label class="field">
-            <span class="color-head"><span>Cor personalizada</span><input type="checkbox" id="customColorToggle"></span>
-            <input type="color" id="accentColor" value="#22C55E" disabled>
+            <span class="color-head"><span>Cor personalizada</span><input type="checkbox" id="customColorToggle" checked></span>
+            <input type="color" id="accentColor" value="#22C55E">
           </label>
           <label class="field">
             <span>Altura (<b id="posYVal">74%</b>)</span>
