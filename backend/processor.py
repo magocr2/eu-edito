@@ -633,7 +633,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return f"\\pos({x},{y})\\fscx78\\fscy78\\t(0,170,\\fscx104\\fscy104)\\t(170,260,\\fscx100\\fscy100)"
         return f"\\pos({x},{y})"
 
-    def _format_inline_words(w_list, cap_s, main_idx_ref, same_size=True):
+    def _format_inline_words(w_list, cap_s, main_idx_ref, base_is_main=False):
         parts = []
         for i, w in enumerate(w_list):
             is_main = (i == main_idx_ref)
@@ -641,12 +641,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             txt = (w["w"].upper() if (is_main and cfg["upper"]) else w["w"])
             rev = _word_reveal(rel_ms)
             if is_main:
-                if same_size:
-                    parts.append(f"{{\\fn{cfg['main_font']}\\b{abs(cfg['main_bold'])}\\i{abs(cfg['main_italic'])}\\c{accent_ass}{rev}}}{txt}{{\\rSmall}}")
+                if base_is_main:
+                    parts.append(f"{{{rev}\\c{accent_ass}}}{txt}")
                 else:
-                    parts.append(f"{{\\c{accent_ass}{rev}}}{txt}{{\\rMain}}")
+                    parts.append(
+                        f"{{{rev}\\fn{cfg['main_font']}\\b{abs(cfg['main_bold'])}\\i{abs(cfg['main_italic'])}\\c{accent_ass}}}{txt}"
+                        f"{{\\fn{cfg['small_font']}\\b{abs(cfg['small_bold'])}\\i{abs(cfg['small_italic'])}\\c&H00FFFFFF&}}"
+                    )
             else:
-                parts.append(f"{{{rev}}}{txt}")
+                if base_is_main:
+                    parts.append(
+                        f"{{{rev}\\fn{cfg['small_font']}\\fs{s_size}\\b{abs(cfg['small_bold'])}\\i{abs(cfg['small_italic'])}\\c&H00FFFFFF&}}{txt}"
+                    )
+                else:
+                    parts.append(f"{{{rev}\\c&H00FFFFFF&}}{txt}")
         return " ".join(parts)
 
     for c in captions:
@@ -666,26 +674,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         main_idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", words[i]["w"])))
 
         if one_line or len(words) < 2:
-            seq = _format_inline_words(words, cap_s, main_idx, same_size=True)
+            seq = _format_inline_words(words, cap_s, main_idx, base_is_main=False)
             events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, pos_y)}}}{seq}")
         else:
             # 2-line stacked editorial layout with generous non-overlapping spacing
-            y_top = pos_y - int(m_size * 0.68)
-            y_bot = pos_y + int(m_size * 0.42)
+            y_top = pos_y - int(m_size * 0.65)
+            y_bot = pos_y + int(m_size * 0.45)
 
             before = words[:main_idx]
             main_w = words[main_idx]
             after = words[main_idx + 1:]
 
             if before:
-                # Top line = supporting words, Bottom line = emphasized Main word (+ trailing words if any)
                 seq_top = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in before)
                 events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{seq_top}")
                 bot_words = [main_w] + after
-                seq_bot = _format_inline_words(bot_words, cap_s, 0, same_size=False)
+                seq_bot = _format_inline_words(bot_words, cap_s, 0, base_is_main=True)
                 events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_bot)}}}{seq_bot}")
             else:
-                # Main word is first: put Main on top, rest on bottom
                 m_txt = main_w["w"].upper() if cfg["upper"] else main_w["w"]
                 events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_line_motion(pos_x, y_top)}}}{m_txt}")
                 seq_bot = " ".join(f"{{{_word_reveal((float(w['s']) - cap_s) * 1000)}}}{w['w']}" for w in after)
