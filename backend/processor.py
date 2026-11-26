@@ -63,6 +63,17 @@ def detect_hardware():
                         break
         except Exception:
             pass
+        # Check Linux container cgroup memory limit (e.g., 512 MB on Render Free)
+        for cg_path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+            try:
+                val = Path(cg_path).read_text(encoding="utf-8").strip()
+                if val.isdigit():
+                    cg_gb = round(int(val) / (1024 ** 3), 2)
+                    if 0.1 < cg_gb < ram_gb:
+                        ram_gb = cg_gb
+                    break
+            except Exception:
+                pass
 
     cuda_ready = False
     cuda_compute = "float16"
@@ -89,6 +100,9 @@ def detect_hardware():
     if cuda_ready:
         model, device, compute, threads, beam = "large-v3-turbo", "cuda", cuda_compute, min(cores, 6), 5
         label = "GPU NVIDIA (CUDA + NVENC)" if nvenc_ready else "GPU NVIDIA (CUDA)"
+    elif ram_gb <= 1.2:
+        model, device, compute, threads, beam = "tiny", "cpu", "int8", max(1, min(cores, 2)), 1
+        label = f"Modo Econômico ({model} · {ram_gb}GB RAM)"
     elif ram_gb <= 8.5 or cores <= 4:
         model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 4)), 1
         label = f"Modo Leve ({model} · {threads} threads)"
@@ -158,9 +172,22 @@ def probe_video(video_path):
 
 
 def transcribe_video(video_path, hw, language="pt"):
+    import gc
+    ffmpeg, _ = find_ffmpeg()
+    # Extract lightweight 16kHz mono WAV so Whisper doesn't decode full HD/4K video frames in RAM
+    wav_path = Path(video_path).with_suffix(".16k.wav")
+    try:
+        subprocess.run(
+            [ffmpeg, "-y", "-i", str(video_path), "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", str(wav_path)],
+            capture_output=True, timeout=120
+        )
+    except Exception:
+        pass
+    audio_input = str(wav_path) if (wav_path.exists() and wav_path.stat().st_size > 1000) else str(video_path)
+
     model, beam = _get_whisper_model(hw)
     segments, info = model.transcribe(
-        str(video_path),
+        audio_input,
         language=language or "pt",
         beam_size=beam,
         vad_filter=True,
@@ -174,31 +201,44 @@ def transcribe_video(video_path, hw, language="pt"):
             txt = (w.word or "").strip()
             if txt:
                 words.append({"w": txt, "s": round(float(w.start), 3), "e": round(float(w.end), 3)})
+    try:
+        wav_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+    if hw.get("ram_gb", 8.0) <= 1.2:
+        _WHISPER_CACHE.clear()
+        del model
+        gc.collect()
     return words, float(getattr(info, "duration", 0.0) or 0.0)
 
 
-def compute_keep_ranges(words, duration, cuts_enabled=True):
+def compute_keep_ranges(words, duration, cuts_enabled=True, rhythm="natural"):
     if not cuts_enabled or not words or duration <= 0.5:
         return [{"s": 0.0, "e": round(duration, 3)}]
 
+    is_firm = (rhythm or "natural").lower() in ("firm", "firme")
+    min_gap = 0.24 if is_firm else 0.45
+    pad_l = 0.05 if is_firm else 0.09
+    pad_r = 0.07 if is_firm else 0.11
+
     cut_regions = []
     # 1. Remove leading/trailing long silences
-    if words[0]["s"] > 0.35:
-        cut_regions.append((0.0, max(0.0, words[0]["s"] - 0.08)))
-    if duration - words[-1]["e"] > 0.45:
-        cut_regions.append((min(duration, words[-1]["e"] + 0.12), duration))
+    if words[0]["s"] > (0.25 if is_firm else 0.40):
+        cut_regions.append((0.0, max(0.0, words[0]["s"] - pad_l)))
+    if duration - words[-1]["e"] > (0.35 if is_firm else 0.50):
+        cut_regions.append((min(duration, words[-1]["e"] + pad_r), duration))
 
-    # 2. Remove fillers and inter-word pauses >= 0.32s
+    # 2. Remove fillers and inter-word pauses >= min_gap
     for i, w in enumerate(words):
         clean = re.sub(r"[^\wà-úÀ-Ú]", "", w["w"].lower())
         if clean in _FILLERS:
             cut_regions.append((max(0.0, w["s"] - 0.02), min(duration, w["e"] + 0.02)))
         if i + 1 < len(words):
             gap = words[i + 1]["s"] - w["e"]
-            if gap >= 0.32:
-                cs = w["e"] + 0.07
-                ce = words[i + 1]["s"] - 0.09
-                if ce - cs >= 0.10:
+            if gap >= min_gap:
+                cs = w["e"] + pad_l
+                ce = words[i + 1]["s"] - pad_r
+                if ce - cs >= 0.08:
                     cut_regions.append((cs, ce))
 
     if not cut_regions:
@@ -349,23 +389,29 @@ def generate_srt(captions, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="dynamic-bold", accent_hex="#22C55E", pos_y_pct=74):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="#22C55E", pos_y_pct=74):
     styles_cfg = {
-        "dynamic-bold": {"font": "Creato Display", "size": 74, "upper": True, "outline": 5, "shadow": 3},
-        "neon-focus": {"font": "DM Sans", "size": 70, "upper": False, "outline": 4, "shadow": 4},
-        "clean-minimal": {"font": "Creato Display", "size": 62, "upper": False, "outline": 2, "shadow": 2},
-        "editorial-serif": {"font": "Apple Garamond", "size": 76, "upper": False, "outline": 3, "shadow": 2},
-        "kinetic-pop": {"font": "Creato Display", "size": 76, "upper": True, "outline": 5, "shadow": 3},
+        "classic":      {"font": "Creato Display", "size": 74, "upper": True,  "italic": False, "outline": 5, "shadow": 3, "default_accent": "#FFFFFF"},
+        "model-07":     {"font": "Georgia",        "size": 74, "upper": True,  "italic": True,  "outline": 4, "shadow": 4, "default_accent": "#FFD66C"},
+        "clean-12":     {"font": "DM Sans",        "size": 72, "upper": True,  "italic": False, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF"},
+        "clean-13":     {"font": "Creato Display", "size": 68, "upper": False, "italic": False, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF"},
+        "clean-14":     {"font": "Apple Garamond", "size": 76, "upper": False, "italic": True,  "outline": 3, "shadow": 3, "default_accent": "#FFDFC4"},
+        "clean-9":      {"font": "Creato Display", "size": 62, "upper": False, "italic": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF"},
+        "clean-10":     {"font": "Creato Display", "size": 64, "upper": False, "italic": False, "outline": 3, "shadow": 3, "default_accent": "#A375FA"},
+        "clean-11":     {"font": "Apple Garamond", "size": 74, "upper": False, "italic": True,  "outline": 2, "shadow": 2, "default_accent": "#FFFFFF"},
+        "clean-15":     {"font": "Creato Display", "size": 66, "upper": False, "italic": False, "outline": 3, "shadow": 2, "default_accent": "#FFFFFF"},
+        "clean-lavish": {"font": "Lavish",         "size": 78, "upper": True,  "italic": False, "outline": 3, "shadow": 2, "default_accent": "#FFFFFF"},
+        "clean":        {"font": "Creato Display", "size": 66, "upper": False, "italic": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1"},
     }
-    cfg = styles_cfg.get(style_id, styles_cfg["dynamic-bold"])
-    # Scale font size proportionally to video resolution
+    cfg = styles_cfg.get(style_id, styles_cfg["classic"])
     scale_f = min(width, height) / 1080.0
     fsize = max(28, int(cfg["size"] * scale_f))
     outline = max(2, int(cfg["outline"] * scale_f))
     shadow = max(1, int(cfg["shadow"] * scale_f))
     pos_x = int(width * 0.5)
     pos_y = int(height * max(12, min(88, float(pos_y_pct))) / 100.0)
-    accent_ass = _hex_to_ass_bgr(accent_hex)
+    accent_ass = _hex_to_ass_bgr(accent_hex or cfg["default_accent"])
+    italic_flag = -1 if cfg["italic"] else 0
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -376,7 +422,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg['font']},{fsize},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Default,{cfg['font']},{fsize},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,-1,{italic_flag},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -484,7 +530,7 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
         if r.returncode == 0 and Path(out_path).exists():
             return
 
-    cpu_preset = "fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast"
+    cpu_preset = "ultrafast" if hw.get("ram_gb", 8.0) <= 1.2 else ("fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast")
     cpu_cmd = base_cmd + [
         "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
         "-threads", str(hw.get("cpu_threads", 0)), str(out_path)

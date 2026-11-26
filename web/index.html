@@ -20,7 +20,7 @@
         <img src="/assets/icon.svg" alt="Eu Edito" width="36" height="36">
         <div>
           <strong>EU EDITO</strong>
-          <small>ESTÚDIO MOBILE · ALTA QUALIDADE</small>
+          <small>ESTÚDIO MOBILE · VÍDEO PRONTO</small>
         </div>
       </div>
       <button type="button" id="installBtn" class="install-pill" hidden>📲 Instalar</button>
@@ -34,50 +34,86 @@
     <main class="feed">
       <section class="card hero-card">
         <h1>Seu vídeo editado e legendado, <em>pronto para postar</em></h1>
-        <p>Cortes automáticos, zoom nos pontos-chave e exportação em até 4K direto no seu celular.</p>
+        <p>Cortes automáticos, zoom nos pontos-chave e exportação em alta qualidade direto no celular.</p>
       </section>
 
       <section class="card">
-        <div class="step-head"><span class="badge">1</span><h2>Vídeo da Galeria</h2></div>
+        <div class="step-head"><span class="badge">1</span><h2>Vídeo &amp; Prévia ao Vivo</h2></div>
         <label class="upload-box" id="uploadBox">
-          <input type="file" id="videoFile" accept="video/*,.mov,.mp4" hidden>
+          <input type="file" id="videoFile" accept="video/*" hidden>
           <span class="upload-icon">🎬</span>
           <strong id="uploadTitle">Escolher vídeo do celular</strong>
           <small id="uploadSub">Toque para abrir sua galeria (iPhone ou Android)</small>
         </label>
 
-        <div id="previewWrap" class="phone-frame" hidden>
-          <video id="previewVideo" playsinline controls muted></video>
-          <span id="resTag" class="res-tag">1080p</span>
-          <div id="liveOverlay" class="live-overlay">
+        <div id="previewWrap" class="phone-frame">
+          <video id="previewVideo" playsinline controls muted hidden></video>
+          <div id="emptyStage" class="empty-stage">
+            <span>Prévia do modelo sobre o vídeo</span>
+          </div>
+          <span id="resTag" class="res-tag">1080p HD</span>
+          <div id="liveOverlay" class="live-overlay style-classic">
             <small>SÓ QUE EU</small>
             <strong>FARIA DIFERENTE</strong>
+            <small>hoje</small>
           </div>
         </div>
       </section>
 
       <section class="card">
-        <div class="step-head"><span class="badge">2</span><h2>Estilo da Legenda</h2></div>
+        <div class="step-head"><span class="badge">2</span><h2>Modelo da Legenda (11 estilos)</h2></div>
+        <div class="cat-tabs" id="catTabs">
+          <button type="button" class="cat-tab is-active" data-cat="dynamic">⚡ Dinâmicas (5)</button>
+          <button type="button" class="cat-tab" data-cat="clean">✨ Clean (6)</button>
+        </div>
+
         <div class="style-grid" id="styleGrid">
-          <button type="button" class="style-pill is-active" data-style="dynamic-bold">
-            <span class="mini-sample s-bold">SÓ QUE <b>DIFERENTE</b></span>
-            <strong>Dinâmica Bold</strong>
-            <small>Caixa alta + destaque</small>
+          <!-- Dinâmicas -->
+          <button type="button" class="style-pill is-active" data-cat="dynamic" data-style="classic">
+            <span class="mini-sample s-classic">só que eu <b>FARIA DIFERENTE</b></span>
+            <strong>Dinâmica 01 · Impacto Bold</strong>
           </button>
-          <button type="button" class="style-pill" data-style="neon-focus">
-            <span class="mini-sample s-neon">Disputar a <b>ATENÇÃO</b></span>
-            <strong>Foco Neon</strong>
-            <small>Limpo + palavra foco</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="model-07">
+            <span class="mini-sample s-m07">disputar a <b>ATENÇÃO</b></span>
+            <strong>Dinâmica 02 · Foco Neon</strong>
           </button>
-          <button type="button" class="style-pill" data-style="clean-minimal">
-            <span class="mini-sample s-clean">leitura <b>fluida</b></span>
-            <strong>Clean Minimal</strong>
-            <small>Discreta e moderna</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-12">
+            <span class="mini-sample s-c12">ritmo <b>EM MOVIMENTO</b></span>
+            <strong>Dinâmica 03 · Keyframe Motion</strong>
           </button>
-          <button type="button" class="style-pill" data-style="editorial-serif">
-            <span class="mini-sample s-serif">Você <i>comemorou</i></span>
-            <strong>Editorial Serif</strong>
-            <small>Clássica elegante</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-13">
+            <span class="mini-sample s-c13">deslize <b>POR CURIOSIDADE</b></span>
+            <strong>Dinâmica 04 · Entrada Lateral</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-14">
+            <span class="mini-sample s-c14">Você <i>comemorou</i></span>
+            <strong>Dinâmica 05 · Caixa Alta Moderna</strong>
+          </button>
+
+          <!-- Clean -->
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean-9" hidden>
+            <span class="mini-sample s-c9">leitura limpa e <b>fluida</b></span>
+            <strong>Clean 01 · Minimalista Suave</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean-10" hidden>
+            <span class="mini-sample s-c10">se eu fosse <b>começar</b></span>
+            <strong>Clean 02 · Apoio e Destaque</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean-11" hidden>
+            <span class="mini-sample s-c11">elegância e <i>sofisticação</i></span>
+            <strong>Clean 03 · Editorial Garamond</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean-15" hidden>
+            <span class="mini-sample s-c15">uma forma de <b>imaginar</b></span>
+            <strong>Clean 04 · Entrada e Pausa</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean-lavish" hidden>
+            <span class="mini-sample s-lavish">Essa <b>CAMPANHA</b></span>
+            <strong>Clean 05 · Lavish Elegance</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="clean" data-style="clean" hidden>
+            <span class="mini-sample s-clean">composição <b>seguidores</b></span>
+            <strong>Clean 06 · Composições Brancas</strong>
           </button>
         </div>
 
@@ -94,12 +130,12 @@
       </section>
 
       <section class="card">
-        <div class="step-head"><span class="badge">3</span><h2>Edição IA &amp; Resolução</h2></div>
+        <div class="step-head"><span class="badge">3</span><h2>Decupagem, Zoom &amp; Resolução</h2></div>
 
         <label class="toggle-row">
           <div>
             <strong>Decupagem automática</strong>
-            <small>Corta pausas, silêncios e vícios</small>
+            <small>Corta pausas, silêncios e vícios de fala</small>
           </div>
           <span class="switch">
             <input type="checkbox" id="cutsToggle" checked>
@@ -107,7 +143,21 @@
           </span>
         </label>
 
-        <label class="toggle-row">
+        <div id="rhythmBox" class="rhythm-box">
+          <span class="res-label">Ritmo da decupagem</span>
+          <div class="rhythm-grid" id="rhythmGrid">
+            <button type="button" class="res-pill is-active" data-rhythm="natural">
+              <strong>Natural</strong>
+              <small>Cortes suaves</small>
+            </button>
+            <button type="button" class="res-pill" data-rhythm="firm">
+              <strong>Firme</strong>
+              <small>Sem respiros</small>
+            </button>
+          </div>
+        </div>
+
+        <label class="toggle-row" style="margin-top:9px">
           <div>
             <strong>Zoom dinâmico nos pontos-chave</strong>
             <small>Destaca frases fortes do roteiro</small>
@@ -119,7 +169,7 @@
         </label>
 
         <div class="res-section">
-          <span class="res-label">Resolução para salvar</span>
+          <span class="res-label">Resolução para baixar</span>
           <div class="res-grid" id="resGrid">
             <button type="button" class="res-pill" data-res="original">
               <strong>Original</strong>

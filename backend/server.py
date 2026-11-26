@@ -77,6 +77,11 @@ def assets(filename):
     return send_from_directory(str(WEB_DIR), filename)
 
 
+@app.route("/fonts/<path:filename>")
+def fonts_route(filename):
+    return send_from_directory(str(BASE_DIR / "fonts"), filename)
+
+
 @app.route("/health")
 def health():
     return jsonify({"ok": True, "hardware": HW_PROFILE["accel_label"]})
@@ -124,7 +129,8 @@ def _run_pipeline(job_id, opts):
 
         _set_job(job_id, status="cutting", progress=60, message="Aplicando decupagem e análise de impacto…")
         cuts_on = bool(opts.get("cuts", True))
-        keep_ranges = compute_keep_ranges(words, duration, cuts_enabled=cuts_on)
+        rhythm = opts.get("rhythm", "natural")
+        keep_ranges = compute_keep_ranges(words, duration, cuts_enabled=cuts_on, rhythm=rhythm)
         captions = build_captions(words, keep_ranges, max_chars=int(opts.get("max_chars", 26)))
         impacts = pick_impact_moments(captions)
 
