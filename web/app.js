@@ -77,10 +77,19 @@ function syncOverlay(animate = false) {
   ov.className = 'live-overlay style-' + selectedStyle;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
   ov.style.top = $('posY').value + '%';
-  ov.style.setProperty('--accent', $('accentColor').value);
+  if ($('customColorToggle')?.checked) {
+    ov.style.setProperty('--accent', $('accentColor').value);
+  } else {
+    ov.style.removeProperty('--accent');
+  }
   $('posYVal').textContent = $('posY').value + '%';
   if (animate) animateOverlay(selectedStyle);
 }
+
+$('customColorToggle')?.addEventListener('change', () => {
+  $('accentColor').disabled = !$('customColorToggle').checked;
+  syncOverlay(false);
+});
 
 $('catTabs').querySelectorAll('.cat-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -339,7 +348,7 @@ $('generateBtn').addEventListener('click', async () => {
         job_id: currentJobId,
         captions: currentCaptions,
         style: selectedStyle,
-        accent_color: $('accentColor').value,
+        accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
         pos_y: Number($('posY').value),
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,

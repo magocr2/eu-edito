@@ -102,10 +102,10 @@ def detect_hardware():
         model, device, compute, threads, beam = "large-v3-turbo", "cuda", cuda_compute, min(cores, 6), 5
         label = "GPU NVIDIA (CUDA + NVENC)" if nvenc_ready else "GPU NVIDIA (CUDA)"
     elif ram_gb <= 1.2:
-        model, device, compute, threads, beam = "base", "cpu", "int8", max(1, min(cores, 2)), 2
+        model, device, compute, threads, beam = "base", "cpu", "int8", max(1, min(cores, 2)), 4
         label = f"Modo Econômico ({model} · {ram_gb}GB RAM)"
     elif ram_gb <= 8.5 or cores <= 4:
-        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 4)), 4
+        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 6)), 5
         label = f"Modo Equilibrado ({model} · {threads} threads)"
     elif ram_gb <= 14.0 or cores <= 8:
         model, device, compute, threads, beam = "medium", "cpu", "int8", max(2, cores - 1), 2
@@ -181,8 +181,8 @@ def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type,
         "kw = {'device': d, 'compute_type': ct}; "
         "\nif d == 'cpu': kw['cpu_threads'] = int(th)\n"
         "wm = WhisperModel(m, **kw); "
-        "segs, info = wm.transcribe(a, language=lang, beam_size=int(bm), vad_filter=True, word_timestamps=True, "
-        "condition_on_previous_text=(int(bm)>1), initial_prompt='Transcrição em português brasileiro com acentuação e pontuação corretas.'); "
+        "segs, info = wm.transcribe(a, language=lang, beam_size=int(bm), temperature=0.0, no_speech_threshold=0.55, vad_filter=True, vad_parameters={'min_silence_duration_ms': 250}, word_timestamps=True, "
+        "condition_on_previous_text=True); "
         "words = [{'w': (w.word or '').strip(), 's': round(float(w.start),3), 'e': round(float(w.end),3)} for s in segs for w in (s.words or []) if (w.word or '').strip()]; "
         "print(json.dumps({'words': words, 'duration': float(getattr(info, 'duration', 0.0) or 0.0)}, ensure_ascii=False))"
     )
@@ -222,10 +222,12 @@ def transcribe_video(video_path, hw, language="pt"):
             audio_input,
             language=language or "pt",
             beam_size=beam,
+            temperature=0.0,
+            no_speech_threshold=0.55,
             vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 250},
             word_timestamps=True,
-            condition_on_previous_text=(beam > 1),
-            initial_prompt="Transcrição em português brasileiro com acentuação e pontuação corretas.",
+            condition_on_previous_text=True,
         )
         words = []
         for seg in segments:
@@ -498,29 +500,75 @@ def generate_srt(captions, out_path):
     Path(out_path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="#22C55E", pos_y_pct=74, hook_title=""):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, hook_title=""):
+    """Render faithful multi-style ASS captions matching each of the 11 Hogus/Eu Edito models."""
     styles_cfg = {
-        "classic":      {"font": "Creato Display", "size": 74, "upper": True,  "italic": False, "outline": 5, "shadow": 3, "default_accent": "#FFFFFF"},
-        "model-07":     {"font": "Georgia",        "size": 74, "upper": True,  "italic": True,  "outline": 4, "shadow": 4, "default_accent": "#FFD66C"},
-        "clean-12":     {"font": "DM Sans",        "size": 72, "upper": True,  "italic": False, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF"},
-        "clean-13":     {"font": "Creato Display", "size": 68, "upper": False, "italic": False, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF"},
-        "clean-14":     {"font": "Apple Garamond", "size": 76, "upper": False, "italic": True,  "outline": 3, "shadow": 3, "default_accent": "#FFDFC4"},
-        "clean-9":      {"font": "Creato Display", "size": 62, "upper": False, "italic": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF"},
-        "clean-10":     {"font": "Creato Display", "size": 64, "upper": False, "italic": False, "outline": 3, "shadow": 3, "default_accent": "#A375FA"},
-        "clean-11":     {"font": "Apple Garamond", "size": 74, "upper": False, "italic": True,  "outline": 2, "shadow": 2, "default_accent": "#FFFFFF"},
-        "clean-15":     {"font": "Creato Display", "size": 66, "upper": False, "italic": False, "outline": 3, "shadow": 2, "default_accent": "#FFFFFF"},
-        "clean-lavish": {"font": "Lavish",         "size": 78, "upper": True,  "italic": False, "outline": 3, "shadow": 2, "default_accent": "#FFFFFF"},
-        "clean":        {"font": "Creato Display", "size": 66, "upper": False, "italic": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1"},
+        "classic": {
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 82, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 4, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise", "inline": False,
+        },
+        "model-07": {
+            "small_font": "Geist", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Liberation Serif", "main_size": 88, "main_bold": -1, "main_italic": -1,
+            "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFD66C", "anim": "pop", "inline": False,
+        },
+        "clean-12": {
+            "small_font": "DM Sans", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans", "main_size": 80, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "pop", "inline": False,
+        },
+        "clean-13": {
+            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 74, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 2, "shadow": 3, "default_accent": "#FFFFFF", "anim": "slide", "inline": False,
+        },
+        "clean-14": {
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 92, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#FFDFC4", "anim": "pop", "inline": False,
+        },
+        "clean-9": {
+            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 66, "main_bold": 0, "main_italic": 0,
+            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "drop", "inline": False,
+        },
+        "clean-10": {
+            "small_font": "Creato Display", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 58, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#A375FA", "anim": "rise", "inline": True,
+        },
+        "clean-11": {
+            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 90, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "cut", "inline": False,
+        },
+        "clean-15": {
+            "small_font": "Creato Display", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 72, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "rise", "inline": False,
+        },
+        "clean-lavish": {
+            "small_font": "Lavish", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_size": 86, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "slide", "inline": False,
+        },
+        "clean": {
+            "small_font": "Liberation Serif", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 74, "main_bold": 0, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1", "anim": "slide", "inline": False,
+        },
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
     scale_f = min(width, height) / 1080.0
-    fsize = max(28, int(cfg["size"] * scale_f))
-    outline = max(2, int(cfg["outline"] * scale_f))
+    s_size = max(22, int(cfg["small_size"] * scale_f))
+    m_size = max(30, int(cfg["main_size"] * scale_f))
+    outline = max(1, int(cfg["outline"] * scale_f))
     shadow = max(1, int(cfg["shadow"] * scale_f))
     pos_x = int(width * 0.5)
-    pos_y = int(height * max(12, min(88, float(pos_y_pct))) / 100.0)
-    accent_ass = _hex_to_ass_bgr(accent_hex or cfg["default_accent"])
-    italic_flag = -1 if cfg["italic"] else 0
+    pos_y = int(height * max(14, min(86, float(pos_y_pct))) / 100.0)
+    chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
+    accent_ass = _hex_to_ass_bgr(chosen_hex)
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -531,43 +579,67 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg['font']},{fsize},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,-1,{italic_flag},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H000A0E0C,&H80000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
+    shift_px = max(14, int(30 * scale_f))
+    gap_y = max(24, int(m_size * 0.62))
+
+    def _anim_tag(x, y):
+        an = cfg["anim"]
+        if an == "rise":
+            return f"\\move({x},{y + shift_px},{x},{y},0,240)\\fad(80,40)"
+        if an == "drop":
+            return f"\\move({x},{y - shift_px},{x},{y},0,260)\\blur1.2\\t(0,220,\\blur0)\\fad(90,40)"
+        if an == "slide":
+            return f"\\move({x + shift_px},{y},{x},{y},0,240)\\fad(70,40)"
+        if an == "pop":
+            return f"\\pos({x},{y})\\fscx20\\fscy20\\t(0,200,\\fscx106\\fscy106)\\t(200,300,\\fscx100\\fscy100)\\fad(40,40)"
+        return f"\\pos({x},{y})"
+
     for c in captions:
-        words = c.get("words") or []
-        if not words:
+        text = (c.get("text") or "").strip()
+        if not text:
             continue
-        # Pick main emphasized word in the caption
-        main_idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", words[i]["w"])))
+        tokens = text.split()
         t0 = _fmt_ass_time(c["s"])
         t1 = _fmt_ass_time(c["e"] + 0.08)
 
-        parts = []
-        for idx, w in enumerate(words):
-            txt = w["w"].upper() if cfg["upper"] else w["w"]
-            # Pop-in animation on each word relative to caption start
-            rel_ms = max(0, int((w["s"] - c["s"]) * 1000))
-            if idx == main_idx:
-                parts.append(
-                    f"{{\\c{accent_ass}\\fscx108\\fscy108\\t({rel_ms},{rel_ms+140},\\fscx116\\fscy116)}}{txt}{{\\r}}"
-                )
-            else:
-                parts.append(
-                    f"{{\\c&H00FFFFFF&\\t({rel_ms},{rel_ms+120},\\fscx103\\fscy103)}}{txt}{{\\r}}"
-                )
-        line_text = f"{{\\an5\\pos({pos_x},{pos_y})\\fad(70,50)}}" + " ".join(parts)
-        events.append(f"Dialogue: 0,{t0},{t1},Default,,0,0,0,,{line_text}")
+        # Pick strongest/longest word as Main highlight
+        main_idx = max(range(len(tokens)), key=lambda i: len(re.sub(r"[^\wà-ú]", "", tokens[i])))
+
+        if cfg["inline"] or len(tokens) < 2:
+            inline_parts = []
+            for idx, tok in enumerate(tokens):
+                if idx == main_idx:
+                    w_txt = tok.upper() if cfg["upper"] else tok
+                    inline_parts.append(f"{{\\rMain\\c{accent_ass}}}{w_txt}{{\\rSmall}}")
+                else:
+                    inline_parts.append(tok)
+            tag = _anim_tag(pos_x, pos_y)
+            events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{tag}}}" + " ".join(inline_parts))
+        else:
+            before = " ".join(tokens[:main_idx]).strip()
+            main_w = tokens[main_idx].upper() if cfg["upper"] else tokens[main_idx]
+            after = " ".join(tokens[main_idx + 1:]).strip()
+            if before:
+                y_top = pos_y - gap_y
+                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_anim_tag(pos_x, y_top)}}}{before}")
+            events.append(f"Dialogue: 1,{t0},{t1},Main,,0,0,0,,{{\\an5{_anim_tag(pos_x, pos_y)}}}{main_w}")
+            if after:
+                y_bot = pos_y + gap_y
+                events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_anim_tag(pos_x, y_bot)}}}{after}")
 
     hook = (hook_title or "").strip()
     if hook:
         hy = int(height * 0.16)
         hsize = max(26, int(52 * scale_f))
         events.append(
-            f"Dialogue: 1,0:00:00.00,0:00:03.50,Default,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c{accent_ass}\\bord{max(3, outline)}\\fad(120,200)}}{hook}"
+            f"Dialogue: 2,0:00:00.00,0:00:03.50,Main,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c{accent_ass}\\bord{max(3, outline)}\\fad(120,200)}}{hook}"
         )
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")

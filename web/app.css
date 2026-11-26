@@ -235,3 +235,5 @@ body {
 .cap-edit-row.is-cut { opacity: 0.55; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.08); }
 .cap-edit-row.is-cut .cap-edit-input { text-decoration: line-through; color: #fca5a5; }
 .cap-edit-row.is-cut .cap-edit-cut { background: rgba(34,197,94,0.18); color: #4ade80; border-color: rgba(34,197,94,0.35); }
+.color-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.color-head input { width: 18px; height: 18px; accent-color: var(--green); }

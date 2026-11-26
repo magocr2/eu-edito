@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HOME=/tmp/hf_cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg fontconfig && \
+    ffmpeg fontconfig fonts-liberation && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
 COPY web ./web
 COPY fonts ./fonts
+
+RUN mkdir -p /usr/share/fonts/eu-edito && cp -r ./fonts/* /usr/share/fonts/eu-edito/ && fc-cache -fv
 
 EXPOSE 8090
 CMD ["python", "backend/server.py"]
