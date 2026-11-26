@@ -102,11 +102,11 @@ def detect_hardware():
         model, device, compute, threads, beam = "large-v3-turbo", "cuda", cuda_compute, min(cores, 6), 5
         label = "GPU NVIDIA (CUDA + NVENC)" if nvenc_ready else "GPU NVIDIA (CUDA)"
     elif ram_gb <= 1.2:
-        model, device, compute, threads, beam = "tiny", "cpu", "int8", max(1, min(cores, 2)), 1
+        model, device, compute, threads, beam = "base", "cpu", "int8", max(1, min(cores, 2)), 2
         label = f"Modo Econômico ({model} · {ram_gb}GB RAM)"
     elif ram_gb <= 8.5 or cores <= 4:
-        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 4)), 1
-        label = f"Modo Leve ({model} · {threads} threads)"
+        model, device, compute, threads, beam = "small", "cpu", "int8", max(2, min(cores, 4)), 4
+        label = f"Modo Equilibrado ({model} · {threads} threads)"
     elif ram_gb <= 14.0 or cores <= 8:
         model, device, compute, threads, beam = "medium", "cpu", "int8", max(2, cores - 1), 2
         label = f"Modo Equilibrado ({model} · {threads} threads)"
@@ -198,11 +198,11 @@ def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type,
 
 def transcribe_video(video_path, hw, language="pt"):
     ffmpeg, _ = find_ffmpeg()
-    # Extract lightweight 16kHz mono WAV so Whisper doesn't decode full HD/4K video frames in RAM
+    # Extract lightweight 16kHz mono WAV with highpass filter for cleaner speech recognition
     wav_path = Path(video_path).with_suffix(".16k.wav")
     try:
         subprocess.run(
-            [ffmpeg, "-y", "-i", str(video_path), "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", str(wav_path)],
+            [ffmpeg, "-y", "-i", str(video_path), "-vn", "-af", "highpass=f=80", "-ac", "1", "-ar", "16000", "-f", "wav", str(wav_path)],
             capture_output=True, timeout=120
         )
     except Exception:
@@ -320,7 +320,7 @@ def build_captions(words, keep_ranges, max_chars=26):
         me = map_time_to_edited(w["e"], keep_ranges)
         if me <= ms:
             me = ms + 0.12
-        mapped_words.append({"w": w["w"], "s": round(ms, 3), "e": round(me, 3)})
+        mapped_words.append({"w": w["w"], "s": round(ms, 3), "e": round(me, 3), "orig_s": round(w["s"], 3)})
 
     captions = []
     cur = []
@@ -332,6 +332,7 @@ def build_captions(words, keep_ranges, max_chars=26):
             captions.append({
                 "s": cur[0]["s"],
                 "e": cur[-1]["e"],
+                "orig_s": cur[0]["orig_s"],
                 "text": " ".join(x["w"] for x in cur),
                 "words": cur,
             })
@@ -343,6 +344,7 @@ def build_captions(words, keep_ranges, max_chars=26):
         captions.append({
             "s": cur[0]["s"],
             "e": cur[-1]["e"],
+            "orig_s": cur[0]["orig_s"],
             "text": " ".join(x["w"] for x in cur),
             "words": cur,
         })

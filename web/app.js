@@ -140,6 +140,7 @@ $('videoFile').addEventListener('change', (e) => {
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto para enviar';
   try {
     $('previewVideo').src = URL.createObjectURL(f);
+    $('previewVideo').muted = false;
     $('previewVideo').hidden = false;
     $('emptyStage').hidden = true;
   } catch {}
@@ -206,6 +207,18 @@ function renderCaptionEditor(captions) {
   currentCaptions.forEach((cap, idx) => {
     const row = document.createElement('div');
     row.className = 'cap-edit-row';
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'cap-edit-play';
+    playBtn.textContent = '▶';
+    playBtn.title = 'Ouvir este trecho';
+    playBtn.addEventListener('click', () => {
+      const vid = $('previewVideo');
+      if (!vid) return;
+      vid.muted = false;
+      vid.currentTime = Math.max(0, Number(cap.orig_s ?? cap.s ?? 0) - 0.15);
+      vid.play().catch(() => {});
+    });
     const tm = document.createElement('span');
     tm.className = 'cap-edit-time';
     tm.textContent = Number(cap.s || 0).toFixed(1) + 's';
@@ -216,7 +229,7 @@ function renderCaptionEditor(captions) {
     inp.addEventListener('input', () => {
       currentCaptions[idx].text = inp.value;
     });
-    row.append(tm, inp);
+    row.append(playBtn, tm, inp);
     list.append(row);
   });
 }
