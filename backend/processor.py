@@ -208,8 +208,67 @@ def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type,
     return data.get("words", []), float(data.get("duration", 0.0))
 
 
+def _transcribe_groq(audio_mp3_path, api_key, language="pt"):
+    """Call Groq Whisper large-v3-turbo API (free tier, ~1s, 0 MB local RAM) with word timestamps."""
+    import mimetypes, urllib.request
+    boundary = f"----EuEdito{uuid.uuid4().hex}"
+    fields = [
+        ("model", "whisper-large-v3-turbo"),
+        ("language", language or "pt"),
+        ("response_format", "verbose_json"),
+        ("temperature", "0"),
+        ("timestamp_granularities[]", "word"),
+    ]
+    body = bytearray()
+    for name, val in fields:
+        body.extend(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{val}\r\n".encode("utf-8"))
+    fname = Path(audio_mp3_path).name
+    fdata = Path(audio_mp3_path).read_bytes()
+    body.extend(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{fname}\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode("utf-8")
+    )
+    body.extend(fdata)
+    body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        data=bytes(body),
+        headers={
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+    words = []
+    for w in (res.get("words") or []):
+        txt = (w.get("word") or "").strip()
+        if txt:
+            words.append({"w": txt, "s": round(float(w["start"]), 3), "e": round(float(w["end"]), 3)})
+    return words, float(res.get("duration") or 0.0)
+
+
 def transcribe_video(video_path, hw, language="pt"):
     ffmpeg, _ = find_ffmpeg()
+    groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
+    if groq_key:
+        mp3_path = Path(video_path).with_suffix(".16k.mp3")
+        try:
+            subprocess.run(
+                [ffmpeg, "-y", "-i", str(video_path), "-vn", "-af", "highpass=f=80,loudnorm=I=-16:TP=-1.5", "-ac", "1", "-ar", "16000", "-b:a", "48k", str(mp3_path)],
+                capture_output=True, timeout=120
+            )
+            if mp3_path.exists() and mp3_path.stat().st_size > 1000:
+                return _transcribe_groq(mp3_path, groq_key, language=language)
+        except Exception as e:
+            print("Groq fallback to local Whisper:", e)
+        finally:
+            try:
+                mp3_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
     # Extract clean, volume-normalized 16kHz mono WAV so quiet phone speech is crystal clear
     wav_path = Path(video_path).with_suffix(".16k.wav")
     try:
@@ -524,59 +583,59 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     """Render clean, non-overlapping, word-by-word animated ASS captions for all 11 models (1 or 2 lines)."""
     styles_cfg = {
         "classic": {
-            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 68, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "rise",
+            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 76, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 4, "shadow": 5, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "model-07": {
-            "small_font": "Geist", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Liberation Serif", "main_size": 72, "main_bold": -1, "main_italic": -1,
-            "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFD66C", "anim": "pop",
+            "small_font": "Geist", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Liberation Serif", "main_size": 80, "main_bold": -1, "main_italic": -1,
+            "upper": True, "outline": 4, "shadow": 6, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
-            "small_font": "DM Sans", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans", "main_size": 68, "main_bold": -1, "main_italic": 0,
-            "upper": True, "outline": 3, "shadow": 3, "default_accent": "#FFFFFF", "anim": "pop",
+            "small_font": "DM Sans 9pt", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans 9pt", "main_size": 74, "main_bold": -1, "main_italic": 0,
+            "upper": True, "outline": 4, "shadow": 5, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 64, "main_bold": 0, "main_italic": 0,
-            "upper": True, "outline": 2, "shadow": 3, "default_accent": "#FFFFFF", "anim": "slide",
+            "small_font": "Liberation Serif", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 70, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 3, "shadow": 5, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean-14": {
-            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 76, "main_bold": 0, "main_italic": -1,
-            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#FFDFC4", "anim": "pop",
+            "small_font": "Creato Display", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 84, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 3, "shadow": 5, "default_accent": "#FFDFC4", "anim": "pop",
         },
         "clean-9": {
-            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 60, "main_bold": 0, "main_italic": 0,
-            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "blur",
+            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 66, "main_bold": 0, "main_italic": 0,
+            "upper": False, "outline": 2, "shadow": 4, "default_accent": "#FFFFFF", "anim": "blur",
         },
         "clean-10": {
-            "small_font": "Creato Display", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 52, "main_bold": -1, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 3, "default_accent": "#A375FA", "anim": "rise",
+            "small_font": "Creato Display", "small_size": 54, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 54, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 3, "shadow": 5, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
-            "small_font": "Creato Display Light", "small_size": 40, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_size": 74, "main_bold": 0, "main_italic": -1,
-            "upper": False, "outline": 1, "shadow": 2, "default_accent": "#FFFFFF", "anim": "cut",
+            "small_font": "Creato Display Light", "small_size": 42, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_size": 82, "main_bold": 0, "main_italic": -1,
+            "upper": False, "outline": 2, "shadow": 4, "default_accent": "#FFFFFF", "anim": "cut",
         },
         "clean-15": {
-            "small_font": "Creato Display", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_size": 62, "main_bold": -1, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "rise",
+            "small_font": "Creato Display", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_size": 68, "main_bold": -1, "main_italic": 0,
+            "upper": False, "outline": 3, "shadow": 4, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "clean-lavish": {
-            "small_font": "Lavish", "small_size": 44, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_size": 72, "main_bold": 0, "main_italic": 0,
-            "upper": True, "outline": 2, "shadow": 2, "default_accent": "#FFFFFF", "anim": "slide",
+            "small_font": "Lavish", "small_size": 46, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_size": 78, "main_bold": 0, "main_italic": 0,
+            "upper": True, "outline": 3, "shadow": 4, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Liberation Serif", "small_size": 42, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display Medium", "main_size": 64, "main_bold": 0, "main_italic": 0,
-            "upper": False, "outline": 2, "shadow": 2, "default_accent": "#3EA4F1", "anim": "slide",
+            "small_font": "Liberation Serif", "small_size": 44, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display Medium", "main_size": 70, "main_bold": 0, "main_italic": 0,
+            "upper": False, "outline": 3, "shadow": 4, "default_accent": "#3EA4F1", "anim": "slide",
         },
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
@@ -599,8 +658,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H80000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
-Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H000A0E0C,&H80000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&H000A0E0C,&H28000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&H000A0E0C,&H28000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,40,40,40,1
 Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 
@@ -677,9 +736,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             seq = _format_inline_words(words, cap_s, main_idx, base_is_main=False)
             events.append(f"Dialogue: 0,{t0},{t1},Small,,0,0,0,,{{\\an5{_line_motion(pos_x, pos_y)}}}{seq}")
         else:
-            # 2-line stacked editorial layout with generous non-overlapping spacing
-            y_top = pos_y - int(m_size * 0.65)
-            y_bot = pos_y + int(m_size * 0.45)
+            # 2-line stacked editorial layout with tight CapCut-like spacing
+            y_top = pos_y - int(m_size * 0.50)
+            y_bot = pos_y + int(m_size * 0.36)
 
             before = words[:main_idx]
             main_w = words[main_idx]
