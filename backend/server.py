@@ -381,7 +381,13 @@ def api_download_video(job_id):
     if not p.exists():
         return jsonify({"error": "Vídeo ainda não está pronto."}), 404
     as_att = request.args.get("dl") == "1"
-    return send_file(str(p), mimetype="video/mp4", as_attachment=as_att, download_name=f"eu-edito-{job_id}.mp4")
+    # Force octet-stream on ?dl=1 so mobile Android downloads directly to Downloads/Gallery instead of opening WhatsApp/video intents
+    mime = "application/octet-stream" if as_att else "video/mp4"
+    resp = send_file(str(p), mimetype=mime, as_attachment=as_att, download_name=f"eu-edito-{job_id}.mp4")
+    if as_att:
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
 
 
 @app.route("/api/download/<job_id>/srt")

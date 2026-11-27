@@ -15,6 +15,7 @@ let activePreviewCardIdx = -1;
 let deferredPrompt = null;
 let lastVideoUrl = '';
 let cachedVideoBlob = null;
+let cachedShareFile = null;
 let currentJobId = '';
 let currentCaptions = [];
 let flowStage = 'transcribe'; // 'transcribe' -> 'render'
@@ -80,6 +81,7 @@ async function getVideoBlob() {
   const res = await fetch(lastVideoUrl + '?dl=1');
   if (!res.ok) throw new Error('Falha ao baixar vídeo.');
   cachedVideoBlob = await res.blob();
+  cachedShareFile = new File([cachedVideoBlob], `eu-edito-${currentJobId || 'pronto'}.mp4`, { type: 'video/mp4' });
   return cachedVideoBlob;
 }
 
@@ -809,22 +811,27 @@ $('shareBtn').addEventListener('click', async () => {
   if (!lastVideoUrl) return;
   const btn = $('shareBtn');
   const origTxt = btn.textContent;
+  // Use pre-cached File synchronously inside user gesture so iOS "Save Video" never fails!
+  if (cachedShareFile && navigator.canShare && navigator.canShare({ files: [cachedShareFile] })) {
+    try {
+      await navigator.share({ files: [cachedShareFile], title: 'Vídeo Pronto · Eu Edito' });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
   btn.disabled = true;
   btn.textContent = '⏳ Preparando vídeo…';
   try {
-    const blob = await getVideoBlob();
-    const file = new File([blob], `eu-edito-${currentJobId || 'pronto'}.mp4`, { type: 'video/mp4' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'Vídeo Pronto · Eu Edito' });
-    } else {
-      triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
+    await getVideoBlob();
+    if (cachedShareFile && navigator.canShare && navigator.canShare({ files: [cachedShareFile] })) {
+      await navigator.share({ files: [cachedShareFile], title: 'Vídeo Pronto · Eu Edito' });
+    } else if ($('downloadMp4')) {
+      $('downloadMp4').click();
     }
   } catch (err) {
-    if (err && err.name !== 'AbortError') {
-      try {
-        const blob = await getVideoBlob();
-        triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
-      } catch {}
+    if (err && err.name !== 'AbortError' && $('downloadMp4')) {
+      $('downloadMp4').click();
     }
   } finally {
     btn.textContent = origTxt;
@@ -832,22 +839,11 @@ $('shareBtn').addEventListener('click', async () => {
   }
 });
 
-$('downloadMp4')?.addEventListener('click', async (e) => {
-  if (!lastVideoUrl) return;
-  e.preventDefault();
+// Let native <a href="...?dl=1" download="eu-edito-....mp4"> trigger OS Download Manager cleanly on Android/desktop!
+$('downloadMp4')?.addEventListener('click', () => {
   const btn = $('downloadMp4');
-  const origTxt = btn.textContent;
-  btn.textContent = '⏳ Baixando vídeo…';
-  btn.style.pointerEvents = 'none';
-  try {
-    const blob = await getVideoBlob();
-    triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
-  } catch {
-    window.open(lastVideoUrl + '?dl=1', '_blank', 'noopener');
-  } finally {
-    btn.textContent = origTxt;
-    btn.style.pointerEvents = '';
-  }
+  if (!btn || !lastVideoUrl) return;
+  btn.download = `eu-edito-${currentJobId || 'pronto'}.mp4`;
 });
 
 $('downloadSrt')?.addEventListener('click', async (e) => {
@@ -1167,6 +1163,7 @@ $('generateBtn').addEventListener('click', async () => {
         clearMediaPreview();
         lastVideoUrl = st.video_url;
         cachedVideoBlob = null;
+        cachedShareFile = null;
         getVideoBlob().catch(() => {});
         $('previewVideo').src = st.video_url;
         $('previewVideo').muted = false;
@@ -1174,6 +1171,7 @@ $('generateBtn').addEventListener('click', async () => {
         $('emptyStage').hidden = true;
         $('liveOverlay').hidden = true;
         $('downloadMp4').href = st.video_url + '?dl=1';
+        $('downloadMp4').download = `eu-edito-${currentJobId || 'pronto'}.mp4`;
         $('downloadSrt').href = st.srt_url;
         $('shareBtn').hidden = !navigator.share;
         $('transcriptText').textContent = st.transcript || '';

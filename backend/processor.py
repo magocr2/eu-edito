@@ -75,6 +75,17 @@ def detect_hardware():
             except Exception:
                 pass
 
+    if os.name != "nt":
+        # Respect Railway / Render container limits even when host /proc/meminfo looks larger
+        if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RENDER"):
+            ram_gb = min(ram_gb, 1.0)
+        try:
+            env_mb = float(os.environ.get("RAILWAY_MEMORY_LIMIT_MB") or 0)
+            if env_mb > 64:
+                ram_gb = min(ram_gb, round(env_mb / 1024.0, 2))
+        except Exception:
+            pass
+
     cuda_ready = False
     cuda_compute = "float16"
     try:
@@ -1265,32 +1276,6 @@ def render_video(
 
     # Build trim + concat filter if decupagem cut segments
     n_segs = len(keep_ranges)
-    fc_parts = []
-    concat_v = []
-    concat_a = []
-    for i, seg in enumerate(keep_ranges):
-        s, e = seg["s"], seg["e"]
-        fc_parts.append(f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
-        concat_v.append(f"[v{i}]")
-        if has_src_audio:
-            fc_parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
-            concat_a.append(f"[a{i}]")
-
-    total_keep_dur = max(0.5, sum(max(0.1, float(seg["e"]) - float(seg["s"])) for seg in keep_ranges))
-    if n_segs == 1 and keep_ranges[0]["s"] == 0.0:
-        v_chain = "[0:v]"
-        a_chain = "[0:a]" if has_src_audio else None
-        fc_parts = []
-    else:
-        if has_src_audio:
-            pairs = "".join(f"{concat_v[i]}{concat_a[i]}" for i in range(n_segs))
-            fc_parts.append(pairs + f"concat=n={n_segs}:v=1:a=1[vcat][acat]")
-            a_chain = "[acat]"
-        else:
-            fc_parts.append("".join(concat_v) + f"concat=n={n_segs}:v=1:a=0[vcat]")
-            a_chain = None
-        v_chain = "[vcat]"
-
     low_ram = hw.get("ram_gb", 8.0) <= 1.2
 
     # Cap export resolution to 720p on <=1.2GB containers to prevent OOM
@@ -1301,6 +1286,42 @@ def render_video(
             w_even, h_even = 1280, 720
     scale_flags = "bilinear" if low_ram else "lanczos"
     scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black"
+
+    total_keep_dur = max(0.5, sum(max(0.1, float(seg["e"]) - float(seg["s"])) for seg in keep_ranges))
+    fc_parts = []
+    concat_v = []
+    concat_a = []
+    if n_segs == 1 and keep_ranges[0]["s"] == 0.0 and float(keep_ranges[0]["e"]) >= float(src_info.get("duration") or 0.0) - 0.15:
+        v_chain = "[0:v]"
+        a_chain = "[0:a]" if has_src_audio else None
+    elif n_segs > 6 or (low_ram and n_segs > 2):
+        # Single-decoder CFR selection avoids N simultaneous trim decoders blowing container RAM!
+        sel_expr = "+".join(f"between(t,{float(seg['s']):.3f},{float(seg['e']):.3f})" for seg in keep_ranges)
+        fc_parts.append(f"[0:v]fps=30,{scale_base},select='{sel_expr}',setpts=N/(30*TB)[vsel]")
+        v_chain = "[vsel]"
+        if has_src_audio:
+            fc_parts.append(f"[0:a]aresample=44100,aselect='{sel_expr}',asetpts=N/(44100*TB)[asel]")
+            a_chain = "[asel]"
+        else:
+            a_chain = None
+    else:
+        for i, seg in enumerate(keep_ranges):
+            s, e = seg["s"], seg["e"]
+            fc_parts.append(f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
+            concat_v.append(f"[v{i}]")
+            if has_src_audio:
+                fc_parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
+                concat_a.append(f"[a{i}]")
+        if has_src_audio:
+            pairs = "".join(f"{concat_v[i]}{concat_a[i]}" for i in range(n_segs))
+            fc_parts.append(pairs + f"concat=n={n_segs}:v=1:a=1[vcat][acat]")
+            a_chain = "[acat]"
+        else:
+            fc_parts.append("".join(concat_v) + f"concat=n={n_segs}:v=1:a=0[vcat]")
+            a_chain = None
+        v_chain = "[vcat]"
+
+    pre_scaled_done = (v_chain == "[vsel]")
 
     # Instant jump-cut punch-in close-up focused near the speaker's upper/face framing (no bouncy keyframe drift!)
     zoom_filter = ""
@@ -1364,11 +1385,16 @@ def render_video(
 
     use_fc = bool(fc_parts or broll_inputs or card_inputs or color_grade)
     af_chain = "highpass=f=65,acompressor=threshold=-22dB:ratio=1.7:attack=12:release=140:makeup=1.2,alimiter=limit=0.95" if (studio_audio and has_src_audio) else ""
+    base_scale_step = "" if pre_scaled_done else scale_base
 
     if use_fc:
         grade_4k = ",unsharp=5:5:0.75:3:3:0.0,eq=contrast=1.08:saturation=1.14:brightness=0.02:gamma=1.02" if color_grade else ""
-        fc_parts.append(f"{v_chain}{scale_base}{zoom_filter}{grade_4k}[vprep]")
-        cur_v = "[vprep]"
+        prep_chain = f"{base_scale_step}{zoom_filter}{grade_4k}".lstrip(",")
+        if prep_chain:
+            fc_parts.append(f"{v_chain}{prep_chain}[vprep]")
+            cur_v = "[vprep]"
+        else:
+            cur_v = v_chain
 
         if has_bokeh:
             fc_parts.append(
@@ -1500,8 +1526,10 @@ def render_video(
 
     if low_ram:
         cpu_cmd = base_cmd + [
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
-            "-rc-lookahead", "10", "-refs", "1", "-bf", "0",
+            "-filter_threads", "1", "-filter_complex_threads", "1",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
+            "-maxrate", "4500k", "-bufsize", "2M",
+            "-rc-lookahead", "6", "-refs", "1", "-bf", "0",
             "-threads", "1", str(out_path)
         ]
     else:

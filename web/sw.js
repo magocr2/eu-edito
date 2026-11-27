@@ -1,4 +1,4 @@
-const CACHE = 'eu-edito-web-v11';
+const CACHE = 'eu-edito-web-v12';
 const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
