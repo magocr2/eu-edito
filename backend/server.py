@@ -248,6 +248,8 @@ def _run_render_pipeline(job_id, opts):
                 if ml.get("replace_captions", True):
                     suppress_intervals.append((ms, me))
                 params = dict(ml.get("params") or {})
+                if ml.get("scene_plan") and "scene_plan" not in params:
+                    params["scene_plan"] = ml["scene_plan"]
                 if ml.get("position"):
                     params["position"] = ml["position"]
                 if ml.get("prompt"):

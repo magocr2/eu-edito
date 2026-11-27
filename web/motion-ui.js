@@ -144,8 +144,12 @@
     ctx.restore();
   }
 
-  function drawMotionCanvas(canvas, tplId, params, prog, tSec) {
+  function drawMotionCanvas(canvas, tplId, params, prog, tSec, itemObj) {
     if (!canvas) return;
+    if (window.EuEditoScenePlayer && ((itemObj && itemObj.scene_plan) || (params && params.scene_plan))) {
+      window.EuEditoScenePlayer.renderFrame(canvas, itemObj || { scene_plan: params.scene_plan }, prog, tSec);
+      return;
+    }
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
@@ -357,7 +361,7 @@
         const prog = (vidLoaded && !vid.paused)
           ? Math.max(0, Math.min(1, (tNow - active.start) / dur))
           : ((nowMs / 1000) % dur) / dur;
-        drawMotionCanvas(cv, active.template_id, active.params || {}, prog, nowMs / 1000);
+        drawMotionCanvas(cv, active.template_id, active.params || {}, prog, nowMs / 1000, active);
         if (vidLoaded && liveOverlay) {
           liveOverlay.hidden = active.replace_captions !== false;
         }
@@ -375,7 +379,7 @@
       const s = suggestions[idx];
       if (!s) return;
       const p = ((nowMs / 1000) % 2.8) / 2.8;
-      drawMotionCanvas(c, s.template_id, s.params || {}, 0.25 + 0.7 * p, nowMs / 1000);
+      drawMotionCanvas(c, s.template_id, s.params || {}, 0.25 + 0.7 * p, nowMs / 1000, s);
     });
     requestAnimationFrame(tickPreviewLoop);
   }
@@ -499,6 +503,7 @@
       scale: Number((sug.params && sug.params.scale) || 100),
       replace_captions: sug.replace_captions !== false,
       prompt: sug.prompt || (sug.params && sug.params.visual_prompt) || sug.excerpt || '',
+      scene_plan: sug.scene_plan || (sug.params && sug.params.scene_plan) || null,
       params: JSON.parse(JSON.stringify(sug.params || {})),
       render_status: 'pending',
       asset_id: '',
@@ -604,6 +609,7 @@
       l.template_id = d.template_id || l.template_id;
       l.template_name = d.template_name || l.template_name;
       l.category = d.category || l.category;
+      l.scene_plan = d.scene_plan || (d.params && d.params.scene_plan) || l.scene_plan;
       l.params = d.params;
       l.prompt = promptText.trim();
       l.render_status = 'pending';
@@ -748,6 +754,23 @@
               l.params.scale = l.scale;
             } else {
               l.params[key] = inp.value;
+            }
+            // Live sync edits into declarative scene_plan so preview reflects immediately
+            if (l.scene_plan && Array.isArray(l.scene_plan.layers)) {
+              if (key === 'accent_color' && /^#[0-9a-f]{6}$/i.test(inp.value)) {
+                const hx = inp.value.slice(1);
+                l.scene_plan.palette = l.scene_plan.palette || {};
+                l.scene_plan.palette.primary = [parseInt(hx.slice(0,2),16), parseInt(hx.slice(2,4),16), parseInt(hx.slice(4,6),16)];
+                l.scene_plan.palette.primary_hex = inp.value;
+              }
+              l.scene_plan.layers.forEach((sl) => {
+                if (sl.component === 'kinetic_headline' && sl.props) {
+                  if (key === 'title') sl.props.title = inp.value;
+                  if (key === 'accent_text') sl.props.accent = inp.value;
+                } else if (sl.props) {
+                  if (key === 'labels') sl.props.labels = l.params.labels;
+                }
+              });
             }
             l.render_status = 'pending';
             if (typeof window.onMotionLayersChanged === 'function') window.onMotionLayersChanged();
