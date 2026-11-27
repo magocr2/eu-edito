@@ -695,53 +695,69 @@ def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=560):
 
 
 def _ensure_sfx_wav(sfx_dir, kind="pop"):
-    """Synthesize punchy, studio-clean SFX WAV files (pop, whoosh, impact, chime, click)."""
+    """Synthesize broadcast-clean, balanced SFX WAVs (pop, whoosh, impact, chime, click, transition)."""
     import math
     import random
     import struct
     import wave
 
     kind = (kind or "pop").lower().strip()
-    if kind not in ("pop", "whoosh", "impact", "chime", "click"):
+    if kind not in ("pop", "whoosh", "impact", "chime", "click", "transition"):
         kind = "pop"
     Path(sfx_dir).mkdir(parents=True, exist_ok=True)
-    out_wav = Path(sfx_dir) / f"sfx_{kind}.wav"
+    out_wav = Path(sfx_dir) / f"sfx_v2_{kind}.wav"
     if out_wav.exists() and out_wav.stat().st_size > 1000:
         return out_wav
 
     sr = 44100
-    dur = 0.36 if kind in ("whoosh", "impact", "chime") else 0.20
+    dur = 0.42 if kind in ("whoosh", "impact", "chime", "transition") else 0.14
     n_samples = int(sr * dur)
     frames = bytearray()
     rng = random.Random(42)
-    lp = 0.0
+    lp1 = 0.0
+    lp2 = 0.0
     for i in range(n_samples):
         t = i / sr
         if kind == "whoosh":
-            env = math.sin(math.pi * (t / dur)) ** 1.25
+            # Silky low-passed air sweep peaking around 0.14s
+            u = t / dur
+            env = (math.sin(math.pi * u) ** 1.6) * (0.4 + 0.6 * u)
             noise = rng.uniform(-1.0, 1.0)
-            lp = lp * 0.82 + noise * 0.18
-            sweep = math.sin(2.0 * math.pi * (200.0 + 520.0 * (t / dur)) * t)
-            val = 0.56 * env * (lp * 1.6 + 0.42 * sweep)
+            lp1 = lp1 * 0.88 + noise * 0.12
+            lp2 = lp2 * 0.82 + lp1 * 0.18
+            val = 0.52 * env * (lp2 * 2.2)
+        elif kind == "transition":
+            # Smooth swoosh + soft warm wooden accent right at 0.14s
+            u = t / dur
+            env = math.sin(math.pi * u) ** 1.4
+            noise = rng.uniform(-1.0, 1.0)
+            lp1 = lp1 * 0.86 + noise * 0.14
+            pulse_t = max(0.0, t - 0.11)
+            tick = 0.36 * math.exp(-pulse_t * 26.0) * math.sin(2.0 * math.pi * (140.0 * math.exp(-pulse_t * 14.0) + 90.0) * pulse_t) if t >= 0.11 else 0.0
+            val = 0.38 * env * (lp1 * 1.9) + tick
         elif kind == "impact":
-            env = math.exp(-t * 8.5) * min(1.0, t / 0.005)
-            freq = 55.0 + 115.0 * math.exp(-t * 20.0)
-            val = 0.68 * env * math.sin(2.0 * math.pi * freq * t)
+            # Warm cinematic sub-punch (octave 48Hz + 96Hz + soft felt attack)
+            env = math.exp(-t * 7.8) * min(1.0, t / 0.008)
+            freq = 48.0 + 72.0 * math.exp(-t * 18.0)
+            val = 0.58 * env * (0.75 * math.sin(2.0 * math.pi * freq * t) + 0.25 * math.sin(2.0 * math.pi * (freq * 2.0) * t))
         elif kind == "chime":
-            env = math.exp(-t * 7.5) * min(1.0, t / 0.004)
-            val = 0.48 * env * (
-                math.sin(2.0 * math.pi * 880.0 * t)
-                + 0.48 * math.sin(2.0 * math.pi * 1320.0 * t)
+            # Soft warm triad sparkle (no harsh high harmonics)
+            env = math.exp(-t * 7.0) * min(1.0, t / 0.006)
+            val = 0.36 * env * (
+                0.5 * math.sin(2.0 * math.pi * 523.25 * t)
+                + 0.35 * math.sin(2.0 * math.pi * 659.25 * t)
+                + 0.25 * math.sin(2.0 * math.pi * 783.99 * t)
             )
         elif kind == "click":
-            env = math.exp(-t * 42.0) * min(1.0, t / 0.002)
-            val = 0.56 * env * math.sin(2.0 * math.pi * (920.0 + 680.0 * math.exp(-t * 70.0)) * t)
+            # Soft tactile UI tap (muted 16ms)
+            env = math.exp(-t * 48.0) * min(1.0, t / 0.002)
+            val = 0.42 * env * math.sin(2.0 * math.pi * (520.0 + 360.0 * math.exp(-t * 75.0)) * t)
         else:
-            env = math.exp(-t * 20.0) * min(1.0, t / 0.004)
-            freq = 115.0 + 210.0 * math.exp(-t * 32.0)
-            val = 0.60 * env * math.sin(2.0 * math.pi * freq * t)
-            val += 0.16 * math.exp(-t * 50.0) * math.sin(2.0 * math.pi * 1180.0 * t)
-        sample = max(-32767, min(32767, int(max(-0.96, min(0.96, val)) * 32767)))
+            # Soft muted bubble pop peaking fast (~6ms)
+            env = math.exp(-t * 24.0) * min(1.0, t / 0.005)
+            freq = 82.0 + 130.0 * math.exp(-t * 32.0)
+            val = 0.48 * env * math.sin(2.0 * math.pi * freq * t)
+        sample = max(-32767, min(32767, int(max(-0.92, min(0.92, val)) * 32767)))
         frames.extend(struct.pack("<h", sample))
 
     with wave.open(str(out_wav), "wb") as wf:
@@ -752,17 +768,28 @@ def _ensure_sfx_wav(sfx_dir, kind="pop"):
     return out_wav
 
 
-def pick_sfx_moments(captions, sfx_style="auto", sfx_all_highlights=True, max_sfx=40, min_gap_s=0.45):
-    """Return sorted list of (time_s, kind) tuples for highlight words and transitions."""
-    if not captions:
+def pick_sfx_moments(captions, sfx_style="auto", sfx_all_highlights=True, motion_layers=None, max_sfx=40, min_gap_s=0.45):
+    """Return acoustically aligned (time_s, kind) pairs matched to spoken highlights & visual events."""
+    if not captions and not motion_layers:
         return []
     style = (sfx_style or "auto").lower().strip()
-    auto_cycle = ["pop", "whoosh", "impact", "chime", "click"]
     explicit = []
     all_hl = []
     auto_candidates = []
 
-    for idx, c in enumerate(captions):
+    def _align_t(t_ref, k):
+        # Compensate attack ramp so the acoustic peak locks right onto the spoken word or entrance
+        if k in ("whoosh", "transition"):
+            return round(max(0.0, t_ref - 0.12), 3)
+        return round(max(0.0, t_ref - 0.01), 3)
+
+    # Always add aligned transition SFX on Motion Graphic entrances when style is auto/whoosh/transition
+    for ml in (motion_layers or []):
+        ms = max(0.0, float(ml.get("start", 0.0)))
+        mk = "transition" if style in ("auto", "whoosh", "transition") else style
+        explicit.append((_align_t(ms, mk), mk))
+
+    for idx, c in enumerate(captions or []):
         words = c.get("words") or []
         if not words:
             continue
@@ -777,71 +804,70 @@ def pick_sfx_moments(captions, sfx_style="auto", sfx_all_highlights=True, max_sf
         sfx_val = c.get("sfx")
         if sfx_val is False:
             continue
-        if isinstance(sfx_val, str) and sfx_val in ("pop", "whoosh", "impact", "chime", "click", "auto"):
-            chosen_k = auto_cycle[idx % len(auto_cycle)] if sfx_val == "auto" else sfx_val
-            explicit.append((round(t_start if chosen_k == "whoosh" else t_word, 3), chosen_k))
+        if isinstance(sfx_val, str) and sfx_val in ("pop", "whoosh", "impact", "chime", "click", "transition", "auto"):
+            chosen_k = "pop" if sfx_val == "auto" else sfx_val
+            ref = t_start if chosen_k in ("whoosh", "transition") else t_word
+            explicit.append((_align_t(ref, chosen_k), chosen_k))
             continue
         if sfx_val is True:
-            chosen_k = auto_cycle[idx % len(auto_cycle)] if style == "auto" else style
-            explicit.append((round(t_word, 3), chosen_k))
+            chosen_k = "pop" if style == "auto" else style
+            explicit.append((_align_t(t_word, chosen_k), chosen_k))
             continue
 
-        prev_e = float(captions[idx - 1]["e"]) if idx > 0 else 0.0
         txt = c.get("text") or ""
+        low = txt.lower()
+        prev_e = float(captions[idx - 1]["e"]) if idx > 0 else 0.0
+        has_media = bool(c.get("broll_id") or c.get("broll") or c.get("card_ids") or c.get("card"))
         pref_kind = style if style != "auto" else "pop"
+        t_ref = t_word
         if style == "auto":
-            if c.get("broll_id") or c.get("broll") or c.get("card_ids") or c.get("card") or (idx > 0 and t_start - prev_e >= 0.35):
-                pref_kind = "whoosh"
-            elif float(c.get("s", 0.0)) <= 3.5:
+            if has_media or (idx > 0 and t_start - prev_e >= 0.45):
+                pref_kind = "transition"
+                t_ref = t_start
+            elif re.search(r"triplic|dobr|cresc|resultado|aten[çc]|nunca|segredo|erro|impact", low):
                 pref_kind = "impact"
-            elif "?" in txt or "!" in txt:
+            elif re.search(r"\d+|%|r\$|reais|\?|!", txt):
                 pref_kind = "chime"
             else:
-                pref_kind = "pop" if idx % 3 != 2 else "click"
+                pref_kind = "pop" if idx % 2 == 0 else "click"
 
         if sfx_all_highlights:
-            all_hl.append((round(t_word, 3), pref_kind))
+            all_hl.append((_align_t(t_ref, pref_kind), pref_kind))
         else:
-            sc = 0.0
+            sc = 2.2 if has_media else 0.0
             if float(c.get("s", 0.0)) <= 3.5:
-                sc += 2.5
-            if "?" in txt or "!" in txt:
-                sc += 2.0
-            if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
                 sc += 2.2
-            for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
+            if "?" in txt or "!" in txt or re.search(r"\d+|%|r\$", txt):
+                sc += 2.0
+            for wd in re.findall(r"[a-zà-ú]+", low):
                 if wd in _IMPACT_WORDS:
-                    sc += 2.0
+                    sc += 1.8
             if sc >= 1.5:
-                auto_candidates.append((sc, round(t_word, 3), pref_kind))
+                auto_candidates.append((sc, _align_t(t_ref, pref_kind), pref_kind))
 
     if sfx_all_highlights:
-        merged = explicit + all_hl
-        seen = set()
+        merged = sorted(explicit + all_hl, key=lambda x: x[0])
         out = []
-        for t, k in sorted(merged, key=lambda x: x[0]):
-            if all(abs(t - st) >= min_gap_s for st, _ in out) and t not in seen:
-                seen.add(t)
+        for t, k in merged:
+            if all(abs(t - st) >= min_gap_s for st, _ in out):
                 out.append((t, k))
         return out[:max_sfx]
 
-    if explicit:
-        seen = set()
+    if explicit and not auto_candidates:
         out = []
-        for t, k in sorted(explicit):
-            if t not in seen:
-                seen.add(t)
+        for t, k in sorted(explicit, key=lambda x: x[0]):
+            if all(abs(t - st) >= min_gap_s for st, _ in out):
                 out.append((t, k))
         return out[:max_sfx]
 
     auto_candidates.sort(key=lambda x: (-x[0], x[1]))
-    chosen = []
+    chosen = list(explicit)
     for _, t, k in auto_candidates:
-        if all(abs(t - ct) >= max(1.8, min_gap_s) for ct, _ in chosen):
+        if all(abs(t - ct) >= max(1.6, min_gap_s) for ct, _ in chosen):
             chosen.append((t, k))
-        if len(chosen) >= min(10, max_sfx):
+        if len(chosen) >= min(14, max_sfx):
             break
-    return sorted(chosen, key=lambda x: x[0])
+    return sorted(chosen, key=lambda x: x[0])[:max_sfx]
 
 
 def pick_impact_moments(captions, min_gap_s=6.0, max_ratio=0.30):
@@ -915,7 +941,7 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", hook_title="", hook_style="pill-white", hook_y_pct=16):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", suppress_intervals=None):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
     - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
@@ -1044,8 +1070,6 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&HE4000000,&H9E000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,36,36,36,1
 Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HF4000000,&HC8000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,0,{main_shadow},5,36,36,36,1
 Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_ass},&HFF000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{glow_bord},0,5,36,36,36,1
-Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
-Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1238,6 +1262,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         cap_s = float(c["s"])
         cap_e = float(c["e"])
+        # Skip captions during explanatory Motion Graphics that replace subtitles cleanly
+        if suppress_intervals:
+            mid_t = (cap_s + cap_e) * 0.5
+            if any(float(ss) - 0.12 <= mid_t <= float(se) + 0.12 for ss, se in suppress_intervals):
+                continue
         if not words:
             toks = text.split()
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
@@ -1295,29 +1324,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 2 lines cleanly centered: MAIN on top, small after below
             _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-
-    # Hook overlay
-    hook = (hook_title or "").strip()
-    if hook:
-        hy = int(height * max(8, min(55, float(hook_y_pct or 16))) / 100.0)
-        h_st = (hook_style or "pill-white").strip()
-        if h_st == "pill-accent":
-            events.append(
-                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookBox,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\c&H0008140C&\\3c{accent_ass}\\4c{accent_ass}\\fad(120,200)}}{hook}"
-            )
-        elif h_st == "glass-dark":
-            events.append(
-                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookDark,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fad(120,200)}}{hook}"
-            )
-        elif h_st == "clean-shadow":
-            hsize = max(28, int(48 * scale_f))
-            events.append(
-                f"Dialogue: 2,0:00:00.00,0:00:03.50,Main,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fs{hsize}\\c&H00FFFFFF&\\3c&HB8000000&\\4c&H5C000000&\\bord1\\shad3\\blur1.4\\fad(120,200)}}{hook}"
-            )
-        else:
-            events.append(
-                f"Dialogue: 2,0:00:00.00,0:00:03.50,HookBox,,0,0,0,,{{\\an5\\pos({pos_x},{hy})\\fad(120,200)}}{hook}"
-            )
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
@@ -1507,7 +1513,7 @@ def render_video(
             extra_inputs += ["-i", str(sfx_wav)]
 
     use_fc = bool(fc_parts or broll_inputs or card_inputs or motion_inputs or color_grade or sfx_events)
-    af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if (studio_audio and has_src_audio) else ""
+    af_chain = "highpass=f=65,acompressor=threshold=-22dB:ratio=1.7:attack=12:release=140:makeup=1.2,alimiter=limit=0.95" if (studio_audio and has_src_audio) else ""
 
     if use_fc:
         grade_4k = ",unsharp=5:5:0.75:3:3:0.0,eq=contrast=1.08:saturation=1.14:brightness=0.02:gamma=1.02" if color_grade else ""
@@ -1621,20 +1627,20 @@ def render_video(
             md = max(1.0, float(m.get("dur") or 3.2))
             me = ms + md
             mscale = max(0.55, min(1.40, float(m.get("scale", 100)) / 100.0))
-            mw_target = max(180, int(w_even * 0.72 * mscale))
+            mw_target = max(260, int(w_even * 0.92 * mscale))
             mw_target -= mw_target % 2
-            mpos = (m.get("position") or "top-center").lower()
-            pad_m = max(18, int(w_even * 0.04))
+            mpos = (m.get("position") or "center").lower()
+            pad_m = max(14, int(w_even * 0.03))
             if mpos == "top-left":
-                mx, my = f"{pad_m}", f"{int(h_even * 0.11)}"
+                mx, my = f"{pad_m}", f"{int(h_even * 0.12)}"
             elif mpos == "top-right":
-                mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.11)}"
+                mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.12)}"
             elif mpos == "bottom-card":
-                mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
-            elif mpos == "center":
-                mx, my = f"(W-w)/2", f"(H-h)/2"
-            else:
+                mx, my = f"(W-w)/2", f"{int(h_even * 0.50)}"
+            elif mpos == "top-center":
                 mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
+            else:
+                mx, my = f"(W-w)/2", f"(H-h)/2"
             fc_parts.append(
                 f"[{m_idx}:v]scale={mw_target}:-2:flags={scale_flags},format=rgba,"
                 f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
@@ -1662,7 +1668,7 @@ def render_video(
             for k, (t_s, sk) in enumerate(sfx_events):
                 ms = max(0, int(round(t_s * 1000)))
                 s_idx = sfx_kind_to_idx[sk]
-                fc_parts.append(f"[{s_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume=1.8,adelay={ms}|{ms}[sfx{k}]")
+                fc_parts.append(f"[{s_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume=1.35,adelay={ms}|{ms}[sfx{k}]")
                 sfx_tags.append(f"[sfx{k}]")
             fc_parts.append(f"{cur_a}{''.join(sfx_tags)}amix=inputs={len(sfx_tags)+1}:duration=first:normalize=0[aout]")
             cur_a = "[aout]"

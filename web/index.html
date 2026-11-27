@@ -56,8 +56,7 @@
             <div class="sz-right"><span>❤️</span><span>💬</span><span>↗️</span></div>
             <div class="sz-bottom">Legenda / Botões</div>
           </div>
-          <div id="hookOverlay" class="hook-overlay hook-pill-white" data-hy="16" hidden></div>
-          <canvas id="motionPreviewCanvas" class="mg-preview-canvas" width="340" height="140" data-pos="top-center" hidden></canvas>
+          <canvas id="motionPreviewCanvas" class="mg-preview-canvas" width="380" height="260" data-pos="center" hidden></canvas>
           <button type="button" id="safeZoneBtn" class="sz-btn">📱 Área segura</button>
           <span id="resTag" class="res-tag">1080p HD</span>
           <div id="previewQuickCtrl" class="pv-quick-ctrl" title="Arraste a legenda para altura ou use pinça / A- A+ para tamanho">
@@ -244,11 +243,11 @@
 
         <label class="toggle-row">
           <div>
-            <strong>🎙️ Voz de Estúdio (limpar áudio)</strong>
-            <small>Reduz ruído e equilibra volume da fala</small>
+            <strong>🎙️ Limpeza suave de áudio (opcional)</strong>
+            <small>Ative apenas se o áudio tiver ruído de fundo</small>
           </div>
           <span class="switch">
-            <input type="checkbox" id="studioAudioToggle" checked>
+            <input type="checkbox" id="studioAudioToggle">
             <span class="slider"></span>
           </span>
         </label>
@@ -271,6 +270,7 @@
               <option value="auto">Automático (Mix inteligente)</option>
               <option value="pop">Pop suave (palavras)</option>
               <option value="whoosh">Whoosh (transições)</option>
+              <option value="transition">Transição Motion (Sweep + Pop)</option>
               <option value="impact">Impacto grave (frases fortes)</option>
               <option value="chime">Brilho / Sininho (ênfase)</option>
               <option value="click">Clique moderno (cortes rápidos)</option>
@@ -327,21 +327,6 @@
           </label>
           <div id="cardList" class="media-queue"></div>
           <small class="broll-hint" id="cardHint" hidden>Automático alterna posições ou marque vários Cards no mesmo momento na Etapa 4.</small>
-        </div>
-
-        <label class="field hook-field">
-          <span>🎯 Título de Gancho (3,5s · arraste na prévia para posicionar)</span>
-          <input type="text" id="hookTitleInput" maxlength="55" placeholder="Ex.: O segredo que ninguém te conta…">
-        </label>
-
-        <div id="hookStylesBox" class="res-section" hidden>
-          <span class="res-label">Modelo do Título de Gancho</span>
-          <div class="hook-style-grid" id="hookStyleGrid">
-            <button type="button" class="res-pill is-active" data-hstyle="pill-white"><strong>Cartão Branco</strong></button>
-            <button type="button" class="res-pill" data-hstyle="pill-accent"><strong>Destaque Cor</strong></button>
-            <button type="button" class="res-pill" data-hstyle="glass-dark"><strong>Vidro Escuro</strong></button>
-            <button type="button" class="res-pill" data-hstyle="clean-shadow"><strong>Texto Limpo</strong></button>
-          </div>
         </div>
 
         <div class="res-section">

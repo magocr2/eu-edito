@@ -6,8 +6,6 @@ const $ = (id) => document.getElementById(id);
 let selectedFile = null;
 let selectedStyle = 'classic';
 let selectedLines = 3;
-let selectedHookStyle = 'pill-white';
-let selectedHookY = 16;
 let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
 let selectedBrolls = []; // [{ id, name, layout }]
@@ -217,10 +215,8 @@ function syncOverlay(animate = false) {
   }
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
-    $('hookOverlay')?.style.setProperty('--accent', $('accentColor').value);
   } else {
     ov.style.removeProperty('--accent');
-    $('hookOverlay')?.style.removeProperty('--accent');
   }
   $('posYVal').textContent = $('posY').value + '%';
   if (animate) animateOverlay(selectedStyle);
@@ -235,44 +231,6 @@ $('linesGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
     markDirtyAfterRender();
   });
 });
-
-$('hookStyleGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    $('hookStyleGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
-    btn.classList.add('is-active');
-    selectedHookStyle = btn.dataset.hstyle || 'pill-white';
-    const ho = $('hookOverlay');
-    if (ho) ho.className = 'hook-overlay hook-' + selectedHookStyle;
-    markDirtyAfterRender();
-  });
-});
-
-// Make Hook Title draggable vertically inside the phone preview
-(() => {
-  const ho = $('hookOverlay'), frame = $('previewWrap');
-  if (!ho || !frame) return;
-  let dragging = false, startY = 0, origPct = 16;
-  ho.addEventListener('pointerdown', (e) => {
-    dragging = true;
-    ho.setPointerCapture(e.pointerId);
-    startY = e.clientY;
-    origPct = selectedHookY;
-    e.preventDefault();
-  });
-  ho.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    const rect = frame.getBoundingClientRect();
-    if (!rect.height) return;
-    const dy = ((e.clientY - startY) / rect.height) * 100;
-    selectedHookY = Math.round(Math.max(8, Math.min(55, origPct + dy)));
-    ho.style.top = selectedHookY + '%';
-    ho.dataset.hy = String(selectedHookY);
-    markDirtyAfterRender();
-  });
-  const stop = () => { dragging = false; };
-  ho.addEventListener('pointerup', stop);
-  ho.addEventListener('pointercancel', stop);
-})();
 
 // Direct on-preview drag (height) + 2-finger pinch (size) + A-/A+ buttons for captions
 (() => {
@@ -599,16 +557,6 @@ $('safeZoneBtn')?.addEventListener('click', () => {
   $('safeZoneBtn').classList.toggle('is-on', on);
 });
 
-$('hookTitleInput')?.addEventListener('input', () => {
-  const val = $('hookTitleInput').value.trim();
-  const ho = $('hookOverlay');
-  ho.textContent = val;
-  ho.hidden = !val;
-  $('hookStylesBox').hidden = !val;
-  ho.className = 'hook-overlay hook-' + selectedHookStyle;
-  ho.style.top = selectedHookY + '%';
-});
-
 $('videoFile').addEventListener('change', (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
@@ -807,8 +755,8 @@ function renderCaptionEditor(captions) {
         });
         chipsBox.append(chip);
       });
-      const SFX_CYCLE = [false, 'auto', 'pop', 'whoosh', 'impact', 'chime', 'click'];
-      const SFX_LABELS = { auto: '🔊 Auto', pop: '🔊 Pop', whoosh: '🔊 Whoosh', impact: '🔊 Impacto', chime: '🔊 Brilho', click: '🔊 Clique' };
+      const SFX_CYCLE = [false, 'auto', 'pop', 'whoosh', 'transition', 'impact', 'chime', 'click'];
+      const SFX_LABELS = { auto: '🔊 Auto', pop: '🔊 Pop', whoosh: '🔊 Whoosh', transition: '🔊 Transição', impact: '🔊 Impacto', chime: '🔊 Brilho', click: '🔊 Clique' };
       const curSfx = currentCaptions[idx].sfx || false;
       const sfxBtn = document.createElement('button');
       sfxBtn.type = 'button';
@@ -980,9 +928,6 @@ $('generateBtn').addEventListener('click', async () => {
           brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout, start: b.start, end: b.end })),
           cards: selectedCards.map((c) => ({ id: c.id, anim: c.anim })),
           motion_layers: window.EuEditoMotion ? window.EuEditoMotion.getLayers() : [],
-          hook_title: ($('hookTitleInput')?.value || '').trim(),
-          hook_style: selectedHookStyle,
-          hook_y: selectedHookY,
           resolution: selectedResolution,
         }),
       });

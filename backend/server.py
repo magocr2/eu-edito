@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
-from motion_graphics import analyze_video_for_motion, list_catalog
+from motion_graphics import analyze_video_for_motion, build_motion_from_prompt, list_catalog
 from motion_worker import (
     cancel_motion_task,
     enqueue_motion_render,
@@ -232,6 +232,37 @@ def _run_render_pipeline(job_id, opts):
             res_choice = "720p"
         out_w, out_h = resolve_export_size(info["width"], info["height"], res_choice)
 
+        # Resolve approved Motion Graphics timeline layers FIRST so we know which captions they replace
+        raw_motions = list(opts.get("motion_layers") or [])
+        suppress_intervals = []
+        motion_items = []
+        if raw_motions:
+            _set_job(job_id, status="rendering", progress=68, message="Gerando Motion Graphics explicativos…")
+            for ml in raw_motions[:8]:
+                tid = str(ml.get("template_id") or "").strip()
+                if not tid:
+                    continue
+                ms = max(0.0, float(ml.get("start", 0.0)))
+                me = max(ms + 1.2, float(ml.get("end", ms + 3.2)))
+                dur = max(1.2, min(10.0, me - ms))
+                if ml.get("replace_captions", True):
+                    suppress_intervals.append((ms, me))
+                params = dict(ml.get("params") or {})
+                if ml.get("position"):
+                    params["position"] = ml["position"]
+                if ml.get("prompt"):
+                    params["prompt"] = ml["prompt"]
+                mw = 600 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 780
+                mh = 410 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 530
+                asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
+                motion_items.append({
+                    "path": asset_path,
+                    "start": ms,
+                    "dur": dur,
+                    "position": params.get("position", "center"),
+                    "scale": float(ml.get("scale", params.get("scale", 100))),
+                })
+
         generate_srt(captions, srt_path)
         generate_ass(
             captions,
@@ -245,15 +276,14 @@ def _run_render_pipeline(job_id, opts):
             caption_scale=float(opts.get("caption_scale", 100)),
             main_font_id=opts.get("main_font", ""),
             small_font_id=opts.get("small_font", ""),
-            hook_title=opts.get("hook_title", ""),
-            hook_style=opts.get("hook_style", "pill-white"),
-            hook_y_pct=float(opts.get("hook_y", 16)),
+            suppress_intervals=suppress_intervals,
         )
 
         sfx_times = pick_sfx_moments(
             captions,
             sfx_style=opts.get("sfx_style", "auto"),
             sfx_all_highlights=bool(opts.get("sfx_all_highlights", True)),
+            motion_layers=raw_motions,
         ) if bool(opts.get("sfx", True)) else []
 
         # Resolve multiple B-rolls with explicit start/end, per-caption timing, or automatic placement
@@ -317,32 +347,7 @@ def _run_render_pipeline(job_id, opts):
                 c_slot_idx += 1
                 card_items.append({"path": cp, "anim": crd.get("anim", "auto"), "start": st_t, "dur": 3.2})
 
-        # Resolve approved Motion Graphics timeline layers (non-destructive transparent RGBA overlays)
-        raw_motions = list(opts.get("motion_layers") or [])
-        motion_items = []
-        if raw_motions:
-            _set_job(job_id, status="rendering", progress=68, message="Gerando camadas de Motion Graphics…")
-            for ml in raw_motions[:8]:
-                tid = str(ml.get("template_id") or "").strip()
-                if not tid:
-                    continue
-                ms = max(0.0, float(ml.get("start", 0.0)))
-                me = max(ms + 1.2, float(ml.get("end", ms + 3.2)))
-                dur = max(1.2, min(10.0, me - ms))
-                params = dict(ml.get("params") or {})
-                if ml.get("position"):
-                    params["position"] = ml["position"]
-                mw = 440 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 560
-                mh = 180 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 230
-                asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
-                motion_items.append({
-                    "path": asset_path,
-                    "start": ms,
-                    "dur": dur,
-                    "position": params.get("position", "top-center"),
-                    "scale": float(ml.get("scale", params.get("scale", 100))),
-                })
-
+        # B-rolls & Cards already resolved above; skip duplicate motion resolution block
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
         render_video(
             src_path,
@@ -459,10 +464,22 @@ def api_motion_render_layer():
     tid = data.get("template_id", "revenue_growth")
     params = data.get("params") or {}
     dur = float(data.get("duration", 3.2))
-    w = int(data.get("width", 560))
-    h = int(data.get("height", 230))
+    def_w = 600 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 780
+    def_h = 410 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 530
+    w = int(data.get("width", def_w))
+    h = int(data.get("height", def_h))
     res = enqueue_motion_render(tid, params, duration=dur, width=w, height=h)
     return jsonify(res)
+
+
+@app.route("/api/motion/from_prompt", methods=["POST"])
+def api_motion_from_prompt():
+    data = request.get_json(silent=True) or {}
+    prompt_txt = (data.get("prompt") or "").strip()
+    if not prompt_txt:
+        return jsonify({"error": "Informe um texto/prompt."}), 400
+    spec = build_motion_from_prompt(prompt_txt, preferred_template_id=data.get("template_id"))
+    return jsonify({"ok": True, **spec})
 
 
 @app.route("/api/motion/tasks/<task_id>")
