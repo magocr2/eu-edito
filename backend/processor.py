@@ -594,32 +594,32 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     """
     styles_cfg = {
         "classic": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 102, "main_bold": -1, "main_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 58, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 100, "main_bold": -1, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "model-07": {
-            "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 110, "main_bold": -1, "main_italic": -1,
+            "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 108, "main_bold": -1, "main_italic": -1,
             "upper": True, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
-            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 98, "main_bold": -1, "main_italic": 0,
+            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 96, "main_bold": -1, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 52, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 96, "main_bold": 0, "main_italic": 0,
+            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
+            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean-14": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 112, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 110, "main_bold": 0, "main_italic": -1,
             "upper": False, "default_accent": "#FFDFC4", "anim": "pop",
         },
         "clean-9": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_file": "CreatoDisplay-Regular.otf", "main_size": 92, "main_bold": 0, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "blur",
         },
@@ -629,22 +629,22 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
             "upper": False, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 110, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 108, "main_bold": 0, "main_italic": -1,
             "upper": False, "default_accent": "#FFFFFF", "anim": "cut",
         },
         "clean-15": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 94, "main_bold": -1, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "clean-lavish": {
-            "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 104, "main_bold": 0, "main_italic": 0,
+            "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 102, "main_bold": 0, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 50, "small_bold": 0, "small_italic": -1,
+            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
             "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "slide",
         },
@@ -660,10 +660,10 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     pos_y = int(height * max(16, min(84, float(pos_y_pct))) / 100.0)
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
-    glow_blur = round(max(6.0, 12.0 * scale_f), 1)
-    glow_bord = round(max(2.0, 3.5 * scale_f), 1)
+    glow_blur = round(max(10.0, 18.0 * scale_f), 1)
+    glow_bord = round(max(3.5, 6.0 * scale_f), 1)
     has_color_accent = chosen_hex.upper() not in ("#FFFFFF", "FFFFFF")
-    glow_alpha = "&H92&" if has_color_accent else "&HB6&"
+    glow_alpha = "&H50&" if has_color_accent else "&H70&"
 
     # True ASS alpha: FF=transparent, 00=opaque! &HC4000000& = subtle edge, &H5C000000& = soft diffused drop shadow
     header = f"""[Script Info]
@@ -725,7 +725,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         t0 = max(0, int(rel_ms))
         dur = 25 if anim == "cut" else (190 if anim == "blur" else 135)
         if is_glow:
-            return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a{glow_alpha}\\3a&HCE&\\4a&HFF&)"
+            return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a{glow_alpha}\\3a&H78&\\4a&HFF&)"
         return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a&H00&\\3a&HC4&\\4a&H5C&)"
 
     def _entry_motion(x, y, is_main=False, target_scale=100, is_glow=False):
@@ -862,50 +862,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         main_w = [words[main_idx]]
         after = words[main_idx + 1:]
 
-        # Decide cleanly between 2 rows vs 3 staggered editorial rows
-        use_three = False
-        if req_lines >= 3 and before and after:
-            before_chars = sum(len(x["w"]) for x in before)
-            after_chars = sum(len(x["w"]) for x in after)
-            # Avoid weak 1-short-word orphans (e.g. "tem", "que", "de") alone on row 3
-            if len(words) >= 4 and (len(before) >= 2 or before_chars >= 6) and (len(after) >= 2 or after_chars >= 5):
-                use_three = True
+        # Decide cleanly between 2 rows vs 3 centered rows (keeping MAIN centered when before+after exist)
+        use_three = bool(req_lines >= 3 and before and after)
 
-        # Visual baseline offsets: keep top & bottom whitespace symmetric when MAIN is uppercase
+        # Visual baseline offsets: compact, cohesive spacing around MAIN words with zero overlap
         upper_main = cfg["upper"]
-        top_offset = int(m_size * 0.54 + s_size * 0.14)
-        bot_offset = int(m_size * (0.34 if upper_main else 0.42) + s_size * 0.21)
-        main_txt = main_w[0]["w"].upper() if upper_main else main_w[0]["w"]
-        main_w_px = min(width * 0.78, _measure(main_txt, is_main=True))
-        stag = min(int(width * 0.13), max(int(width * 0.04), int(main_w_px * 0.18)))
+        top_offset = int(m_size * 0.44 + s_size * 0.38)
+        bot_offset = int(m_size * (0.44 if upper_main else 0.48) + s_size * 0.44)
 
         if use_three:
-            # Subtle editorial diagonal stagger only on 3-line balanced phrases
-            _emit_mixed_line(before, pos_x - stag, pos_y - top_offset, cap_s, t0s, t1s, main_local_idx=None)
+            # All 3 rows centered so MAIN stays in the middle while surrounding words reveal in speech order
+            _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x + stag, pos_y + bot_offset, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, t0s, t1s, main_local_idx=None)
         elif before and after:
             # Strictly 2 centered balanced rows when MAIN is in the middle
             before_chars = sum(len(x["w"]) for x in before)
             after_chars = sum(len(x["w"]) for x in after)
-            row_gap_up = int(m_size * 0.46 + s_size * 0.14)
-            row_gap_dn = int(m_size * (0.20 if upper_main else 0.26))
+            row_gap_up = int(m_size * 0.34 + s_size * 0.24)
+            row_gap_dn = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.16)
             if after_chars <= before_chars:
                 _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
                 _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
             else:
                 _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
-                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.24), cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.14), cap_s, t0s, t1s, main_local_idx=None)
         elif before:
             # 2 lines cleanly centered: small before on top, MAIN below
-            top_2 = int(m_size * 0.42 + s_size * 0.14)
-            bot_2 = int(m_size * 0.18)
+            top_2 = int(m_size * 0.32 + s_size * 0.38)
+            bot_2 = int(m_size * 0.20)
             _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
             # 2 lines cleanly centered: MAIN on top, small after below
-            top_2 = int(m_size * 0.14)
-            bot_2 = int(m_size * (0.34 if upper_main else 0.42) + s_size * 0.18)
+            top_2 = int(m_size * 0.22)
+            bot_2 = int(m_size * (0.28 if upper_main else 0.34) + s_size * 0.42)
             _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
 
