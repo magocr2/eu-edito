@@ -654,8 +654,9 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
     m_size = max(28, int(cfg["main_size"] * scale_f * user_scale))
-    outline = round(max(0.7, 1.0 * scale_f), 1)
-    shadow = round(max(2.2, 3.6 * scale_f), 1)
+    outline = round(max(0.4, 0.6 * scale_f), 1)
+    shadow = round(max(1.2, 2.0 * scale_f), 1)
+    main_shadow = round(max(0.6, 1.0 * scale_f), 1)
     pos_x = int(width * 0.5)
     pos_y = int(height * max(16, min(84, float(pos_y_pct))) / 100.0)
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
@@ -663,9 +664,9 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     glow_blur = round(max(10.0, 18.0 * scale_f), 1)
     glow_bord = round(max(3.5, 6.0 * scale_f), 1)
     has_color_accent = chosen_hex.upper() not in ("#FFFFFF", "FFFFFF")
-    glow_alpha = "&H50&" if has_color_accent else "&H70&"
+    glow_alpha = "&H5A&" if has_color_accent else "&H7A&"
 
-    # True ASS alpha: FF=transparent, 00=opaque! &HC4000000& = subtle edge, &H5C000000& = soft diffused drop shadow
+    # True ASS alpha: FF=transparent, 00=opaque! Ultra-soft edge & shadow so highlight words stay clean on glow
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -675,8 +676,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&HC4000000,&H5C000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,36,36,36,1
-Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HC4000000,&H5C000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{round(shadow * 1.15, 1)},5,36,36,36,1
+Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&HE4000000,&H9E000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,36,36,36,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HF4000000,&HC8000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,0,{main_shadow},5,36,36,36,1
 Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_ass},&HFF000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{glow_bord},0,5,36,36,36,1
 Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
@@ -721,27 +722,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             sc += 12
         return sc
 
-    def _word_reveal(rel_ms, is_glow=False):
+    def _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=False):
         t0 = max(0, int(rel_ms))
-        dur = 25 if anim == "cut" else (190 if anim == "blur" else 135)
+        dur = 45 if anim == "cut" else (190 if anim == "blur" else 135)
+        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
+        exit_s = max(t0 + dur + 30, dur_ms - exit_dur)
+        exit_tag = f"\\t({exit_s},{dur_ms},2.3,\\alpha&HFF&)" if dur_ms > (t0 + dur + 110) else ""
         if is_glow:
-            return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a{glow_alpha}\\3a&H78&\\4a&HFF&)"
-        return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a&H00&\\3a&HC4&\\4a&H5C&)"
+            return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a{glow_alpha}\\3a&H82&\\4a&HFF&){exit_tag}"
+        if is_main_tok:
+            return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
+        return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
 
-    def _entry_motion(x, y, is_main=False, target_scale=100, is_glow=False):
-        d = int(14 * scale_f)
+    def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, is_glow=False):
+        d = int(26 * scale_f)
+        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
+        exit_s = max(260, dur_ms - exit_dur)
+        s_exit = max(60, int(target_scale * 0.94))
+        exit_scale = f"\\t({exit_s},{dur_ms},2.3,\\fscx{s_exit}\\fscy{s_exit})" if dur_ms > 340 else ""
+
         if anim == "rise":
-            return f"\\move({x},{y + d},{x},{y},0,220)"
+            s_lo = max(55, int(target_scale * 0.92))
+            return f"\\move({x},{y + d},{x},{y},0,230)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
         if anim == "slide":
-            return f"\\move({x + int(d * 1.2)},{y},{x},{y},0,220)"
+            s_lo = max(55, int(target_scale * 0.93))
+            return f"\\move({x + int(d * 1.1)},{y},{x},{y},0,230)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
         if anim == "blur":
-            end_blur = glow_blur if is_glow else 1.1
-            return f"\\move({x},{y - int(d * 0.6)},{x},{y},0,210)\\blur{round(end_blur + 3.5, 1)}\\t(0,220,\\blur{end_blur})"
-        if anim == "pop" and is_main:
-            s_lo = max(50, int(target_scale * 0.78))
-            s_hi = int(target_scale * 1.05)
-            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,150,\\fscx{s_hi}\\fscy{s_hi})\\t(150,240,\\fscx{target_scale}\\fscy{target_scale})"
-        return f"\\pos({x},{y})"
+            end_blur = glow_blur if is_glow else 0.9
+            s_lo = max(55, int(target_scale * 0.93))
+            return f"\\move({x},{y - int(d * 0.55)},{x},{y},0,220)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale})\\blur{round(end_blur + 4.0, 1)}\\t(0,240,0.35,\\blur{end_blur}){exit_scale}"
+        if anim == "pop":
+            s_lo = max(50, int(target_scale * (0.80 if is_main else 0.90)))
+            s_hi = int(target_scale * (1.05 if is_main else 1.02))
+            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,145,0.34,\\fscx{s_hi}\\fscy{s_hi})\\t(145,245,0.5,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
+        # cut: snappy cubic micro-scale entrance + smooth exit
+        s_lo = max(60, int(target_scale * 0.94))
+        return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,130,0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
 
     def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None):
         """Return inline ASS override tag for switching between Small and Main styles inside one line."""
@@ -757,17 +773,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             msz = main_sz_override or m_size
             return (
                 f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}"
-                f"\\1c{accent_ass}\\3c&HC4000000&\\4c&H5C000000&\\bord{outline}\\shad{round(shadow * 1.15, 1)}\\blur1.0"
+                f"\\1c{accent_ass}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.8"
             )
         return (
             f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}"
-            f"\\1c&H00FFFFFF&\\3c&HC4000000&\\4c&H5C000000&\\bord{outline}\\shad{shadow}\\blur1.0"
+            f"\\1c&H00FFFFFF&\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.8"
         )
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, t0s, t1s, main_local_idx=None, inline_main_scale=1.0):
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_idx=None, inline_main_scale=1.0):
         """Render a single horizontal ASS line (Small or mixed Small+Main) centered natively by libass."""
         if not tokens:
             return
+        dur_ms = max(120, int((cap_e + 0.12 - cap_s) * 1000))
         max_w = width * 0.86
         inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if main_local_idx is not None else m_size
         est_w = 0.0
@@ -782,14 +799,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if half_w * 2 > width * 0.82:
             safe_x = pos_x
 
-        scale_tag = f"\\fscx{fit_pct}\\fscy{fit_pct}" if fit_pct < 100 else ""
         has_main = (main_local_idx is not None and 0 <= main_local_idx < len(tokens))
 
         # Layer 1: Soft Glow halo behind any Main highlight token on this line
         if has_main:
             solo_main_glow = (len(tokens) == 1)
-            glow_motion = _entry_motion(safe_x, y_row, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
-            glow_scale = "" if (solo_main_glow and anim == "pop") else scale_tag
+            glow_motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
             glow_blur_tag = f"\\blur{glow_blur}" if anim != "blur" else ""
             g_chunks = []
             for idx, w in enumerate(tokens):
@@ -798,7 +813,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if is_m:
                     rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
                     sw = _inline_switch(True, is_glow=True, main_sz_override=inline_m_sz)
-                    g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, is_glow=True)}}}{txt}")
+                    g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, dur_ms, is_glow=True, is_main_tok=True)}}}{txt}")
                 else:
                     sw = _inline_switch(False, is_glow=True, main_sz_override=inline_m_sz)
                     g_chunks.append(f"{{{sw}}}{txt}")
@@ -807,20 +822,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Separate trailing words back into Small before spacing so inter-word spaces never use Main metrics
             glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
             events.append(
-                f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_scale}{glow_blur_tag}}}{glow_text}"
+                f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_blur_tag}}}{glow_text}"
             )
 
         # Layer 2 (Main) or Layer 0 (Small): Crisp centered foreground text
         solo_main = (has_main and len(tokens) == 1)
-        motion = _entry_motion(safe_x, y_row, is_main=solo_main, target_scale=fit_pct, is_glow=False)
-        fg_scale = "" if (solo_main and anim == "pop") else scale_tag
-        blur_base = "\\blur1.0" if anim != "blur" else ""
+        motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False)
+        blur_base = "\\blur0.8" if anim != "blur" else ""
         fg_chunks = []
         for idx, w in enumerate(tokens):
             is_m = (has_main and idx == main_local_idx)
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-            rev = _word_reveal(rel_ms, is_glow=False)
+            rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=is_m)
             if has_main and not solo_main:
                 sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
                 fg_chunks.append(f"{{{sw}{rev}}}{txt}")
@@ -834,7 +848,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         else:
             fg_text = " ".join(fg_chunks)
         events.append(
-            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an5{motion}{fg_scale}{blur_base}}}{fg_text}"
+            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an5{motion}{blur_base}}}{fg_text}"
         )
 
     for c in captions:
@@ -855,7 +869,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # --- MODE 1: Single Unified Line (natural spacing, 100% centered) ---
         if req_lines == 1 or len(words) == 1:
-            _emit_mixed_line(words, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=main_idx, inline_main_scale=0.86)
+            _emit_mixed_line(words, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=main_idx, inline_main_scale=0.86)
             continue
 
         before = words[:main_idx]
@@ -872,9 +886,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         if use_three:
             # All 3 rows centered so MAIN stays in the middle while surrounding words reveal in speech order
-            _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
         elif before and after:
             # Strictly 2 centered balanced rows when MAIN is in the middle
             before_chars = sum(len(x["w"]) for x in before)
@@ -882,23 +896,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             row_gap_up = int(m_size * 0.28 + s_size * 0.20)
             row_gap_dn = int(m_size * (0.18 if upper_main else 0.22) + s_size * 0.14)
             if after_chars <= before_chars:
-                _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
-                _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
+                _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
             else:
-                _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
-                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.08), cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, cap_e, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
+                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.08), cap_s, cap_e, t0s, t1s, main_local_idx=None)
         elif before:
             # 2 lines cleanly centered: small before on top, MAIN below
             top_2 = int(m_size * 0.28 + s_size * 0.32)
             bot_2 = int(m_size * 0.16)
-            _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
             # 2 lines cleanly centered: MAIN on top, small after below
             top_2 = int(m_size * 0.16)
             bot_2 = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
-            _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, cap_e, t0s, t1s, main_local_idx=None)
 
     # Hook overlay
     hook = (hook_title or "").strip()
