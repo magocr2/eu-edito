@@ -568,8 +568,33 @@ def _ensure_bokeh_mask(mask_path, w, h, strength=0.65):
     return p
 
 
-def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=440):
-    """Prepare uploaded card/product image as clean RGBA PNG with optional flood-fill BG removal & soft shadow."""
+def _ensure_split_mask(mask_path, w, full_h, feather, side="top"):
+    """Generate soft alpha feather mask PNG for split-screen B-roll seam blending."""
+    from PIL import Image
+
+    p = Path(mask_path)
+    if p.exists() and p.stat().st_size > 200:
+        return p
+    feather = max(8, min(full_h // 2, int(feather)))
+    # Build 1-pixel-wide vertical gradient and resize across width (instant in Pillow)
+    col = Image.new("L", (1, full_h), 255)
+    cpx = col.load()
+    for y in range(feather):
+        t = y / float(feather)
+        s = int(255 * (t * t * (3.0 - 2.0 * t)))
+        if side == "top":
+            cpx[0, full_h - 1 - y] = s
+        else:
+            cpx[0, y] = s
+    alpha = col.resize((w, full_h), Image.Resampling.NEAREST)
+    rgba = Image.new("RGBA", (w, full_h), (255, 255, 255, 255))
+    rgba.putalpha(alpha)
+    rgba.save(str(p), "PNG")
+    return p
+
+
+def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=560):
+    """Prepare uploaded card/product image as crisp RGBA PNG with studio flood-fill BG removal & clean drop shadow."""
     from collections import deque
     from PIL import Image, ImageDraw, ImageFilter
 
@@ -583,80 +608,94 @@ def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=440):
 
     if remove_bg and not has_alpha and w >= 16 and h >= 16:
         px = im.load()
-        samples = [
-            px[2, 2][:3], px[w - 3, 2][:3],
-            px[2, h - 3][:3], px[w - 3, h - 3][:3],
-            px[w // 2, 2][:3], px[2, h // 2][:3],
-        ]
-        # Check if border colors are uniform enough to be a solid/studio background
-        avg = tuple(sum(s[c] for s in samples) // len(samples) for c in range(3))
-        spread = max(sum(abs(s[c] - avg[c]) for c in range(3)) for s in samples)
-        if spread < 85:
-            tol = 58
+        # Sample all 4 corners and edge midpoints to estimate studio background color robustly
+        border_pts = []
+        for fx in (2, w // 4, w // 2, (3 * w) // 4, w - 3):
+            border_pts.append(px[fx, 2][:3])
+            border_pts.append(px[fx, h - 3][:3])
+        for fy in (h // 4, h // 2, (3 * h) // 4):
+            border_pts.append(px[2, fy][:3])
+            border_pts.append(px[w - 3, fy][:3])
+        med = tuple(sorted(s[c] for s in border_pts)[len(border_pts) // 2] for c in range(3))
+        close_cnt = sum(
+            1 for s in border_pts
+            if ((s[0] - med[0]) ** 2 + (s[1] - med[1]) ** 2 + (s[2] - med[2]) ** 2) <= 72 * 72
+        )
+        if close_cnt >= len(border_pts) * 0.65:
+            max_bg_dist2 = 76 * 76
+            max_step_dist2 = 28 * 28
             visited = bytearray(w * h)
             bg_mask = bytearray(w * h)
             q = deque()
             for x in range(w):
-                q.append((x, 0))
-                q.append((x, h - 1))
+                for y in (0, h - 1):
+                    r, g, b, _ = px[x, y]
+                    if ((r - med[0]) ** 2 + (g - med[1]) ** 2 + (b - med[2]) ** 2) <= max_bg_dist2:
+                        q.append((x, y))
             for y in range(h):
-                q.append((0, y))
-                q.append((w - 1, y))
+                for x in (0, w - 1):
+                    r, g, b, _ = px[x, y]
+                    if ((r - med[0]) ** 2 + (g - med[1]) ** 2 + (b - med[2]) ** 2) <= max_bg_dist2:
+                        q.append((x, y))
+
             while q:
                 cx, cy = q.popleft()
                 idx = cy * w + cx
                 if visited[idx]:
                     continue
                 visited[idx] = 1
-                r, g, b, _ = px[cx, cy]
-                if abs(r - avg[0]) + abs(g - avg[1]) + abs(b - avg[2]) <= tol:
-                    bg_mask[idx] = 1
-                    if cx > 0:
-                        q.append((cx - 1, cy))
-                    if cx + 1 < w:
-                        q.append((cx + 1, cy))
-                    if cy > 0:
-                        q.append((cx, cy - 1))
-                    if cy + 1 < h:
-                        q.append((cx, cy + 1))
+                bg_mask[idx] = 1
+                cr, cg, cb, _ = px[cx, cy]
+                for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                    if 0 <= nx < w and 0 <= ny < h:
+                        nidx = ny * w + nx
+                        if visited[nidx]:
+                            continue
+                        nr, ng, nb, _ = px[nx, ny]
+                        d_med = (nr - med[0]) ** 2 + (ng - med[1]) ** 2 + (nb - med[2]) ** 2
+                        d_step = (nr - cr) ** 2 + (ng - cg) ** 2 + (nb - cb) ** 2
+                        if d_med <= max_bg_dist2 and d_step <= max_step_dist2:
+                            q.append((nx, ny))
 
             removed_ratio = sum(bg_mask) / float(w * h)
-            if 0.08 < removed_ratio < 0.92:
+            if 0.06 < removed_ratio < 0.94:
                 a_img = Image.new("L", (w, h), 255)
                 apx = a_img.load()
                 for y in range(h):
+                    row_off = y * w
                     for x in range(w):
-                        if bg_mask[y * w + x]:
+                        if bg_mask[row_off + x]:
                             apx[x, y] = 0
-                a_img = a_img.filter(ImageFilter.GaussianBlur(1.1))
+                # Erode 1px fringe halo along foreground boundary, then gently feather
+                a_img = a_img.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.9))
                 im.putalpha(a_img)
                 has_alpha = True
 
     if not has_alpha:
         # Card / screenshot mode: apply crisp rounded corners
-        rad = max(14, min(w, h) // 10)
+        rad = max(16, min(w, h) // 10)
         rmask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(rmask).rounded_rectangle([0, 0, w - 1, h - 1], radius=rad, fill=255)
         im.putalpha(rmask)
 
-    # Trim empty transparent margins and add subtle drop shadow padding
+    # Trim empty transparent margins and add clean soft shadow
     bbox = im.getbbox()
     if bbox:
         im = im.crop(bbox)
     cw, ch = im.size
     pad = 18
     canvas = Image.new("RGBA", (cw + pad * 2, ch + pad * 2), (0, 0, 0, 0))
-    sh = Image.new("RGBA", im.size, (0, 0, 0, 140))
-    sh.putalpha(im.getchannel("A").point(lambda v: int(v * 0.45)))
+    sh = Image.new("RGBA", im.size, (0, 0, 0, 150))
+    sh.putalpha(im.getchannel("A").point(lambda v: int(v * 0.42)))
     canvas.paste(sh, (pad, pad + 6))
-    canvas = canvas.filter(ImageFilter.GaussianBlur(6))
+    canvas = canvas.filter(ImageFilter.GaussianBlur(5))
     canvas.paste(im, (pad, pad), im)
     canvas.save(str(out_png_path), "PNG")
     return out_png_path
 
 
 def _ensure_sfx_wav(sfx_dir, kind="pop"):
-    """Synthesize crisp studio SFX WAV files (pop, whoosh, impact, chime, click) if not cached."""
+    """Synthesize punchy, studio-clean SFX WAV files (pop, whoosh, impact, chime, click)."""
     import math
     import random
     import struct
@@ -671,7 +710,7 @@ def _ensure_sfx_wav(sfx_dir, kind="pop"):
         return out_wav
 
     sr = 44100
-    dur = 0.34 if kind in ("whoosh", "impact", "chime") else 0.16
+    dur = 0.36 if kind in ("whoosh", "impact", "chime") else 0.20
     n_samples = int(sr * dur)
     frames = bytearray()
     rng = random.Random(42)
@@ -679,35 +718,30 @@ def _ensure_sfx_wav(sfx_dir, kind="pop"):
     for i in range(n_samples):
         t = i / sr
         if kind == "whoosh":
-            # Smooth filtered air swoosh for scene/B-roll/card entrances
-            env = math.sin(math.pi * (t / dur)) ** 1.4
+            env = math.sin(math.pi * (t / dur)) ** 1.25
             noise = rng.uniform(-1.0, 1.0)
-            lp = lp * 0.86 + noise * 0.14
-            sweep = math.sin(2.0 * math.pi * (180.0 + 420.0 * (t / dur)) * t)
-            val = 0.24 * env * (lp * 1.6 + 0.35 * sweep)
+            lp = lp * 0.82 + noise * 0.18
+            sweep = math.sin(2.0 * math.pi * (200.0 + 520.0 * (t / dur)) * t)
+            val = 0.56 * env * (lp * 1.6 + 0.42 * sweep)
         elif kind == "impact":
-            # Warm sub-bass thud for strong emphasis phrases
-            env = math.exp(-t * 10.5) * min(1.0, t / 0.006)
-            freq = 48.0 + 95.0 * math.exp(-t * 22.0)
-            val = 0.34 * env * math.sin(2.0 * math.pi * freq * t)
+            env = math.exp(-t * 8.5) * min(1.0, t / 0.005)
+            freq = 55.0 + 115.0 * math.exp(-t * 20.0)
+            val = 0.68 * env * math.sin(2.0 * math.pi * freq * t)
         elif kind == "chime":
-            # Soft airy bell harmonic for positive/CTA highlights
-            env = math.exp(-t * 9.0) * min(1.0, t / 0.005)
-            val = 0.20 * env * (
+            env = math.exp(-t * 7.5) * min(1.0, t / 0.004)
+            val = 0.48 * env * (
                 math.sin(2.0 * math.pi * 880.0 * t)
-                + 0.45 * math.sin(2.0 * math.pi * 1320.0 * t)
+                + 0.48 * math.sin(2.0 * math.pi * 1320.0 * t)
             )
         elif kind == "click":
-            # Snappy modern UI tick
-            env = math.exp(-t * 55.0) * min(1.0, t / 0.002)
-            val = 0.24 * env * math.sin(2.0 * math.pi * (950.0 + 600.0 * math.exp(-t * 80.0)) * t)
+            env = math.exp(-t * 42.0) * min(1.0, t / 0.002)
+            val = 0.56 * env * math.sin(2.0 * math.pi * (920.0 + 680.0 * math.exp(-t * 70.0)) * t)
         else:
-            # Warm soft pop: quick pitch drop 260Hz -> 95Hz + subtle air click
-            env = math.exp(-t * 28.0) * min(1.0, t / 0.004)
-            freq = 95.0 + 165.0 * math.exp(-t * 36.0)
-            val = 0.26 * env * math.sin(2.0 * math.pi * freq * t)
-            val += 0.06 * math.exp(-t * 65.0) * math.sin(2.0 * math.pi * 1150.0 * t)
-        sample = max(-32767, min(32767, int(max(-0.95, min(0.95, val)) * 32767)))
+            env = math.exp(-t * 20.0) * min(1.0, t / 0.004)
+            freq = 115.0 + 210.0 * math.exp(-t * 32.0)
+            val = 0.60 * env * math.sin(2.0 * math.pi * freq * t)
+            val += 0.16 * math.exp(-t * 50.0) * math.sin(2.0 * math.pi * 1180.0 * t)
+        sample = max(-32767, min(32767, int(max(-0.96, min(0.96, val)) * 32767)))
         frames.extend(struct.pack("<h", sample))
 
     with wave.open(str(out_wav), "wb") as wf:
@@ -718,13 +752,14 @@ def _ensure_sfx_wav(sfx_dir, kind="pop"):
     return out_wav
 
 
-def pick_sfx_moments(captions, sfx_style="auto", max_sfx=10, min_gap_s=2.4):
+def pick_sfx_moments(captions, sfx_style="auto", sfx_all_highlights=True, max_sfx=40, min_gap_s=0.45):
     """Return sorted list of (time_s, kind) tuples for highlight words and transitions."""
     if not captions:
         return []
     style = (sfx_style or "auto").lower().strip()
     auto_cycle = ["pop", "whoosh", "impact", "chime", "click"]
     explicit = []
+    all_hl = []
     auto_candidates = []
 
     for idx, c in enumerate(captions):
@@ -740,6 +775,8 @@ def pick_sfx_moments(captions, sfx_style="auto", max_sfx=10, min_gap_s=2.4):
         t_start = max(0.0, float(c.get("s", t_word)))
 
         sfx_val = c.get("sfx")
+        if sfx_val is False:
+            continue
         if isinstance(sfx_val, str) and sfx_val in ("pop", "whoosh", "impact", "chime", "click", "auto"):
             chosen_k = auto_cycle[idx % len(auto_cycle)] if sfx_val == "auto" else sfx_val
             explicit.append((round(t_start if chosen_k == "whoosh" else t_word, 3), chosen_k))
@@ -748,36 +785,45 @@ def pick_sfx_moments(captions, sfx_style="auto", max_sfx=10, min_gap_s=2.4):
             chosen_k = auto_cycle[idx % len(auto_cycle)] if style == "auto" else style
             explicit.append((round(t_word, 3), chosen_k))
             continue
-        if sfx_val is False:
-            continue
 
-        # Also add subtle transition whoosh when B-roll/card triggers or speech gap >= 0.35s
         prev_e = float(captions[idx - 1]["e"]) if idx > 0 else 0.0
         txt = c.get("text") or ""
-        sc = 0.0
         pref_kind = style if style != "auto" else "pop"
-        if float(c.get("s", 0.0)) <= 3.5:
-            sc += 2.5
-            if style == "auto":
-                pref_kind = "impact"
-        if "?" in txt or "!" in txt:
-            sc += 2.0
-            if style == "auto":
-                pref_kind = "chime"
-        if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
-            sc += 2.2
-            if style == "auto":
-                pref_kind = "pop"
-        for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
-            if wd in _IMPACT_WORDS:
-                sc += 2.0
-        if c.get("broll_ids") or c.get("broll") or c.get("card_ids") or c.get("card") or (idx > 0 and t_start - prev_e >= 0.35):
-            sc += 2.1
-            if style == "auto":
+        if style == "auto":
+            if c.get("broll_id") or c.get("broll") or c.get("card_ids") or c.get("card") or (idx > 0 and t_start - prev_e >= 0.35):
                 pref_kind = "whoosh"
-                t_word = t_start
-        if sc >= 1.5:
-            auto_candidates.append((sc, round(t_word, 3), pref_kind))
+            elif float(c.get("s", 0.0)) <= 3.5:
+                pref_kind = "impact"
+            elif "?" in txt or "!" in txt:
+                pref_kind = "chime"
+            else:
+                pref_kind = "pop" if idx % 3 != 2 else "click"
+
+        if sfx_all_highlights:
+            all_hl.append((round(t_word, 3), pref_kind))
+        else:
+            sc = 0.0
+            if float(c.get("s", 0.0)) <= 3.5:
+                sc += 2.5
+            if "?" in txt or "!" in txt:
+                sc += 2.0
+            if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
+                sc += 2.2
+            for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
+                if wd in _IMPACT_WORDS:
+                    sc += 2.0
+            if sc >= 1.5:
+                auto_candidates.append((sc, round(t_word, 3), pref_kind))
+
+    if sfx_all_highlights:
+        merged = explicit + all_hl
+        seen = set()
+        out = []
+        for t, k in sorted(merged, key=lambda x: x[0]):
+            if all(abs(t - st) >= min_gap_s for st, _ in out) and t not in seen:
+                seen.add(t)
+                out.append((t, k))
+        return out[:max_sfx]
 
     if explicit:
         seen = set()
@@ -791,9 +837,9 @@ def pick_sfx_moments(captions, sfx_style="auto", max_sfx=10, min_gap_s=2.4):
     auto_candidates.sort(key=lambda x: (-x[0], x[1]))
     chosen = []
     for _, t, k in auto_candidates:
-        if all(abs(t - ct) >= min_gap_s for ct, _ in chosen):
+        if all(abs(t - ct) >= max(1.8, min_gap_s) for ct, _ in chosen):
             chosen.append((t, k))
-        if len(chosen) >= max_sfx:
+        if len(chosen) >= min(10, max_sfx):
             break
     return sorted(chosen, key=lambda x: x[0])
 
@@ -869,7 +915,7 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", hook_title="", hook_style="pill-white", hook_y_pct=16):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", hook_title="", hook_style="pill-white", hook_y_pct=16):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
     - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
@@ -957,6 +1003,18 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
         cfg["main_file"] = mfile
         cfg["main_bold"] = mb
         cfg["main_italic"] = mi
+    small_font_overrides = {
+        **font_overrides,
+        "creato-regular": ("Creato Display", "CreatoDisplay-Regular.otf", 0, 0),
+        "creato-light": ("Creato Display Light", "CreatoDisplay-Light.otf", 0, 0),
+        "creato-medium": ("Creato Display Medium", "CreatoDisplay-Medium.otf", 0, 0),
+    }
+    if small_font_id and small_font_id in small_font_overrides:
+        sf, sfile, sb, si = small_font_overrides[small_font_id]
+        cfg["small_font"] = sf
+        cfg["small_file"] = sfile
+        cfg["small_bold"] = sb
+        cfg["small_italic"] = si
     scale_f = min(width, height) / 1080.0
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
@@ -1087,11 +1145,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f"\\1c&H00FFFFFF&\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.8"
         )
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_idx=None, inline_main_scale=1.0):
-        """Render a single horizontal ASS line (Small or mixed Small+Main) centered natively by libass."""
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_idx=None, inline_main_scale=1.0, instant_in=False, instant_out=False):
+        """Render a single horizontal ASS line centered natively by libass."""
         if not tokens:
             return
-        dur_ms = max(120, int((cap_e + 0.12 - cap_s) * 1000))
+        dur_ms = max(120, int((cap_e + (0.0 if instant_out else 0.12) - cap_s) * 1000))
         max_w = width * 0.86
         inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if main_local_idx is not None else m_size
         est_w = 0.0
@@ -1108,10 +1166,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         has_main = (main_local_idx is not None and 0 <= main_local_idx < len(tokens))
 
+        def _rev_tag(rel_ms, is_g=False, is_m=False):
+            if instant_in:
+                ex = ""
+                if not instant_out and dur_ms > 240:
+                    ed = min(130, max(70, int(dur_ms * 0.16)))
+                    es = max(100, dur_ms - ed)
+                    ex = f"\\t({es},{dur_ms},2.3,\\alpha&HFF&)"
+                if is_g:
+                    return f"\\1a{glow_alpha}\\3a&H82&\\4a&HFF&{ex}"
+                if is_m:
+                    return f"\\1a&H00&\\3a&HF4&\\4a&HC8&{ex}"
+                return f"\\1a&H00&\\3a&HE4&\\4a&H9E&{ex}"
+            base = _word_reveal(rel_ms, dur_ms, is_glow=is_g, is_main_tok=is_m)
+            if instant_out:
+                base = re.sub(r"\\t\(\d+,\d+,2\.3,\\alpha&HFF&\)", "", base)
+            return base
+
         # Layer 1: Soft Glow halo behind any Main highlight token on this line
         if has_main:
             solo_main_glow = (len(tokens) == 1)
-            glow_motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
+            glow_motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
             glow_blur_tag = f"\\blur{glow_blur}" if anim != "blur" else ""
             g_chunks = []
             for idx, w in enumerate(tokens):
@@ -1120,13 +1195,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if is_m:
                     rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
                     sw = _inline_switch(True, is_glow=True, main_sz_override=inline_m_sz)
-                    g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, dur_ms, is_glow=True, is_main_tok=True)}}}{txt}")
+                    g_chunks.append(f"{{{sw}{_rev_tag(rel_ms, is_g=True, is_m=True)}}}{txt}")
                 else:
                     sw = _inline_switch(False, is_glow=True, main_sz_override=inline_m_sz)
                     g_chunks.append(f"{{{sw}}}{txt}")
-            # IMPORTANT: use Small as base style when mixed so space glyphs match foreground 100% identically
             glow_base_style = "MainGlow" if solo_main_glow else "Small"
-            # Separate trailing words back into Small before spacing so inter-word spaces never use Main metrics
             glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
             events.append(
                 f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_blur_tag}}}{glow_text}"
@@ -1134,14 +1207,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # Layer 2 (Main) or Layer 0 (Small): Crisp centered foreground text
         solo_main = (has_main and len(tokens) == 1)
-        motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False)
+        motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False)
         blur_base = "\\blur0.8" if anim != "blur" else ""
         fg_chunks = []
         for idx, w in enumerate(tokens):
             is_m = (has_main and idx == main_local_idx)
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-            rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=is_m)
+            rev = _rev_tag(rel_ms, is_g=False, is_m=is_m)
             if has_main and not solo_main:
                 sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
                 fg_chunks.append(f"{{{sw}{rev}}}{txt}")
@@ -1187,43 +1260,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         main_w = [words[main_idx]]
         after = words[main_idx + 1:]
 
-        # Decide cleanly between 2 rows vs 3 centered rows (keeping MAIN centered when before+after exist)
-        use_three = bool(req_lines >= 3 and before and after)
-
-        # Visual baseline offsets: snug, cohesive spacing around MAIN words with zero overlap
         upper_main = cfg["upper"]
         top_offset = int(m_size * 0.39 + s_size * 0.30)
         bot_offset = int(m_size * (0.38 if upper_main else 0.42) + s_size * 0.34)
+        top_2_above = int(m_size * 0.28 + s_size * 0.32)
+        bot_2_below = int(m_size * 0.16)
+        top_2_main = int(m_size * 0.16)
+        bot_2_after = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
 
-        if use_three:
-            # All 3 rows centered so MAIN stays in the middle while surrounding words reveal in speech order
+        if req_lines >= 3 and before and after:
+            # Strictly 3 centered rows: MAIN is NEVER mixed with stray words on the same row
             _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
         elif before and after:
-            # Strictly 2 centered balanced rows when MAIN is in the middle
-            before_chars = sum(len(x["w"]) for x in before)
-            after_chars = sum(len(x["w"]) for x in after)
-            row_gap_up = int(m_size * 0.28 + s_size * 0.20)
-            row_gap_dn = int(m_size * (0.18 if upper_main else 0.22) + s_size * 0.14)
-            if after_chars <= before_chars:
-                _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-                _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
+            # Strict 2-line mode: NEVER put loose words beside MAIN on the same line.
+            # Phase 1: before (top) + MAIN (bottom); Phase 2: preserve MAIN (top) + after (bottom).
+            if (cap_e - cap_s) >= 0.42:
+                split_t = min(cap_e - 0.18, max(cap_s + 0.18, float(after[0]["s"])))
+                tsplit = _fmt_ass_time(split_t)
+                _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, split_t, t0s, tsplit, main_local_idx=None, instant_out=True)
+                _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, split_t, t0s, tsplit, main_local_idx=0, inline_main_scale=1.0, instant_out=True)
+                _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, split_t, cap_e, tsplit, t1s, main_local_idx=0, inline_main_scale=1.0, instant_in=True)
+                _emit_mixed_line(after, pos_x, pos_y + bot_2_after, split_t, cap_e, tsplit, t1s, main_local_idx=None)
             else:
-                _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, cap_e, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
-                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.08), cap_s, cap_e, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+                _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
         elif before:
             # 2 lines cleanly centered: small before on top, MAIN below
-            top_2 = int(m_size * 0.28 + s_size * 0.32)
-            bot_2 = int(m_size * 0.16)
-            _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
             # 2 lines cleanly centered: MAIN on top, small after below
-            top_2 = int(m_size * 0.16)
-            bot_2 = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
-            _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=None)
 
     # Hook overlay
     hook = (hook_title or "").strip()
@@ -1291,6 +1362,7 @@ def render_video(
     card_start=None,
     card_dur=3.2,
     card_items=None,
+    motion_items=None,
 ):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
@@ -1312,6 +1384,8 @@ def render_video(
     if not cards and card_path and Path(card_path).exists() and card_start is not None:
         cards.append({"path": card_path, "anim": card_anim, "start": card_start, "dur": card_dur})
     cards = [c for c in cards if c.get("path") and Path(c["path"]).exists() and c.get("start") is not None][:6]
+
+    motions = [m for m in (motion_items or []) if m.get("path") and Path(m["path"]).exists() and m.get("start") is not None][:8]
 
     # Build trim + concat filter if decupagem cut segments
     n_segs = len(keep_ranges)
@@ -1369,7 +1443,7 @@ def render_video(
 
     # Normalize sfx_times into list of (t_s, kind)
     sfx_events = []
-    for item in (sfx_times or [])[:10]:
+    for item in (sfx_times or [])[:40]:
         if isinstance(item, (tuple, list)) and len(item) >= 2:
             t_s, sk = float(item[0]), str(item[1])
         else:
@@ -1378,10 +1452,16 @@ def render_video(
             sfx_events.append((t_s, sk))
 
     broll_inputs = []
+    img_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
     for b in brolls:
-        broll_inputs.append((next_in_idx, b))
+        bp = Path(b["path"])
+        is_img = bp.suffix.lower() in img_exts
+        broll_inputs.append((next_in_idx, b, is_img))
         next_in_idx += 1
-        extra_inputs += ["-i", str(b["path"])]
+        if is_img:
+            extra_inputs += ["-loop", "1", "-i", str(bp)]
+        else:
+            extra_inputs += ["-i", str(bp)]
 
     card_inputs = []
     for c in cards:
@@ -1389,12 +1469,34 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(c["path"])]
 
+    motion_inputs = []
+    for m in motions:
+        motion_inputs.append((next_in_idx, m))
+        next_in_idx += 1
+        extra_inputs += ["-i", str(m["path"])]
+
     mask_idx = None
     if has_bokeh:
         mask_png = _ensure_bokeh_mask(Path(out_path).parent / f"bokeh_{w_even}x{h_even}.png", w_even, h_even, strength=0.65)
         mask_idx = next_in_idx
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(mask_png)]
+
+    # Pre-build gradient seam feather masks if split-screen B-rolls are used
+    hh = (h_even // 2) - ((h_even // 2) % 2)
+    feather_px = max(24, int(hh * 0.14))
+    feather_px -= feather_px % 2
+    b_full_h = hh + feather_px
+    top_fmask_idx = bot_fmask_idx = None
+    if broll_inputs:
+        tmask_png = _ensure_split_mask(Path(out_path).parent / f"split_top_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "top")
+        bmask_png = _ensure_split_mask(Path(out_path).parent / f"split_bot_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "bottom")
+        top_fmask_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-loop", "1", "-i", str(tmask_png)]
+        bot_fmask_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-loop", "1", "-i", str(bmask_png)]
 
     sfx_kind_to_idx = {}
     for _, sk in sfx_events:
@@ -1404,7 +1506,7 @@ def render_video(
             next_in_idx += 1
             extra_inputs += ["-i", str(sfx_wav)]
 
-    use_fc = bool(fc_parts or broll_inputs or card_inputs or color_grade or sfx_events)
+    use_fc = bool(fc_parts or broll_inputs or card_inputs or motion_inputs or color_grade or sfx_events)
     af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if (studio_audio and has_src_audio) else ""
 
     if use_fc:
@@ -1415,89 +1517,134 @@ def render_video(
         if has_bokeh:
             fc_parts.append(
                 f"{cur_v}split=2[vsharp][vbsrc];"
+                f"[{mask_idx}:v]trim=duration={total_keep_dur:.3f},setpts=PTS-STARTPTS[bmask];"
                 f"[vbsrc]scale=w=trunc(iw/3/2)*2:h=trunc(ih/3/2)*2,gblur=sigma=5,scale=w={w_even}:h={h_even}:flags=bilinear[vbokeh];"
-                f"[vbokeh][{mask_idx}:v]alphamerge[vbokeh_a];"
+                f"[vbokeh][bmask]alphamerge=shortest=1[vbokeh_a];"
                 f"[vsharp][vbokeh_a]overlay=0:0:shortest=1[vgraded]"
             )
             cur_v = "[vgraded]"
 
         auto_b_cycle = ["top", "bottom", "full"]
-        hh = (h_even // 2) - ((h_even // 2) % 2)
         split_brolls = []
-        for bi, (b_idx, b) in enumerate(broll_inputs):
-            b_info = probe_video(b["path"])
-            b_dur = max(1.6, min(5.5, float(b.get("dur") or 3.5), float(b_info.get("duration") or 3.5)))
+        for bi, (b_idx, b, is_img) in enumerate(broll_inputs):
+            b_dur_req = float(b.get("dur") or 3.5)
+            if not is_img:
+                b_info = probe_video(b["path"])
+                b_dur = max(1.0, min(12.0, b_dur_req, float(b_info.get("duration") or b_dur_req)))
+            else:
+                b_dur = max(1.0, min(12.0, b_dur_req))
             bs = max(0.0, float(b["start"]))
             be = bs + b_dur
             layout = (b.get("layout") or "auto").lower()
             if layout == "auto":
                 layout = auto_b_cycle[bi % len(auto_b_cycle)]
-            ramp = f"min(1,min((t-{bs:.3f})/0.22,({be:.3f}-t)/0.22))"
             if layout == "full":
                 fc_parts.append(
-                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
-                    f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},setsar=1[vb{bi}]"
+                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS,"
+                    f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},format=rgba,"
+                    f"fade=t=in:st=0:d=0.25:alpha=1,fade=t=out:st={max(0.1, b_dur-0.25):.3f}:d=0.25:alpha=1,setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vb{bi}]"
                 )
-                fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})'[vbf{bi}]")
+                fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbf{bi}]")
                 cur_v = f"[vbf{bi}]"
             else:
-                split_brolls.append((bi, b_idx, layout, bs, be, b_dur, ramp))
+                split_brolls.append((bi, b_idx, layout, bs, be, b_dur))
 
         if split_brolls:
-            shift_px = int(hh * 0.30)
-            # Combine smooth main-video Y displacement across all split B-roll intervals
-            y_terms = [
-                f"if(between(t,{bs:.3f},{be:.3f}),{shift_px if lay == 'top' else -shift_px}*{rmp},0)"
-                for _, _, lay, bs, be, _, rmp in split_brolls
-            ]
-            fc_parts.append(f"color=c=black:s={w_even}x{h_even}:r=30[vbg]")
-            fc_parts.append(f"[vbg]{cur_v}overlay=0:y='{'+'.join(y_terms)}':shortest=1[vshifted]")
-            cur_v = "[vshifted]"
-            for bi, b_idx, lay, bs, be, b_dur, rmp in split_brolls:
-                b_y = f"-{hh}+{hh}*{rmp}" if lay == "top" else f"{h_even}-{hh}*{rmp}"
+            # Frame speaker cleanly into the visible half (biased toward top-center face so head is NEVER cropped!)
+            face_crop_y = max(0, int(h_even * 0.10))
+            for bi, b_idx, lay, bs, be, b_dur in split_brolls:
+                # 1) Reframe speaker into opposite half during [bs, be]
+                sp_y = int(hh) if lay == "top" else 0
+                sp_h = h_even - int(hh)
+                sp_h -= sp_h % 2
+                fc_parts.append(f"{cur_v}split=2[vm{bi}_a][vm{bi}_b]")
                 fc_parts.append(
-                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
-                    f"scale={w_even}:{hh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{hh},setsar=1[vb{bi}]"
+                    f"[vm{bi}_b]crop=w={w_even}:h={sp_h}:x=0:y={min(face_crop_y, max(0, h_even - sp_h))},"
+                    f"format=rgba,fade=t=in:st={bs:.3f}:d=0.25:alpha=1,fade=t=out:st={max(bs+0.1, be-0.25):.3f}:d=0.25:alpha=1[vsph{bi}]"
                 )
-                fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:y='{b_y}':enable='between(t,{bs:.3f},{be:.3f})'[vbs{bi}]")
+                fc_parts.append(f"[vm{bi}_a][vsph{bi}]overlay=0:{sp_y}:enable='between(t,{bs:.3f},{be:.3f})'[vspbg{bi}]")
+
+                # 2) Prepare B-roll with gradient feather mask on dividing seam + smooth entry/exit fade
+                fmask_i = top_fmask_idx if lay == "top" else bot_fmask_idx
+                b_overlay_y = 0 if lay == "top" else (h_even - b_full_h)
+                fc_parts.append(f"[{fmask_i}:v]trim=duration={b_dur:.3f},setpts=PTS-STARTPTS[fm{bi}]")
+                fc_parts.append(
+                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS,"
+                    f"scale={w_even}:{b_full_h}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{b_full_h},format=rgba[vbraw{bi}]"
+                )
+                fc_parts.append(
+                    f"[vbraw{bi}][fm{bi}]alphamerge=shortest=1,"
+                    f"fade=t=in:st=0:d=0.28:alpha=1,fade=t=out:st={max(0.1, b_dur-0.28):.3f}:d=0.28:alpha=1,"
+                    f"setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vbfe{bi}]"
+                )
+                fc_parts.append(f"[vspbg{bi}][vbfe{bi}]overlay=0:{b_overlay_y}:enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbs{bi}]")
                 cur_v = f"[vbs{bi}]"
 
-        auto_c_cycle = ["side-right", "side-left", "corner-top", "behind-peek"]
+        auto_c_cycle = ["side-right", "side-left", "corner-top"]
         cw_target = max(150, int(w_even * 0.32))
         cw_target -= cw_target % 2
         margin = max(22, int(w_even * 0.04))
         for ci, (c_idx, c) in enumerate(card_inputs):
             cs = max(0.0, float(c["start"]))
-            cd = max(1.6, min(5.0, float(c.get("dur") or 3.2)))
+            cd = max(1.4, min(6.0, float(c.get("dur") or 3.2)))
             ce = cs + cd
-            cramp = f"min(1,min((t-{cs:.3f})/0.24,({ce:.3f}-t)/0.24))"
-            bob = f"8*sin(3.2*(t-{cs:.3f})+{ci*1.1:.1f})"
+            # Cubic smoothstep easing for both entry (0.34s) and exit (0.34s)
+            tin = f"min(1,max(0,(t-{cs:.3f})/0.34))"
+            tout = f"min(1,max(0,({ce:.3f}-t)/0.34))"
+            ein = f"({tin}*{tin}*(3-2*{tin}))"
+            eout = f"({tout}*{tout}*(3-2*{tout}))"
+            cramp = f"({ein}*{eout})"
+            bob = f"7*sin(3.0*(t-{cs:.3f})+{ci*1.1:.1f})"
             canim = (c.get("anim") or "auto").lower()
-            if canim == "auto":
+            if canim in ("auto", "behind-peek"):
                 canim = auto_c_cycle[ci % len(auto_c_cycle)]
-            # Stagger vertical slot slightly when multiple cards coexist
             slot_dy = (ci % 3) * int(h_even * 0.13)
             if canim == "side-left":
                 cx = f"-w+(w+{margin})*{cramp}"
                 cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
             elif canim == "corner-top":
-                cx = f"{margin if ci % 2 == 1 else w_even}-{(0 if ci % 2 == 1 else 1)}*w-{(0 if ci % 2 == 1 else margin)}"
                 cx = f"{margin}" if ci % 2 == 1 else f"{w_even}-w-{margin}"
                 cy = f"-h+(h+{int(h_even * 0.11)})*{cramp}+{bob}"
-            elif canim == "behind-peek":
-                dir_sign = -1 if ci % 2 == 1 else 1
-                cx = f"{int(w_even * 0.5)}-w/2+({dir_sign * int(w_even * 0.27)})*{cramp}"
-                cy = f"{int(h_even * 0.24) + slot_dy}+{bob}"
             else:
                 cx = f"{w_even}-(w+{margin})*{cramp}"
                 cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
-            fc_parts.append(f"[{c_idx}:v]scale={cw_target}:-2:flags={scale_flags},format=rgba[vcard{ci}]")
-            fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':shortest=1[vc{ci}]")
+            fc_parts.append(
+                f"[{c_idx}:v]trim=duration={cd:.3f},scale={cw_target}:-2:flags={scale_flags},format=rgba,"
+                f"fade=t=in:st=0:d=0.30:alpha=1,fade=t=out:st={max(0.1, cd-0.30):.3f}:d=0.30:alpha=1,"
+                f"setpts=PTS-STARTPTS+{cs:.3f}/TB[vcard{ci}]"
+            )
+            fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vc{ci}]")
             cur_v = f"[vc{ci}]"
+
+        for mi, (m_idx, m) in enumerate(motion_inputs):
+            ms = max(0.0, float(m["start"]))
+            md = max(1.0, float(m.get("dur") or 3.2))
+            me = ms + md
+            mscale = max(0.55, min(1.40, float(m.get("scale", 100)) / 100.0))
+            mw_target = max(180, int(w_even * 0.72 * mscale))
+            mw_target -= mw_target % 2
+            mpos = (m.get("position") or "top-center").lower()
+            pad_m = max(18, int(w_even * 0.04))
+            if mpos == "top-left":
+                mx, my = f"{pad_m}", f"{int(h_even * 0.11)}"
+            elif mpos == "top-right":
+                mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.11)}"
+            elif mpos == "bottom-card":
+                mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
+            elif mpos == "center":
+                mx, my = f"(W-w)/2", f"(H-h)/2"
+            else:
+                mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
+            fc_parts.append(
+                f"[{m_idx}:v]scale={mw_target}:-2:flags={scale_flags},format=rgba,"
+                f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
+            )
+            fc_parts.append(f"{cur_v}[vmg{mi}]overlay=x='{mx}':y='{my}':enable='between(t,{ms:.3f},{me:.3f})':eof_action=pass[vmo{mi}]")
+            cur_v = f"[vmo{mi}]"
 
         fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
 
-        # Audio pipeline + subtle multi-SFX mixing
+        # Audio pipeline + clearly audible multi-SFX mixing
         if not has_src_audio:
             if sfx_events:
                 fc_parts.append(f"anullsrc=r=44100:cl=stereo:d={total_keep_dur:.3f}[asil]")
@@ -1515,7 +1662,7 @@ def render_video(
             for k, (t_s, sk) in enumerate(sfx_events):
                 ms = max(0, int(round(t_s * 1000)))
                 s_idx = sfx_kind_to_idx[sk]
-                fc_parts.append(f"[{s_idx}:a]adelay={ms}|{ms}[sfx{k}]")
+                fc_parts.append(f"[{s_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume=1.8,adelay={ms}|{ms}[sfx{k}]")
                 sfx_tags.append(f"[sfx{k}]")
             fc_parts.append(f"{cur_a}{''.join(sfx_tags)}amix=inputs={len(sfx_tags)+1}:duration=first:normalize=0[aout]")
             cur_a = "[aout]"
@@ -1550,6 +1697,6 @@ def render_video(
             "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
             "-threads", str(hw.get("cpu_threads", 0)), str(out_path)
         ]
-    r = subprocess.run(cpu_cmd, capture_output=True, text=True)
+    r = subprocess.run(cpu_cmd, capture_output=True, text=True, timeout=360)
     if r.returncode != 0:
         raise RuntimeError(f"Erro no FFmpeg: {(r.stderr or '')[-400:]}")

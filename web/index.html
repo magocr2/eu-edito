@@ -57,6 +57,7 @@
             <div class="sz-bottom">Legenda / Botões</div>
           </div>
           <div id="hookOverlay" class="hook-overlay hook-pill-white" data-hy="16" hidden></div>
+          <canvas id="motionPreviewCanvas" class="mg-preview-canvas" width="340" height="140" data-pos="top-center" hidden></canvas>
           <button type="button" id="safeZoneBtn" class="sz-btn">📱 Área segura</button>
           <span id="resTag" class="res-tag">1080p HD</span>
           <div id="previewQuickCtrl" class="pv-quick-ctrl" title="Arraste a legenda para altura ou use pinça / A- A+ para tamanho">
@@ -145,24 +146,43 @@
           <input type="range" id="capScale" min="65" max="135" step="5" value="100">
         </label>
 
-        <label class="field" style="margin-top:10px">
-          <span>Fonte do destaque</span>
-          <select id="fontSelect">
-            <option value="">Padrão do modelo</option>
-            <option value="bebas">Bebas Neue</option>
-            <option value="coolvetica">Coolvetica</option>
-            <option value="lucette">Lucette</option>
-            <option value="creato-bold-italic">Creato Display Bold Itálico</option>
-            <option value="creato-extrabold-italic">Creato Display ExtraBold Itálico</option>
-            <option value="creato-extrabold">Creato Display ExtraBold</option>
-            <option value="apple-garamond">Apple Garamond Itálico</option>
-            <option value="apple-garamond-bold">Apple Garamond Bold Itálico</option>
-            <option value="apple-garamond-light">Apple Garamond Light Itálico</option>
-            <option value="lavish">Lavish</option>
-            <option value="geist">Geist</option>
-            <option value="dm-sans">DM Sans</option>
-          </select>
-        </label>
+        <div class="row-2" style="margin-top:10px">
+          <label class="field">
+            <span>Fonte do destaque</span>
+            <select id="fontSelect">
+              <option value="">Padrão do modelo</option>
+              <option value="bebas">Bebas Neue</option>
+              <option value="coolvetica">Coolvetica</option>
+              <option value="lucette">Lucette</option>
+              <option value="creato-bold-italic">Creato Bold Itálico</option>
+              <option value="creato-extrabold-italic">Creato ExtraBold Itálico</option>
+              <option value="creato-extrabold">Creato ExtraBold</option>
+              <option value="apple-garamond">Apple Garamond Itálico</option>
+              <option value="apple-garamond-bold">Apple Garamond Bold Itálico</option>
+              <option value="apple-garamond-light">Apple Garamond Light Itálico</option>
+              <option value="lavish">Lavish</option>
+              <option value="geist">Geist</option>
+              <option value="dm-sans">DM Sans</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Fonte palavras normais</span>
+            <select id="smallFontSelect">
+              <option value="">Padrão do modelo</option>
+              <option value="creato-regular">Creato Regular</option>
+              <option value="creato-light">Creato Light</option>
+              <option value="creato-medium">Creato Medium</option>
+              <option value="apple-garamond">Apple Garamond Itálico</option>
+              <option value="apple-garamond-light">Apple Garamond Light</option>
+              <option value="geist">Geist</option>
+              <option value="dm-sans">DM Sans</option>
+              <option value="coolvetica">Coolvetica</option>
+              <option value="lucette">Lucette</option>
+              <option value="bebas">Bebas Neue</option>
+              <option value="lavish">Lavish</option>
+            </select>
+          </label>
+        </div>
 
         <div class="res-section">
           <span class="res-label">Linhas da legenda</span>
@@ -244,17 +264,29 @@
           </span>
         </label>
 
-        <label class="field" id="sfxBankBox" style="margin-top:6px">
-          <span>Estilo dos efeitos sonoros</span>
-          <select id="sfxStyleSelect">
-            <option value="auto">Automático (Mix inteligente)</option>
-            <option value="pop">Pop suave (palavras)</option>
-            <option value="whoosh">Whoosh (transições)</option>
-            <option value="impact">Impacto grave (frases fortes)</option>
-            <option value="chime">Brilho / Sininho (ênfase)</option>
-            <option value="click">Clique moderno (cortes rápidos)</option>
-          </select>
-        </label>
+        <div id="sfxBankBox" style="margin-top:6px;display:flex;flex-direction:column;gap:8px">
+          <label class="field">
+            <span>Estilo dos efeitos sonoros</span>
+            <select id="sfxStyleSelect">
+              <option value="auto">Automático (Mix inteligente)</option>
+              <option value="pop">Pop suave (palavras)</option>
+              <option value="whoosh">Whoosh (transições)</option>
+              <option value="impact">Impacto grave (frases fortes)</option>
+              <option value="chime">Brilho / Sininho (ênfase)</option>
+              <option value="click">Clique moderno (cortes rápidos)</option>
+            </select>
+          </label>
+          <label class="toggle-row" style="padding:7px 10px">
+            <div>
+              <strong>Em todas as palavras em destaque</strong>
+              <small>Desmarque para aplicar só nas marcadas na Etapa 4</small>
+            </div>
+            <span class="switch">
+              <input type="checkbox" id="sfxAllToggle" checked>
+              <span class="slider"></span>
+            </span>
+          </label>
+        </div>
 
         <label class="toggle-row">
           <div>
@@ -268,13 +300,13 @@
         </label>
 
         <div class="res-section" style="margin-top:10px">
-          <span class="res-label">🎞️ B-rolls (múltiplos · tela dividida ou cheia)</span>
+          <span class="res-label">🎞️ B-rolls (vídeos ou imagens · tela dividida ou cheia)</span>
           <label class="broll-upload-btn" id="brollUploadLbl">
-            <input type="file" id="brollFile" accept="video/*" multiple hidden>
-            <span id="brollStatus">＋ Adicionar vídeo(s) B-roll</span>
+            <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
+            <span id="brollStatus">＋ Adicionar vídeo(s) ou imagem(ns) B-roll</span>
           </label>
           <div id="brollList" class="media-queue"></div>
-          <small class="broll-hint" id="brollHint" hidden>Automático distribui nos impactos ou escolha qual B-roll entra em cada fala na Etapa 4.</small>
+          <small class="broll-hint" id="brollHint" hidden>Defina início/fim (s), escolha na Etapa 4 ou deixe Automático.</small>
         </div>
 
         <div class="res-section" style="margin-top:10px">
@@ -335,6 +367,20 @@
         <div class="step-head"><span class="badge">4</span><h2>Revisar &amp; Corrigir Legendas</h2></div>
         <p class="review-hint">Confira as palavras abaixo. Toque no texto para corrigir ou toque em uma palavra para escolher o destaque:</p>
         <div id="captionEditorList" class="caption-editor-list"></div>
+
+        <div class="mg-panel" id="motionStudioBox">
+          <div class="mg-head">
+            <h3>✨ Motion Graphics Inteligente</h3>
+            <button type="button" id="analyzeMotionBtn" class="primary-btn mg-analyze-btn">✨ Analisar vídeo e sugerir Motion Graphics</button>
+          </div>
+          <div class="mg-toolbar">
+            <select id="manualMotionTplSelect" class="media-sel"></select>
+            <button type="button" id="addManualMotionBtn" class="mg-btn">＋ Adicionar manual</button>
+            <button type="button" id="applyAllMotionBtn" class="mg-btn primary" hidden>✅ Aplicar todas</button>
+          </div>
+          <div id="motionSuggestionsList" class="mg-suggestions"></div>
+          <div id="motionTimelineList" class="mg-timeline-list"></div>
+        </div>
       </section>
 
       <section id="resultBox" class="card result-card" hidden>
@@ -367,6 +413,7 @@
     </div>
   </div>
 
+  <script src="/assets/motion-ui.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

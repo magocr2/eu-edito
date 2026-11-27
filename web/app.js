@@ -20,6 +20,10 @@ let currentCaptions = [];
 let flowStage = 'transcribe'; // 'transcribe' -> 'render'
 let maxExportRes = '1080p';
 
+window.getEuEditoJobId = () => currentJobId;
+window.getEuEditoCaptions = () => currentCaptions;
+window.onMotionLayersChanged = () => markDirtyAfterRender();
+
 function markDirtyAfterRender() {
   if (flowStage === 'render' && $('resultBox') && !$('resultBox').hidden) {
     $('generateBtn').textContent = '🎨 Gerar novamente com estes ajustes →';
@@ -152,11 +156,8 @@ function syncOverlay(animate = false) {
   ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
   if (lineMode === 2 && ov.children.length === 3) {
-    const second = ov.children[1], third = ov.children[2];
-    const wrap = document.createElement('span');
-    wrap.className = 'row-wrap';
-    second.before(wrap);
-    wrap.append(second, third);
+    // Strictly 2 clean rows: NEVER mix highlight with a loose word on the same row
+    ov.children[2].remove();
   }
   ov.style.top = $('posY').value + '%';
   const sc = Number($('capScale')?.value || 100);
@@ -185,6 +186,9 @@ function syncOverlay(animate = false) {
     'lavish': ["'Lavish', Georgia, serif", 'normal', '400'],
     'geist': ["'Geist', sans-serif", 'normal', '700'],
     'dm-sans': ["'DMSans', sans-serif", 'normal', '800'],
+    'creato-regular': ["'CreatoDisplay', sans-serif", 'normal', '400'],
+    'creato-light': ["'CreatoLight', 'CreatoDisplay', sans-serif", 'normal', '300'],
+    'creato-medium': ["'CreatoMedium', 'CreatoDisplay', sans-serif", 'normal', '500'],
   };
   if (fontChoice && FONT_CSS_MAP[fontChoice]) {
     const [ff, fst, fwt] = FONT_CSS_MAP[fontChoice];
@@ -197,6 +201,19 @@ function syncOverlay(animate = false) {
     ov.style.removeProperty('--main-font');
     ov.style.removeProperty('--main-style');
     ov.style.removeProperty('--main-weight');
+  }
+  const smallFontChoice = $('smallFontSelect')?.value || '';
+  if (smallFontChoice && FONT_CSS_MAP[smallFontChoice]) {
+    const [sff, sfst, swt] = FONT_CSS_MAP[smallFontChoice];
+    ov.classList.add('has-custom-small-font');
+    ov.style.setProperty('--small-font', sff);
+    ov.style.setProperty('--small-style', sfst);
+    ov.style.setProperty('--small-weight', swt);
+  } else {
+    ov.classList.remove('has-custom-small-font');
+    ov.style.removeProperty('--small-font');
+    ov.style.removeProperty('--small-style');
+    ov.style.removeProperty('--small-weight');
   }
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
@@ -420,7 +437,23 @@ function renderBrollList() {
       if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
       markDirtyAfterRender();
     });
-    row.append(lbl, sel, del);
+    const times = document.createElement('div');
+    times.className = 'media-times';
+    const inS = document.createElement('input');
+    inS.type = 'number'; inS.step = '0.5'; inS.min = '0'; inS.placeholder = 'Auto';
+    inS.className = 'media-time-in';
+    if (b.start !== undefined && b.start !== '') inS.value = b.start;
+    inS.addEventListener('input', () => { b.start = inS.value; markDirtyAfterRender(); });
+    const inE = document.createElement('input');
+    inE.type = 'number'; inE.step = '0.5'; inE.min = '0'; inE.placeholder = 'Auto';
+    inE.className = 'media-time-in';
+    if (b.end !== undefined && b.end !== '') inE.value = b.end;
+    inE.addEventListener('input', () => { b.end = inE.value; markDirtyAfterRender(); });
+    const sTxt1 = document.createElement('span'); sTxt1.textContent = 'Início (s):';
+    const sTxt2 = document.createElement('span'); sTxt2.textContent = 'Fim (s):';
+    times.append(sTxt1, inS, sTxt2, inE);
+
+    row.append(lbl, sel, del, times);
     list.append(row);
   });
 }
@@ -447,7 +480,6 @@ function renderCardList() {
       ['side-right', 'Lateral Direita'],
       ['side-left', 'Lateral Esquerda'],
       ['corner-top', 'Canto Superior'],
-      ['behind-peek', 'Saindo por trás'],
     ].forEach(([val, txt]) => {
       const o = document.createElement('option');
       o.value = val; o.textContent = txt;
@@ -473,6 +505,7 @@ $('sfxToggle')?.addEventListener('change', () => {
   markDirtyAfterRender();
 });
 $('sfxStyleSelect')?.addEventListener('change', () => markDirtyAfterRender());
+$('sfxAllToggle')?.addEventListener('change', () => markDirtyAfterRender());
 $('colorGradeToggle')?.addEventListener('change', () => markDirtyAfterRender());
 
 $('brollFile')?.addEventListener('change', async (e) => {
@@ -486,11 +519,11 @@ $('brollFile')?.addEventListener('change', async (e) => {
       const res = await fetch('/api/upload_broll', { method: 'POST', body: fd });
       const data = await safeJson(res);
       if (data.error || !data.broll_id) throw new Error(data.error || 'Erro');
-      selectedBrolls.push({ id: data.broll_id, name: f.name || 'B-roll', layout: 'auto' });
+      selectedBrolls.push({ id: data.broll_id, name: f.name || 'B-roll', layout: 'auto', start: '', end: '' });
     } catch {}
   }
   e.target.value = '';
-  $('brollStatus').textContent = '＋ Adicionar vídeo(s) B-roll';
+  $('brollStatus').textContent = '＋ Adicionar vídeo(s) ou imagem(ns) B-roll';
   renderBrollList();
   if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
   markDirtyAfterRender();
@@ -531,6 +564,7 @@ $('accentColor').addEventListener('input', () => { syncOverlay(false); markDirty
 $('posY').addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
 $('capScale')?.addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
 $('fontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirtyAfterRender(); });
+$('smallFontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirtyAfterRender(); });
 
 // Initialize accent color input state on load (customColorToggle starts checked)
 (function initColorToggle() {
@@ -582,6 +616,7 @@ $('videoFile').addEventListener('change', (e) => {
   currentJobId = '';
   cachedVideoBlob = null;
   currentCaptions = [];
+  window.EuEditoMotion?.reset();
   flowStage = 'transcribe';
   $('reviewCard').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
@@ -855,6 +890,7 @@ $('newVideoBtn')?.addEventListener('click', () => {
   cachedVideoBlob = null;
   currentJobId = '';
   currentCaptions = [];
+  window.EuEditoMotion?.reset();
   flowStage = 'transcribe';
   $('videoFile').value = '';
   $('uploadTitle').textContent = 'Escolher vídeo do celular';
@@ -933,14 +969,17 @@ $('generateBtn').addEventListener('click', async () => {
           pos_y: Number($('posY').value),
           caption_scale: Number($('capScale')?.value || 100),
           main_font: $('fontSelect')?.value || '',
+          small_font: $('smallFontSelect')?.value || '',
           caption_lines: selectedLines,
           zoom: $('zoomToggle').checked,
           studio_audio: $('studioAudioToggle').checked,
           sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
           sfx_style: $('sfxStyleSelect')?.value || 'auto',
+          sfx_all_highlights: $('sfxAllToggle') ? $('sfxAllToggle').checked : true,
           color_grade: $('colorGradeToggle') ? $('colorGradeToggle').checked : false,
-          brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout })),
+          brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout, start: b.start, end: b.end })),
           cards: selectedCards.map((c) => ({ id: c.id, anim: c.anim })),
+          motion_layers: window.EuEditoMotion ? window.EuEditoMotion.getLayers() : [],
           hook_title: ($('hookTitleInput')?.value || '').trim(),
           hook_style: selectedHookStyle,
           hook_y: selectedHookY,

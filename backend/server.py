@@ -11,6 +11,13 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
+from motion_graphics import analyze_video_for_motion, list_catalog
+from motion_worker import (
+    cancel_motion_task,
+    enqueue_motion_render,
+    ensure_motion_asset_local,
+    get_task_status,
+)
 from processor import (
     _prepare_card_png,
     apply_manual_caption_cuts,
@@ -27,11 +34,13 @@ from processor import (
     sync_edited_captions,
     transcribe_video,
 )
+from storage import BROLLS_DIR, CARDS_DIR, STORAGE_ROOT, cleanup_stale_jobs, get_motion_asset_path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
-JOBS_DIR = BASE_DIR / "jobs_data"
+JOBS_DIR = STORAGE_ROOT
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
+cleanup_stale_jobs()
 
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 600 * 1024 * 1024  # 600 MB
@@ -235,14 +244,19 @@ def _run_render_pipeline(job_id, opts):
             caption_lines=int(opts.get("caption_lines", 3)),
             caption_scale=float(opts.get("caption_scale", 100)),
             main_font_id=opts.get("main_font", ""),
+            small_font_id=opts.get("small_font", ""),
             hook_title=opts.get("hook_title", ""),
             hook_style=opts.get("hook_style", "pill-white"),
             hook_y_pct=float(opts.get("hook_y", 16)),
         )
 
-        sfx_times = pick_sfx_moments(captions, sfx_style=opts.get("sfx_style", "auto")) if bool(opts.get("sfx", True)) else []
+        sfx_times = pick_sfx_moments(
+            captions,
+            sfx_style=opts.get("sfx_style", "auto"),
+            sfx_all_highlights=bool(opts.get("sfx_all_highlights", True)),
+        ) if bool(opts.get("sfx", True)) else []
 
-        # Resolve multiple B-rolls with automatic or per-caption timing
+        # Resolve multiple B-rolls with explicit start/end, per-caption timing, or automatic placement
         raw_brolls = list(opts.get("brolls") or [])
         if not raw_brolls and opts.get("broll_id"):
             raw_brolls = [{"id": opts["broll_id"], "layout": opts.get("broll_layout", "auto")}]
@@ -253,6 +267,13 @@ def _run_render_pipeline(job_id, opts):
             bid = secure_filename(str(b.get("id") or "").strip())
             bp = (JOBS_DIR / "_brolls" / bid) if bid else None
             if not bp or not bp.exists():
+                continue
+            exp_s = b.get("start")
+            exp_e = b.get("end")
+            if exp_s not in (None, "") and float(exp_s) >= 0.0:
+                s_t = float(exp_s)
+                e_t = float(exp_e) if (exp_e not in (None, "") and float(exp_e) > s_t + 0.5) else (s_t + 3.5)
+                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": s_t, "dur": e_t - s_t})
                 continue
             marked = [c for c in captions if c.get("broll_id") == bid or (len(raw_brolls) == 1 and c.get("broll"))]
             if marked:
@@ -266,7 +287,7 @@ def _run_render_pipeline(job_id, opts):
             elif fallback_slots:
                 st_t = float(fallback_slots[min(b_slot_idx, len(fallback_slots) - 1)])
                 b_slot_idx += 1
-                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": st_t, "dur": 3.4})
+                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": st_t, "dur": 3.5})
 
         # Resolve multiple floating Cards (supporting 1 or many at the same moment or spread automatically)
         raw_cards = list(opts.get("cards") or [])
@@ -296,6 +317,32 @@ def _run_render_pipeline(job_id, opts):
                 c_slot_idx += 1
                 card_items.append({"path": cp, "anim": crd.get("anim", "auto"), "start": st_t, "dur": 3.2})
 
+        # Resolve approved Motion Graphics timeline layers (non-destructive transparent RGBA overlays)
+        raw_motions = list(opts.get("motion_layers") or [])
+        motion_items = []
+        if raw_motions:
+            _set_job(job_id, status="rendering", progress=68, message="Gerando camadas de Motion Graphics…")
+            for ml in raw_motions[:8]:
+                tid = str(ml.get("template_id") or "").strip()
+                if not tid:
+                    continue
+                ms = max(0.0, float(ml.get("start", 0.0)))
+                me = max(ms + 1.2, float(ml.get("end", ms + 3.2)))
+                dur = max(1.2, min(10.0, me - ms))
+                params = dict(ml.get("params") or {})
+                if ml.get("position"):
+                    params["position"] = ml["position"]
+                mw = 440 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 560
+                mh = 180 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 230
+                asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
+                motion_items.append({
+                    "path": asset_path,
+                    "start": ms,
+                    "dur": dur,
+                    "position": params.get("position", "top-center"),
+                    "scale": float(ml.get("scale", params.get("scale", 100))),
+                })
+
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
         render_video(
             src_path,
@@ -312,6 +359,7 @@ def _run_render_pipeline(job_id, opts):
             broll_items=broll_items,
             color_grade=bool(opts.get("color_grade", False)),
             card_items=card_items,
+            motion_items=motion_items,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)
@@ -386,9 +434,70 @@ def api_download_srt(job_id):
     return send_file(str(p), mimetype="application/x-subrip", as_attachment=True, download_name=f"eu-edito-{job_id}.srt")
 
 
+@app.route("/api/motion/catalog")
+def api_motion_catalog():
+    return jsonify(list_catalog())
+
+
+@app.route("/api/motion/analyze", methods=["POST"])
+def api_motion_analyze():
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    j = _get_job(job_id) if job_id else None
+    if not j:
+        return jsonify({"error": "Job não encontrado."}), 404
+    caps = data.get("captions") or j.get("captions") or []
+    src_path = Path(j.get("src_path", "")) if j.get("src_path") else None
+    suggestions = analyze_video_for_motion(caps, video_path=src_path)
+    _set_job(job_id, motion_suggestions=suggestions)
+    return jsonify({"ok": True, "suggestions": suggestions})
+
+
+@app.route("/api/motion/render_layer", methods=["POST"])
+def api_motion_render_layer():
+    data = request.get_json(silent=True) or {}
+    tid = data.get("template_id", "revenue_growth")
+    params = data.get("params") or {}
+    dur = float(data.get("duration", 3.2))
+    w = int(data.get("width", 560))
+    h = int(data.get("height", 230))
+    res = enqueue_motion_render(tid, params, duration=dur, width=w, height=h)
+    return jsonify(res)
+
+
+@app.route("/api/motion/tasks/<task_id>")
+def api_motion_task_status(task_id):
+    st = get_task_status(task_id)
+    if not st:
+        return jsonify({"error": "Task não encontrada."}), 404
+    return jsonify(st)
+
+
+@app.route("/api/motion/tasks/<task_id>/cancel", methods=["POST"])
+def api_motion_task_cancel(task_id):
+    return jsonify({"ok": cancel_motion_task(task_id)})
+
+
+@app.route("/api/motion/assets/<asset_id>")
+def api_motion_asset(asset_id):
+    p = get_motion_asset_path(asset_id, ".mov")
+    if not p.exists():
+        return jsonify({"error": "Motion asset não encontrado."}), 404
+    return send_file(str(p), mimetype="video/quicktime")
+
+
 if __name__ == "__main__":
-    from waitress import create_server
-    port = int(os.environ.get("PORT", "8090"))
-    print(f"Hogus Studio Mobile Cloud Server listening on 0.0.0.0:{port} ({HW_PROFILE['accel_label']})")
-    srv = create_server(app, host="0.0.0.0", port=port, threads=8)
-    srv.run()
+    if os.environ.get("SERVICE_ROLE") == "worker":
+        from motion_worker import create_worker_app
+        from waitress import create_server
+
+        port = int(os.environ.get("PORT", "8091"))
+        print(f"Eu Edito Motion Worker listening on 0.0.0.0:{port}")
+        create_server(create_worker_app(), host="0.0.0.0", port=port, threads=6).run()
+    else:
+        from waitress import create_server
+
+        port = int(os.environ.get("PORT", "8090"))
+        print(f"Hogus Studio Mobile Cloud Server listening on 0.0.0.0:{port} ({HW_PROFILE['accel_label']})")
+        srv = create_server(app, host="0.0.0.0", port=port, threads=8)
+        srv.run()
