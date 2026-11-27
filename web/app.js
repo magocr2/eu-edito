@@ -108,7 +108,7 @@ function animateOverlay(style) {
 function syncOverlay(animate = false) {
   const ov = $('liveOverlay');
   const lineMode = selectedStyle === 'clean-10' ? 1 : selectedLines;
-  const modeCls = lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : ' is-staggered');
+  const modeCls = lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '');
   ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
   if (lineMode === 2 && ov.children.length === 3) {
@@ -119,6 +119,9 @@ function syncOverlay(animate = false) {
     wrap.append(second, third);
   }
   ov.style.top = $('posY').value + '%';
+  const sc = Number($('capScale')?.value || 100);
+  ov.style.setProperty('--cap-scale', (sc / 100).toFixed(2));
+  if ($('capScaleVal')) $('capScaleVal').textContent = sc + '%';
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
     $('hookOverlay')?.style.setProperty('--accent', $('accentColor').value);
@@ -227,6 +230,7 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
 
 $('accentColor').addEventListener('input', () => syncOverlay(false));
 $('posY').addEventListener('input', () => syncOverlay(false));
+$('capScale')?.addEventListener('input', () => syncOverlay(false));
 
 // Initialize accent color input state on load (customColorToggle starts checked)
 (function initColorToggle() {
@@ -473,6 +477,7 @@ $('generateBtn').addEventListener('click', async () => {
         style: selectedStyle,
         accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
         pos_y: Number($('posY').value),
+        caption_scale: Number($('capScale')?.value || 100),
         caption_lines: selectedLines,
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,

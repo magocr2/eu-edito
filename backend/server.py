@@ -188,6 +188,7 @@ def _run_render_pipeline(job_id, opts):
             accent_hex=opts.get("accent_color", ""),
             pos_y_pct=float(opts.get("pos_y", 74)),
             caption_lines=int(opts.get("caption_lines", 3)),
+            caption_scale=float(opts.get("caption_scale", 100)),
             hook_title=opts.get("hook_title", ""),
             hook_style=opts.get("hook_style", "pill-white"),
             hook_y_pct=float(opts.get("hook_y", 16)),

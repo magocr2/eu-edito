@@ -582,7 +582,7 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, hook_title="", hook_style="pill-white", hook_y_pct=16):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, hook_title="", hook_style="pill-white", hook_y_pct=16):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
     - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
@@ -624,8 +624,8 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
             "upper": False, "default_accent": "#FFFFFF", "anim": "blur",
         },
         "clean-10": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 60, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 70, "main_bold": -1, "main_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 60, "main_bold": -1, "main_italic": 0,
             "upper": False, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
@@ -651,8 +651,9 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
     scale_f = min(width, height) / 1080.0
-    s_size = max(22, int(cfg["small_size"] * scale_f))
-    m_size = max(34, int(cfg["main_size"] * scale_f))
+    user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
+    s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
+    m_size = max(28, int(cfg["main_size"] * scale_f * user_scale))
     outline = round(max(0.7, 1.0 * scale_f), 1)
     shadow = round(max(2.2, 3.6 * scale_f), 1)
     pos_x = int(width * 0.5)
@@ -879,34 +880,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         stag = min(int(width * 0.13), max(int(width * 0.04), int(main_w_px * 0.18)))
 
         if use_three:
-            # 3 staggered editorial lines: Row 1 upper-left, MAIN centered, Row 3 lower-right
+            # Subtle editorial diagonal stagger only on 3-line balanced phrases
             _emit_mixed_line(before, pos_x - stag, pos_y - top_offset, cap_s, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x + stag, pos_y + bot_offset, cap_s, t0s, t1s, main_local_idx=None)
         elif before and after:
-            # Strictly 2 balanced rows even when MAIN is in the middle: absorb shorter side neatly into MAIN's row
+            # Strictly 2 centered balanced rows when MAIN is in the middle
             before_chars = sum(len(x["w"]) for x in before)
             after_chars = sum(len(x["w"]) for x in after)
             row_gap_up = int(m_size * 0.46 + s_size * 0.14)
             row_gap_dn = int(m_size * (0.20 if upper_main else 0.26))
             if after_chars <= before_chars:
-                _emit_mixed_line(before, pos_x - int(stag * 0.45), pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
                 _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
             else:
                 _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
-                _emit_mixed_line(after, pos_x + int(stag * 0.45), pos_y + row_gap_dn + int(s_size * 0.24), cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.24), cap_s, t0s, t1s, main_local_idx=None)
         elif before:
-            # 2 lines: small before on top (slightly left), MAIN on bottom (center / subtle right contrast)
+            # 2 lines cleanly centered: small before on top, MAIN below
             top_2 = int(m_size * 0.42 + s_size * 0.14)
             bot_2 = int(m_size * 0.18)
-            _emit_mixed_line(before, pos_x - int(stag * 0.45), pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x + int(stag * 0.20), pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
-            # 2 lines: MAIN on top-left/center, small after tucked tightly below-right
+            # 2 lines cleanly centered: MAIN on top, small after below
             top_2 = int(m_size * 0.14)
             bot_2 = int(m_size * (0.34 if upper_main else 0.42) + s_size * 0.18)
-            _emit_mixed_line(main_w, pos_x - int(stag * 0.20), pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x + int(stag * 0.45), pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
 
     # Hook overlay
     hook = (hook_title or "").strip()
