@@ -181,7 +181,11 @@ def probe_video(video_path):
     if abs(rot) in (90, 270):
         w, h = h, w
 
-    return {"width": w, "height": h, "duration": dur}
+    acmd = [ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "json", str(video_path)]
+    ar = subprocess.run(acmd, capture_output=True, text=True, timeout=10)
+    has_audio = bool(json.loads(ar.stdout or "{}").get("streams"))
+
+    return {"width": w, "height": h, "duration": dur, "has_audio": has_audio}
 
 
 def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type, cpu_threads, beam, language):
@@ -516,11 +520,15 @@ def sync_edited_captions(edited_captions):
             except Exception:
                 pass
         if "sfx" in cap and cap["sfx"] is not None:
-            item["sfx"] = bool(cap["sfx"])
+            item["sfx"] = cap["sfx"] if isinstance(cap["sfx"], str) else bool(cap["sfx"])
         if cap.get("broll"):
             item["broll"] = True
+        if cap.get("broll_id"):
+            item["broll_id"] = str(cap["broll_id"])
         if cap.get("card"):
             item["card"] = True
+        if cap.get("card_ids"):
+            item["card_ids"] = [str(x) for x in cap["card_ids"]]
         synced.append(item)
     return synced
 
@@ -648,28 +656,58 @@ def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=440):
 
 
 def _ensure_sfx_wav(sfx_dir, kind="pop"):
-    """Synthesize a clean, subtle studio SFX WAV file if not already cached."""
+    """Synthesize crisp studio SFX WAV files (pop, whoosh, impact, chime, click) if not cached."""
     import math
+    import random
     import struct
     import wave
 
+    kind = (kind or "pop").lower().strip()
+    if kind not in ("pop", "whoosh", "impact", "chime", "click"):
+        kind = "pop"
     Path(sfx_dir).mkdir(parents=True, exist_ok=True)
     out_wav = Path(sfx_dir) / f"sfx_{kind}.wav"
     if out_wav.exists() and out_wav.stat().st_size > 1000:
         return out_wav
 
     sr = 44100
-    dur = 0.16
+    dur = 0.34 if kind in ("whoosh", "impact", "chime") else 0.16
     n_samples = int(sr * dur)
     frames = bytearray()
+    rng = random.Random(42)
+    lp = 0.0
     for i in range(n_samples):
         t = i / sr
-        env = math.exp(-t * 28.0) * min(1.0, t / 0.004)
-        # Warm soft pop: quick pitch drop 260Hz -> 95Hz + subtle air click
-        freq = 95.0 + 165.0 * math.exp(-t * 36.0)
-        val = 0.26 * env * math.sin(2.0 * math.pi * freq * t)
-        val += 0.06 * math.exp(-t * 65.0) * math.sin(2.0 * math.pi * 1150.0 * t)
-        sample = max(-32767, min(32767, int(val * 32767)))
+        if kind == "whoosh":
+            # Smooth filtered air swoosh for scene/B-roll/card entrances
+            env = math.sin(math.pi * (t / dur)) ** 1.4
+            noise = rng.uniform(-1.0, 1.0)
+            lp = lp * 0.86 + noise * 0.14
+            sweep = math.sin(2.0 * math.pi * (180.0 + 420.0 * (t / dur)) * t)
+            val = 0.24 * env * (lp * 1.6 + 0.35 * sweep)
+        elif kind == "impact":
+            # Warm sub-bass thud for strong emphasis phrases
+            env = math.exp(-t * 10.5) * min(1.0, t / 0.006)
+            freq = 48.0 + 95.0 * math.exp(-t * 22.0)
+            val = 0.34 * env * math.sin(2.0 * math.pi * freq * t)
+        elif kind == "chime":
+            # Soft airy bell harmonic for positive/CTA highlights
+            env = math.exp(-t * 9.0) * min(1.0, t / 0.005)
+            val = 0.20 * env * (
+                math.sin(2.0 * math.pi * 880.0 * t)
+                + 0.45 * math.sin(2.0 * math.pi * 1320.0 * t)
+            )
+        elif kind == "click":
+            # Snappy modern UI tick
+            env = math.exp(-t * 55.0) * min(1.0, t / 0.002)
+            val = 0.24 * env * math.sin(2.0 * math.pi * (950.0 + 600.0 * math.exp(-t * 80.0)) * t)
+        else:
+            # Warm soft pop: quick pitch drop 260Hz -> 95Hz + subtle air click
+            env = math.exp(-t * 28.0) * min(1.0, t / 0.004)
+            freq = 95.0 + 165.0 * math.exp(-t * 36.0)
+            val = 0.26 * env * math.sin(2.0 * math.pi * freq * t)
+            val += 0.06 * math.exp(-t * 65.0) * math.sin(2.0 * math.pi * 1150.0 * t)
+        sample = max(-32767, min(32767, int(max(-0.95, min(0.95, val)) * 32767)))
         frames.extend(struct.pack("<h", sample))
 
     with wave.open(str(out_wav), "wb") as wf:
@@ -680,13 +718,16 @@ def _ensure_sfx_wav(sfx_dir, kind="pop"):
     return out_wav
 
 
-def pick_sfx_moments(captions, max_sfx=8, min_gap_s=2.8):
-    """Return sorted timestamps (seconds in output timeline) for subtle SFX on highlight words."""
+def pick_sfx_moments(captions, sfx_style="auto", max_sfx=10, min_gap_s=2.4):
+    """Return sorted list of (time_s, kind) tuples for highlight words and transitions."""
     if not captions:
         return []
+    style = (sfx_style or "auto").lower().strip()
+    auto_cycle = ["pop", "whoosh", "impact", "chime", "click"]
     explicit = []
     auto_candidates = []
-    for c in captions:
+
+    for idx, c in enumerate(captions):
         words = c.get("words") or []
         if not words:
             continue
@@ -696,36 +737,65 @@ def pick_sfx_moments(captions, max_sfx=8, min_gap_s=2.8):
         else:
             mi = max(range(len(words)), key=lambda i: len(re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", words[i]["w"])))
         t_word = max(0.0, float(words[mi]["s"]))
-        if c.get("sfx") is True:
-            explicit.append(t_word)
-        elif c.get("sfx") is False:
+        t_start = max(0.0, float(c.get("s", t_word)))
+
+        sfx_val = c.get("sfx")
+        if isinstance(sfx_val, str) and sfx_val in ("pop", "whoosh", "impact", "chime", "click", "auto"):
+            chosen_k = auto_cycle[idx % len(auto_cycle)] if sfx_val == "auto" else sfx_val
+            explicit.append((round(t_start if chosen_k == "whoosh" else t_word, 3), chosen_k))
             continue
-        else:
-            txt = c.get("text") or ""
-            sc = 0.0
-            if float(c.get("s", 0.0)) <= 3.5:
-                sc += 2.5
-            if "?" in txt or "!" in txt:
+        if sfx_val is True:
+            chosen_k = auto_cycle[idx % len(auto_cycle)] if style == "auto" else style
+            explicit.append((round(t_word, 3), chosen_k))
+            continue
+        if sfx_val is False:
+            continue
+
+        # Also add subtle transition whoosh when B-roll/card triggers or speech gap >= 0.35s
+        prev_e = float(captions[idx - 1]["e"]) if idx > 0 else 0.0
+        txt = c.get("text") or ""
+        sc = 0.0
+        pref_kind = style if style != "auto" else "pop"
+        if float(c.get("s", 0.0)) <= 3.5:
+            sc += 2.5
+            if style == "auto":
+                pref_kind = "impact"
+        if "?" in txt or "!" in txt:
+            sc += 2.0
+            if style == "auto":
+                pref_kind = "chime"
+        if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
+            sc += 2.2
+            if style == "auto":
+                pref_kind = "pop"
+        for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
+            if wd in _IMPACT_WORDS:
                 sc += 2.0
-            if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
-                sc += 2.2
-            for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
-                if wd in _IMPACT_WORDS:
-                    sc += 2.0
-            if sc >= 1.5:
-                auto_candidates.append((sc, t_word))
+        if c.get("broll_ids") or c.get("broll") or c.get("card_ids") or c.get("card") or (idx > 0 and t_start - prev_e >= 0.35):
+            sc += 2.1
+            if style == "auto":
+                pref_kind = "whoosh"
+                t_word = t_start
+        if sc >= 1.5:
+            auto_candidates.append((sc, round(t_word, 3), pref_kind))
 
     if explicit:
-        return sorted(set(round(t, 3) for t in explicit))[:10]
+        seen = set()
+        out = []
+        for t, k in sorted(explicit):
+            if t not in seen:
+                seen.add(t)
+                out.append((t, k))
+        return out[:max_sfx]
 
     auto_candidates.sort(key=lambda x: (-x[0], x[1]))
     chosen = []
-    for _, t in auto_candidates:
-        if all(abs(t - ct) >= min_gap_s for ct in chosen):
-            chosen.append(round(t, 3))
+    for _, t, k in auto_candidates:
+        if all(abs(t - ct) >= min_gap_s for ct, _ in chosen):
+            chosen.append((t, k))
         if len(chosen) >= max_sfx:
             break
-    return sorted(chosen)
+    return sorted(chosen, key=lambda x: x[0])
 
 
 def pick_impact_moments(captions, min_gap_s=6.0, max_ratio=0.30):
@@ -1214,41 +1284,66 @@ def render_video(
     broll_layout="top",
     broll_start=None,
     broll_dur=3.5,
+    broll_items=None,
     color_grade=False,
     card_path=None,
     card_anim="side-right",
     card_start=None,
     card_dur=3.2,
+    card_items=None,
 ):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
     fonts_escaped = str(FONTS_DIR).replace("\\", "/").replace(":", "\\:")
 
+    src_info = probe_video(src_path)
+    has_src_audio = bool(src_info.get("has_audio", True))
+
     w_even = width - (width % 2)
     h_even = height - (height % 2)
+
+    # Normalize B-roll and Card queues (supporting single legacy args or multi-item lists)
+    brolls = list(broll_items or [])
+    if not brolls and broll_path and Path(broll_path).exists() and broll_start is not None:
+        brolls.append({"path": broll_path, "layout": broll_layout, "start": broll_start, "dur": broll_dur})
+    brolls = [b for b in brolls if b.get("path") and Path(b["path"]).exists() and b.get("start") is not None][:5]
+
+    cards = list(card_items or [])
+    if not cards and card_path and Path(card_path).exists() and card_start is not None:
+        cards.append({"path": card_path, "anim": card_anim, "start": card_start, "dur": card_dur})
+    cards = [c for c in cards if c.get("path") and Path(c["path"]).exists() and c.get("start") is not None][:6]
 
     # Build trim + concat filter if decupagem cut segments
     n_segs = len(keep_ranges)
     fc_parts = []
-    concat_inputs = []
+    concat_v = []
+    concat_a = []
     for i, seg in enumerate(keep_ranges):
         s, e = seg["s"], seg["e"]
         fc_parts.append(f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
-        fc_parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
-        concat_inputs.append(f"[v{i}][a{i}]")
+        concat_v.append(f"[v{i}]")
+        if has_src_audio:
+            fc_parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
+            concat_a.append(f"[a{i}]")
 
+    total_keep_dur = max(0.5, sum(max(0.1, float(seg["e"]) - float(seg["s"])) for seg in keep_ranges))
     if n_segs == 1 and keep_ranges[0]["s"] == 0.0:
         v_chain = "[0:v]"
-        a_chain = "[0:a]"
+        a_chain = "[0:a]" if has_src_audio else None
         fc_parts = []
     else:
-        fc_parts.append("".join(concat_inputs) + f"concat=n={n_segs}:v=1:a=1[vcat][acat]")
+        if has_src_audio:
+            pairs = "".join(f"{concat_v[i]}{concat_a[i]}" for i in range(n_segs))
+            fc_parts.append(pairs + f"concat=n={n_segs}:v=1:a=1[vcat][acat]")
+            a_chain = "[acat]"
+        else:
+            fc_parts.append("".join(concat_v) + f"concat=n={n_segs}:v=1:a=0[vcat]")
+            a_chain = None
         v_chain = "[vcat]"
-        a_chain = "[acat]"
 
     low_ram = hw.get("ram_gb", 8.0) <= 1.2
 
-    # Cap export resolution to 720p on 512MB containers to prevent OOM 502 during x264+libass
+    # Cap export resolution to 720p on <=1.2GB containers to prevent OOM
     if low_ram and max(w_even, h_even) > 1280:
         if h_even >= w_even:
             w_even, h_even = 720, 1280
@@ -1270,23 +1365,29 @@ def render_video(
 
     extra_inputs = []
     next_in_idx = 1
-    has_broll = bool(broll_path and Path(broll_path).exists() and broll_start is not None)
-    has_card = bool(card_path and Path(card_path).exists() and card_start is not None)
     has_bokeh = bool(color_grade and not low_ram)
-    sfx_list = [float(t) for t in (sfx_times or []) if float(t) >= 0.0][:10]
-    has_sfx = bool(sfx_list)
 
-    broll_idx = None
-    if has_broll:
-        broll_idx = next_in_idx
-        next_in_idx += 1
-        extra_inputs += ["-i", str(broll_path)]
+    # Normalize sfx_times into list of (t_s, kind)
+    sfx_events = []
+    for item in (sfx_times or [])[:10]:
+        if isinstance(item, (tuple, list)) and len(item) >= 2:
+            t_s, sk = float(item[0]), str(item[1])
+        else:
+            t_s, sk = float(item), "pop"
+        if t_s >= 0.0:
+            sfx_events.append((t_s, sk))
 
-    card_idx = None
-    if has_card:
-        card_idx = next_in_idx
+    broll_inputs = []
+    for b in brolls:
+        broll_inputs.append((next_in_idx, b))
         next_in_idx += 1
-        extra_inputs += ["-loop", "1", "-i", str(card_path)]
+        extra_inputs += ["-i", str(b["path"])]
+
+    card_inputs = []
+    for c in cards:
+        card_inputs.append((next_in_idx, c))
+        next_in_idx += 1
+        extra_inputs += ["-loop", "1", "-i", str(c["path"])]
 
     mask_idx = None
     if has_bokeh:
@@ -1295,15 +1396,16 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(mask_png)]
 
-    sfx_idx = None
-    if has_sfx:
-        sfx_wav = _ensure_sfx_wav(Path(out_path).parent, "pop")
-        sfx_idx = next_in_idx
-        next_in_idx += 1
-        extra_inputs += ["-i", str(sfx_wav)]
+    sfx_kind_to_idx = {}
+    for _, sk in sfx_events:
+        if sk not in sfx_kind_to_idx:
+            sfx_wav = _ensure_sfx_wav(Path(out_path).parent, sk)
+            sfx_kind_to_idx[sk] = next_in_idx
+            next_in_idx += 1
+            extra_inputs += ["-i", str(sfx_wav)]
 
-    use_fc = bool(fc_parts or has_broll or has_card or color_grade or has_sfx)
-    af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if studio_audio else ""
+    use_fc = bool(fc_parts or broll_inputs or card_inputs or color_grade or sfx_events)
+    af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if (studio_audio and has_src_audio) else ""
 
     if use_fc:
         grade_4k = ",unsharp=5:5:0.75:3:3:0.0,eq=contrast=1.08:saturation=1.14:brightness=0.02:gamma=1.02" if color_grade else ""
@@ -1319,77 +1421,101 @@ def render_video(
             )
             cur_v = "[vgraded]"
 
-        if has_broll:
-            b_info = probe_video(broll_path)
-            b_dur = max(1.6, min(5.5, float(broll_dur or 3.5), float(b_info.get("duration") or 3.5)))
-            bs = max(0.0, float(broll_start))
+        auto_b_cycle = ["top", "bottom", "full"]
+        hh = (h_even // 2) - ((h_even // 2) % 2)
+        split_brolls = []
+        for bi, (b_idx, b) in enumerate(broll_inputs):
+            b_info = probe_video(b["path"])
+            b_dur = max(1.6, min(5.5, float(b.get("dur") or 3.5), float(b_info.get("duration") or 3.5)))
+            bs = max(0.0, float(b["start"]))
             be = bs + b_dur
-            hh = (h_even // 2) - ((h_even // 2) % 2)
-            layout = (broll_layout or "top").lower()
+            layout = (b.get("layout") or "auto").lower()
+            if layout == "auto":
+                layout = auto_b_cycle[bi % len(auto_b_cycle)]
             ramp = f"min(1,min((t-{bs:.3f})/0.22,({be:.3f}-t)/0.22))"
             if layout == "full":
                 fc_parts.append(
-                    f"[{broll_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
-                    f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},setsar=1[vbroll]"
+                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
+                    f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},setsar=1[vb{bi}]"
                 )
-                fc_parts.append(f"{cur_v}[vbroll]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})'[vbcomp]")
+                fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})'[vbf{bi}]")
+                cur_v = f"[vbf{bi}]"
             else:
-                shift_px = int(hh * 0.30)
-                main_y = f"if(between(t,{bs:.3f},{be:.3f}),{shift_px if layout == 'top' else -shift_px}*{ramp},0)"
-                b_y = (
-                    f"-{hh}+{hh}*{ramp}"
-                    if layout == "top"
-                    else f"{h_even}-{hh}*{ramp}"
-                )
-                fc_parts.append(f"color=c=black:s={w_even}x{h_even}:r=30[vbg]")
-                fc_parts.append(f"[vbg]{cur_v}overlay=0:y='{main_y}':shortest=1[vshifted]")
-                fc_parts.append(
-                    f"[{broll_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
-                    f"scale={w_even}:{hh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{hh},setsar=1[vbroll]"
-                )
-                fc_parts.append(f"[vshifted][vbroll]overlay=0:y='{b_y}':enable='between(t,{bs:.3f},{be:.3f})'[vbcomp]")
-            cur_v = "[vbcomp]"
+                split_brolls.append((bi, b_idx, layout, bs, be, b_dur, ramp))
 
-        if has_card:
-            cs = max(0.0, float(card_start))
-            cd = max(1.6, min(5.0, float(card_dur or 3.2)))
+        if split_brolls:
+            shift_px = int(hh * 0.30)
+            # Combine smooth main-video Y displacement across all split B-roll intervals
+            y_terms = [
+                f"if(between(t,{bs:.3f},{be:.3f}),{shift_px if lay == 'top' else -shift_px}*{rmp},0)"
+                for _, _, lay, bs, be, _, rmp in split_brolls
+            ]
+            fc_parts.append(f"color=c=black:s={w_even}x{h_even}:r=30[vbg]")
+            fc_parts.append(f"[vbg]{cur_v}overlay=0:y='{'+'.join(y_terms)}':shortest=1[vshifted]")
+            cur_v = "[vshifted]"
+            for bi, b_idx, lay, bs, be, b_dur, rmp in split_brolls:
+                b_y = f"-{hh}+{hh}*{rmp}" if lay == "top" else f"{h_even}-{hh}*{rmp}"
+                fc_parts.append(
+                    f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
+                    f"scale={w_even}:{hh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{hh},setsar=1[vb{bi}]"
+                )
+                fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:y='{b_y}':enable='between(t,{bs:.3f},{be:.3f})'[vbs{bi}]")
+                cur_v = f"[vbs{bi}]"
+
+        auto_c_cycle = ["side-right", "side-left", "corner-top", "behind-peek"]
+        cw_target = max(150, int(w_even * 0.32))
+        cw_target -= cw_target % 2
+        margin = max(22, int(w_even * 0.04))
+        for ci, (c_idx, c) in enumerate(card_inputs):
+            cs = max(0.0, float(c["start"]))
+            cd = max(1.6, min(5.0, float(c.get("dur") or 3.2)))
             ce = cs + cd
-            cw_target = max(160, int(w_even * 0.34))
-            cw_target -= cw_target % 2
             cramp = f"min(1,min((t-{cs:.3f})/0.24,({ce:.3f}-t)/0.24))"
-            bob = f"8*sin(3.2*(t-{cs:.3f}))"
-            canim = (card_anim or "side-right").lower()
-            margin = max(24, int(w_even * 0.04))
+            bob = f"8*sin(3.2*(t-{cs:.3f})+{ci*1.1:.1f})"
+            canim = (c.get("anim") or "auto").lower()
+            if canim == "auto":
+                canim = auto_c_cycle[ci % len(auto_c_cycle)]
+            # Stagger vertical slot slightly when multiple cards coexist
+            slot_dy = (ci % 3) * int(h_even * 0.13)
             if canim == "side-left":
                 cx = f"-w+(w+{margin})*{cramp}"
-                cy = f"{int(h_even * 0.24)}+{bob}"
+                cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
             elif canim == "corner-top":
-                cx = f"{w_even}-w-{margin}"
-                cy = f"-h+(h+{int(h_even * 0.12)})*{cramp}+{bob}"
+                cx = f"{margin if ci % 2 == 1 else w_even}-{(0 if ci % 2 == 1 else 1)}*w-{(0 if ci % 2 == 1 else margin)}"
+                cx = f"{margin}" if ci % 2 == 1 else f"{w_even}-w-{margin}"
+                cy = f"-h+(h+{int(h_even * 0.11)})*{cramp}+{bob}"
             elif canim == "behind-peek":
-                cx = f"{int(w_even * 0.5)}-w/2+({int(w_even * 0.27)})*{cramp}"
-                cy = f"{int(h_even * 0.28)}+{bob}"
+                dir_sign = -1 if ci % 2 == 1 else 1
+                cx = f"{int(w_even * 0.5)}-w/2+({dir_sign * int(w_even * 0.27)})*{cramp}"
+                cy = f"{int(h_even * 0.24) + slot_dy}+{bob}"
             else:
                 cx = f"{w_even}-(w+{margin})*{cramp}"
-                cy = f"{int(h_even * 0.24)}+{bob}"
-            fc_parts.append(f"[{card_idx}:v]scale={cw_target}:-2:flags={scale_flags},format=rgba[vcard]")
-            fc_parts.append(f"{cur_v}[vcard]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':shortest=1[vccomp]")
-            cur_v = "[vccomp]"
+                cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
+            fc_parts.append(f"[{c_idx}:v]scale={cw_target}:-2:flags={scale_flags},format=rgba[vcard{ci}]")
+            fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':shortest=1[vc{ci}]")
+            cur_v = f"[vc{ci}]"
 
         fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
 
-        # Audio pipeline + subtle SFX mixing
-        if af_chain:
+        # Audio pipeline + subtle multi-SFX mixing
+        if not has_src_audio:
+            if sfx_events:
+                fc_parts.append(f"anullsrc=r=44100:cl=stereo:d={total_keep_dur:.3f}[asil]")
+                cur_a = "[asil]"
+            else:
+                cur_a = None
+        elif af_chain:
             fc_parts.append(f"{a_chain}{af_chain}[aclean]")
             cur_a = "[aclean]"
         else:
             cur_a = a_chain
 
-        if has_sfx:
+        if sfx_events and cur_a is not None:
             sfx_tags = []
-            for k, t_s in enumerate(sfx_list):
+            for k, (t_s, sk) in enumerate(sfx_events):
                 ms = max(0, int(round(t_s * 1000)))
-                fc_parts.append(f"[{sfx_idx}:a]adelay={ms}|{ms}[sfx{k}]")
+                s_idx = sfx_kind_to_idx[sk]
+                fc_parts.append(f"[{s_idx}:a]adelay={ms}|{ms}[sfx{k}]")
                 sfx_tags.append(f"[sfx{k}]")
             fc_parts.append(f"{cur_a}{''.join(sfx_tags)}amix=inputs={len(sfx_tags)+1}:duration=first:normalize=0[aout]")
             cur_a = "[aout]"
@@ -1397,10 +1523,10 @@ def render_video(
             cur_a = "0:a?"
 
         fc = ";".join(fc_parts)
-        map_args = ["-filter_complex", fc, "-map", "[vout]", "-map", cur_a]
+        map_args = ["-filter_complex", fc, "-map", "[vout]"] + (["-map", cur_a] if cur_a else [])
     else:
         sub_filter = f"{scale_base}{zoom_filter},subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'"
-        map_args = ["-vf", sub_filter] + (["-af", af_chain] if af_chain else []) + ["-map", "0:v:0", "-map", "0:a?"]
+        map_args = ["-vf", sub_filter] + (["-af", af_chain] if af_chain else []) + ["-map", "0:v:0"] + (["-map", "0:a?"] if has_src_audio else [])
 
     base_cmd = [ffmpeg, "-y", "-i", str(src_path)] + extra_inputs + map_args + [
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"

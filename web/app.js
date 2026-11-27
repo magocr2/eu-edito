@@ -10,10 +10,8 @@ let selectedHookStyle = 'pill-white';
 let selectedHookY = 16;
 let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
-let selectedBrollId = '';
-let selectedBrollLayout = 'top';
-let selectedCardId = '';
-let selectedCardAnim = 'side-right';
+let selectedBrolls = []; // [{ id, name, layout }]
+let selectedCards = [];  // [{ id, name, url, anim }]
 let deferredPrompt = null;
 let lastVideoUrl = '';
 let cachedVideoBlob = null;
@@ -394,63 +392,130 @@ $('rhythmGrid').querySelectorAll('.res-pill').forEach((btn) => {
   });
 });
 
-$('brollLayoutGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    $('brollLayoutGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
-    btn.classList.add('is-active');
-    selectedBrollLayout = btn.dataset.blayout || 'top';
-    markDirtyAfterRender();
+function renderBrollList() {
+  const list = $('brollList');
+  if (!list) return;
+  list.replaceChildren();
+  $('brollHint').hidden = !selectedBrolls.length;
+  selectedBrolls.forEach((b, idx) => {
+    const row = document.createElement('div');
+    row.className = 'media-item';
+    const lbl = document.createElement('span');
+    lbl.className = 'media-name';
+    lbl.textContent = `🎞️ B${idx + 1} · ${b.name}`;
+    const sel = document.createElement('select');
+    sel.className = 'media-sel';
+    [['auto', 'Automático'], ['top', 'Topo (dividida)'], ['bottom', 'Baixo (dividida)'], ['full', 'Tela cheia']].forEach(([val, txt]) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = txt;
+      if (b.layout === val) o.selected = true;
+      sel.append(o);
+    });
+    sel.addEventListener('change', () => { b.layout = sel.value; markDirtyAfterRender(); });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
+    del.addEventListener('click', () => {
+      selectedBrolls.splice(idx, 1);
+      renderBrollList();
+      if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
+      markDirtyAfterRender();
+    });
+    row.append(lbl, sel, del);
+    list.append(row);
   });
+}
+
+function renderCardList() {
+  const list = $('cardList');
+  if (!list) return;
+  list.replaceChildren();
+  $('cardHint').hidden = !selectedCards.length;
+  selectedCards.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.className = 'media-item';
+    const img = document.createElement('img');
+    img.className = 'media-thumb';
+    img.src = c.url || (`/api/cards/${c.id}`);
+    img.alt = c.name;
+    const lbl = document.createElement('span');
+    lbl.className = 'media-name';
+    lbl.textContent = `C${idx + 1} · ${c.name}`;
+    const sel = document.createElement('select');
+    sel.className = 'media-sel';
+    [
+      ['auto', 'Automático'],
+      ['side-right', 'Lateral Direita'],
+      ['side-left', 'Lateral Esquerda'],
+      ['corner-top', 'Canto Superior'],
+      ['behind-peek', 'Saindo por trás'],
+    ].forEach(([val, txt]) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = txt;
+      if (c.anim === val) o.selected = true;
+      sel.append(o);
+    });
+    sel.addEventListener('change', () => { c.anim = sel.value; markDirtyAfterRender(); });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
+    del.addEventListener('click', () => {
+      selectedCards.splice(idx, 1);
+      renderCardList();
+      if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
+      markDirtyAfterRender();
+    });
+    row.append(img, lbl, sel, del);
+    list.append(row);
+  });
+}
+
+$('sfxToggle')?.addEventListener('change', () => {
+  if ($('sfxBankBox')) $('sfxBankBox').hidden = !$('sfxToggle').checked;
+  markDirtyAfterRender();
 });
+$('sfxStyleSelect')?.addEventListener('change', () => markDirtyAfterRender());
+$('colorGradeToggle')?.addEventListener('change', () => markDirtyAfterRender());
 
 $('brollFile')?.addEventListener('change', async (e) => {
-  const f = e.target.files?.[0];
-  if (!f) return;
-  $('brollStatus').textContent = '⏳ Enviando B-roll…';
-  try {
-    const fd = new FormData();
-    fd.append('broll', f, f.name || 'broll.mp4');
-    const res = await fetch('/api/upload_broll', { method: 'POST', body: fd });
-    const data = await safeJson(res);
-    if (data.error || !data.broll_id) throw new Error(data.error || 'Erro no envio.');
-    selectedBrollId = data.broll_id;
-    $('brollStatus').textContent = `🎞️ ${f.name} (pronto)`;
-    $('brollOptionsBox').hidden = false;
-    markDirtyAfterRender();
-  } catch (err) {
-    selectedBrollId = '';
-    $('brollStatus').textContent = '❌ Falha ao enviar B-roll. Toque para tentar novamente';
+  const files = [...(e.target.files || [])];
+  if (!files.length) return;
+  $('brollStatus').textContent = `⏳ Enviando ${files.length} B-roll(s)…`;
+  for (const f of files) {
+    try {
+      const fd = new FormData();
+      fd.append('broll', f, f.name || 'broll.mp4');
+      const res = await fetch('/api/upload_broll', { method: 'POST', body: fd });
+      const data = await safeJson(res);
+      if (data.error || !data.broll_id) throw new Error(data.error || 'Erro');
+      selectedBrolls.push({ id: data.broll_id, name: f.name || 'B-roll', layout: 'auto' });
+    } catch {}
   }
-});
-
-$('cardAnimGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    $('cardAnimGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
-    btn.classList.add('is-active');
-    selectedCardAnim = btn.dataset.canim || 'side-right';
-    markDirtyAfterRender();
-  });
+  e.target.value = '';
+  $('brollStatus').textContent = '＋ Adicionar vídeo(s) B-roll';
+  renderBrollList();
+  if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
+  markDirtyAfterRender();
 });
 
 $('cardFile')?.addEventListener('change', async (e) => {
-  const f = e.target.files?.[0];
-  if (!f) return;
-  $('cardStatus').textContent = '⏳ Preparando imagem…';
-  try {
-    const fd = new FormData();
-    fd.append('card', f, f.name || 'card.png');
-    fd.append('remove_bg', $('cardRemoveBgToggle')?.checked ? '1' : '0');
-    const res = await fetch('/api/upload_card', { method: 'POST', body: fd });
-    const data = await safeJson(res);
-    if (data.error || !data.card_id) throw new Error(data.error || 'Erro no envio.');
-    selectedCardId = data.card_id;
-    $('cardStatus').textContent = `🖼️ ${f.name} (pronto)`;
-    $('cardOptionsBox').hidden = false;
-    markDirtyAfterRender();
-  } catch (err) {
-    selectedCardId = '';
-    $('cardStatus').textContent = '❌ Falha ao enviar imagem. Toque para tentar novamente';
+  const files = [...(e.target.files || [])];
+  if (!files.length) return;
+  $('cardStatus').textContent = `⏳ Preparando ${files.length} imagem(ns)…`;
+  for (const f of files) {
+    try {
+      const fd = new FormData();
+      fd.append('card', f, f.name || 'card.png');
+      fd.append('remove_bg', $('cardRemoveBgToggle')?.checked ? '1' : '0');
+      const res = await fetch('/api/upload_card', { method: 'POST', body: fd });
+      const data = await safeJson(res);
+      if (data.error || !data.card_id) throw new Error(data.error || 'Erro');
+      selectedCards.push({ id: data.card_id, name: f.name || 'Card', url: data.url, anim: 'auto' });
+    } catch {}
   }
+  e.target.value = '';
+  $('cardStatus').textContent = '＋ Adicionar card(s) / imagens flutuantes';
+  renderCardList();
+  if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
+  markDirtyAfterRender();
 });
 
 $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
@@ -707,49 +772,58 @@ function renderCaptionEditor(captions) {
         });
         chipsBox.append(chip);
       });
+      const SFX_CYCLE = [false, 'auto', 'pop', 'whoosh', 'impact', 'chime', 'click'];
+      const SFX_LABELS = { auto: '🔊 Auto', pop: '🔊 Pop', whoosh: '🔊 Whoosh', impact: '🔊 Impacto', chime: '🔊 Brilho', click: '🔊 Clique' };
+      const curSfx = currentCaptions[idx].sfx || false;
       const sfxBtn = document.createElement('button');
       sfxBtn.type = 'button';
-      sfxBtn.className = 'cap-chip-sfx' + (currentCaptions[idx].sfx ? ' is-on' : '');
-      sfxBtn.textContent = '🔊 SFX';
-      sfxBtn.title = 'Ativar efeito sonoro na palavra em destaque';
+      sfxBtn.className = 'cap-chip-sfx' + (curSfx ? ' is-on' : '');
+      sfxBtn.textContent = curSfx ? (SFX_LABELS[curSfx] || '🔊 SFX') : '🔊 SFX';
+      sfxBtn.title = 'Tocar para alternar efeito sonoro (Auto / Pop / Whoosh / Impacto / Brilho / Clique)';
       sfxBtn.addEventListener('click', () => {
-        currentCaptions[idx].sfx = !currentCaptions[idx].sfx;
+        const pos = SFX_CYCLE.indexOf(currentCaptions[idx].sfx || false);
+        currentCaptions[idx].sfx = SFX_CYCLE[(pos + 1) % SFX_CYCLE.length];
         renderChips();
         markDirtyAfterRender();
       });
       chipsBox.append(sfxBtn);
 
-      if (selectedBrollId) {
+      if (selectedBrolls.length) {
+        const curBid = currentCaptions[idx].broll_id || '';
+        const bIdx = selectedBrolls.findIndex((b) => b.id === curBid);
         const bBtn = document.createElement('button');
         bBtn.type = 'button';
-        bBtn.className = 'cap-chip-broll' + (currentCaptions[idx].broll ? ' is-on' : '');
-        bBtn.textContent = '🎞️ B-roll';
-        bBtn.title = 'Encaixar B-roll neste momento';
+        bBtn.className = 'cap-chip-broll' + (bIdx >= 0 ? ' is-on' : '');
+        bBtn.textContent = bIdx >= 0 ? `🎞️ B${bIdx + 1}` : '🎞️ B-roll';
+        bBtn.title = 'Escolher qual B-roll entra neste momento';
         bBtn.addEventListener('click', () => {
-          const next = !currentCaptions[idx].broll;
-          currentCaptions.forEach((c) => { c.broll = false; });
-          currentCaptions[idx].broll = next;
-          renderCaptionEditor(currentCaptions);
+          const nextIdx = bIdx + 1;
+          currentCaptions[idx].broll_id = nextIdx < selectedBrolls.length ? selectedBrolls[nextIdx].id : '';
+          renderChips();
           markDirtyAfterRender();
         });
         chipsBox.append(bBtn);
       }
 
-      if (selectedCardId) {
+      selectedCards.forEach((crd, cIdx) => {
+        const ids = Array.isArray(currentCaptions[idx].card_ids) ? currentCaptions[idx].card_ids : [];
+        const active = ids.includes(crd.id);
         const cBtn = document.createElement('button');
         cBtn.type = 'button';
-        cBtn.className = 'cap-chip-card' + (currentCaptions[idx].card ? ' is-on' : '');
-        cBtn.textContent = '🖼️ Card';
-        cBtn.title = 'Exibir card/imagem flutuante neste momento';
+        cBtn.className = 'cap-chip-card' + (active ? ' is-on' : '');
+        cBtn.textContent = `🖼️ C${cIdx + 1}`;
+        cBtn.title = `Ativar Card ${cIdx + 1} (${crd.name}) neste momento`;
         cBtn.addEventListener('click', () => {
-          const next = !currentCaptions[idx].card;
-          currentCaptions.forEach((c) => { c.card = false; });
-          currentCaptions[idx].card = next;
-          renderCaptionEditor(currentCaptions);
+          const cur = Array.isArray(currentCaptions[idx].card_ids) ? [...currentCaptions[idx].card_ids] : [];
+          const i = cur.indexOf(crd.id);
+          if (i >= 0) cur.splice(i, 1);
+          else cur.push(crd.id);
+          currentCaptions[idx].card_ids = cur;
+          renderChips();
           markDirtyAfterRender();
         });
         chipsBox.append(cBtn);
-      }
+      });
     }
     renderChips();
 
@@ -846,38 +920,59 @@ $('generateBtn').addEventListener('click', async () => {
       }
     }
 
-    // Stage 2: Render video with edited captions
+    // Stage 2: Render video with edited captions (with transparent auto-recovery if server restarted)
+    async function sendRenderRequest(jid) {
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: jid,
+          captions: currentCaptions,
+          style: selectedStyle,
+          accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
+          pos_y: Number($('posY').value),
+          caption_scale: Number($('capScale')?.value || 100),
+          main_font: $('fontSelect')?.value || '',
+          caption_lines: selectedLines,
+          zoom: $('zoomToggle').checked,
+          studio_audio: $('studioAudioToggle').checked,
+          sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
+          sfx_style: $('sfxStyleSelect')?.value || 'auto',
+          color_grade: $('colorGradeToggle') ? $('colorGradeToggle').checked : false,
+          brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout })),
+          cards: selectedCards.map((c) => ({ id: c.id, anim: c.anim })),
+          hook_title: ($('hookTitleInput')?.value || '').trim(),
+          hook_style: selectedHookStyle,
+          hook_y: selectedHookY,
+          resolution: selectedResolution,
+        }),
+      });
+      return { status: res.status, data: await safeJson(res) };
+    }
+
     $('progressText').textContent = 'Aplicando legendas revisadas…';
     $('progressPct').textContent = '60%';
     $('progressFill').style.width = '60%';
 
-    const renRes = await fetch('/api/render', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        job_id: currentJobId,
-        captions: currentCaptions,
-        style: selectedStyle,
-        accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
-        pos_y: Number($('posY').value),
-        caption_scale: Number($('capScale')?.value || 100),
-        main_font: $('fontSelect')?.value || '',
-        caption_lines: selectedLines,
-        zoom: $('zoomToggle').checked,
-        studio_audio: $('studioAudioToggle').checked,
-        sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
-        color_grade: $('colorGradeToggle') ? $('colorGradeToggle').checked : false,
-        broll_id: selectedBrollId,
-        broll_layout: selectedBrollLayout,
-        card_id: selectedCardId,
-        card_anim: selectedCardAnim,
-        hook_title: ($('hookTitleInput')?.value || '').trim(),
-        hook_style: selectedHookStyle,
-        hook_y: selectedHookY,
-        resolution: selectedResolution,
-      }),
-    });
-    const ren = await safeJson(renRes);
+    let { status: renStatus, data: ren } = await sendRenderRequest(currentJobId);
+    if ((renStatus === 404 || /não encontrado/i.test(ren.error || '')) && selectedFile) {
+      $('progressText').textContent = 'Reconectando vídeo ao servidor…';
+      const up2 = await uploadWithProgress(selectedFile);
+      currentJobId = up2.job_id;
+      const tr2 = await safeJson(await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: currentJobId, cuts: $('cutsToggle').checked, rhythm: selectedRhythm }),
+      }));
+      if (tr2.error) throw new Error(tr2.error);
+      while (true) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const st0 = await safeJson(await fetch('/api/jobs/' + currentJobId));
+        if (st0.status === 'review') break;
+        if (st0.status === 'error') throw new Error(st0.message || 'Erro ao reconectar vídeo.');
+      }
+      ({ status: renStatus, data: ren } = await sendRenderRequest(currentJobId));
+    }
     if (ren.error) throw new Error(ren.error);
 
     while (true) {
@@ -915,8 +1010,10 @@ $('generateBtn').addEventListener('click', async () => {
       if (st.status === 'error') throw new Error(st.message || 'Erro ao renderizar o vídeo.');
     }
   } catch (err) {
+    $('progressBox').hidden = true;
     $('errorMsg').textContent = err?.message || 'Falha no processamento.';
     $('errorMsg').hidden = false;
+    $('errorMsg').scrollIntoView({ behavior: 'smooth', block: 'center' });
     $('generateBtn').disabled = false;
   }
 });

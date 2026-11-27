@@ -151,7 +151,15 @@ def api_upload_card():
         raw_path.unlink(missing_ok=True)
     except Exception:
         pass
-    return jsonify({"card_id": out_name, "filename": safe_name})
+    return jsonify({"card_id": out_name, "filename": safe_name, "url": f"/api/cards/{out_name}"})
+
+
+@app.route("/api/cards/<card_id>")
+def api_get_card(card_id):
+    p = JOBS_DIR / "_cards" / secure_filename(card_id)
+    if not p.exists():
+        return jsonify({"error": "Card não encontrado."}), 404
+    return send_file(str(p), mimetype="image/png")
 
 
 def _run_transcribe_pipeline(job_id, opts):
@@ -232,38 +240,61 @@ def _run_render_pipeline(job_id, opts):
             hook_y_pct=float(opts.get("hook_y", 16)),
         )
 
-        sfx_times = pick_sfx_moments(captions) if bool(opts.get("sfx", True)) else []
-        broll_id = (opts.get("broll_id") or "").strip()
-        broll_path = (JOBS_DIR / "_brolls" / secure_filename(broll_id)) if broll_id else None
-        if broll_path and not broll_path.exists():
-            broll_path = None
-        broll_start = None
-        broll_dur = 3.5
-        if broll_path:
-            marked = [c for c in captions if c.get("broll")]
-            if marked:
-                broll_start = float(marked[0]["s"])
-                broll_dur = max(2.2, min(4.5, float(marked[0]["e"]) - float(marked[0]["s"]) + 0.8))
-            elif impacts:
-                broll_start = float(impacts[0][0])
-            elif captions:
-                broll_start = float(captions[min(len(captions) - 1, 1)]["s"])
+        sfx_times = pick_sfx_moments(captions, sfx_style=opts.get("sfx_style", "auto")) if bool(opts.get("sfx", True)) else []
 
-        card_id = (opts.get("card_id") or "").strip()
-        card_path = (JOBS_DIR / "_cards" / secure_filename(card_id)) if card_id else None
-        if card_path and not card_path.exists():
-            card_path = None
-        card_start = None
-        card_dur = 3.2
-        if card_path:
-            marked_c = [c for c in captions if c.get("card")]
+        # Resolve multiple B-rolls with automatic or per-caption timing
+        raw_brolls = list(opts.get("brolls") or [])
+        if not raw_brolls and opts.get("broll_id"):
+            raw_brolls = [{"id": opts["broll_id"], "layout": opts.get("broll_layout", "auto")}]
+        broll_items = []
+        fallback_slots = [imp[0] for imp in impacts] if impacts else [c["s"] for c in captions[::3]]
+        b_slot_idx = 0
+        for b in raw_brolls[:5]:
+            bid = secure_filename(str(b.get("id") or "").strip())
+            bp = (JOBS_DIR / "_brolls" / bid) if bid else None
+            if not bp or not bp.exists():
+                continue
+            marked = [c for c in captions if c.get("broll_id") == bid or (len(raw_brolls) == 1 and c.get("broll"))]
+            if marked:
+                for mc in marked:
+                    broll_items.append({
+                        "path": bp,
+                        "layout": b.get("layout", "auto"),
+                        "start": float(mc["s"]),
+                        "dur": max(2.2, min(4.8, float(mc["e"]) - float(mc["s"]) + 0.8)),
+                    })
+            elif fallback_slots:
+                st_t = float(fallback_slots[min(b_slot_idx, len(fallback_slots) - 1)])
+                b_slot_idx += 1
+                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": st_t, "dur": 3.4})
+
+        # Resolve multiple floating Cards (supporting 1 or many at the same moment or spread automatically)
+        raw_cards = list(opts.get("cards") or [])
+        if not raw_cards and opts.get("card_id"):
+            raw_cards = [{"id": opts["card_id"], "anim": opts.get("card_anim", "auto")}]
+        card_items = []
+        c_slot_idx = 1 if len(fallback_slots) > 1 else 0
+        for crd in raw_cards[:6]:
+            cid = secure_filename(str(crd.get("id") or "").strip())
+            cp = (JOBS_DIR / "_cards" / cid) if cid else None
+            if not cp or not cp.exists():
+                continue
+            marked_c = [
+                c for c in captions
+                if cid in (c.get("card_ids") or []) or (len(raw_cards) == 1 and c.get("card"))
+            ]
             if marked_c:
-                card_start = float(marked_c[0]["s"])
-                card_dur = max(2.0, min(4.5, float(marked_c[0]["e"]) - float(marked_c[0]["s"]) + 0.8))
-            elif impacts:
-                card_start = float(impacts[-1][0] if len(impacts) > 1 else impacts[0][0])
-            elif captions:
-                card_start = float(captions[min(len(captions) - 1, 2 if len(captions) > 2 else 0)]["s"])
+                for mc in marked_c:
+                    card_items.append({
+                        "path": cp,
+                        "anim": crd.get("anim", "auto"),
+                        "start": float(mc["s"]),
+                        "dur": max(2.0, min(4.5, float(mc["e"]) - float(mc["s"]) + 0.8)),
+                    })
+            elif fallback_slots:
+                st_t = float(fallback_slots[min(c_slot_idx, len(fallback_slots) - 1)])
+                c_slot_idx += 1
+                card_items.append({"path": cp, "anim": crd.get("anim", "auto"), "start": st_t, "dur": 3.2})
 
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
         render_video(
@@ -278,15 +309,9 @@ def _run_render_pipeline(job_id, opts):
             height=out_h,
             studio_audio=bool(opts.get("studio_audio", False)),
             sfx_times=sfx_times,
-            broll_path=broll_path,
-            broll_layout=opts.get("broll_layout", "top"),
-            broll_start=broll_start,
-            broll_dur=broll_dur,
+            broll_items=broll_items,
             color_grade=bool(opts.get("color_grade", False)),
-            card_path=card_path,
-            card_anim=opts.get("card_anim", "side-right"),
-            card_start=card_start,
-            card_dur=card_dur,
+            card_items=card_items,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)

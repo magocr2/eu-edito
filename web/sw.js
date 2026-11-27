@@ -1,4 +1,4 @@
-const CACHE = 'hogus-studio-web-v2';
+const CACHE = 'hogus-studio-web-v3';
 const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

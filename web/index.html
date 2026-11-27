@@ -235,13 +235,25 @@
 
         <label class="toggle-row">
           <div>
-            <strong>🔊 Efeitos sonoros nos destaques</strong>
-            <small>Pop sutil automático ou escolha na Etapa 4</small>
+            <strong>🔊 Banco de efeitos sonoros (SFX)</strong>
+            <small>Destaques, transições e pausas (auto ou manual na Etapa 4)</small>
           </div>
           <span class="switch">
             <input type="checkbox" id="sfxToggle" checked>
             <span class="slider"></span>
           </span>
+        </label>
+
+        <label class="field" id="sfxBankBox" style="margin-top:6px">
+          <span>Estilo dos efeitos sonoros</span>
+          <select id="sfxStyleSelect">
+            <option value="auto">Automático (Mix inteligente)</option>
+            <option value="pop">Pop suave (palavras)</option>
+            <option value="whoosh">Whoosh (transições)</option>
+            <option value="impact">Impacto grave (frases fortes)</option>
+            <option value="chime">Brilho / Sininho (ênfase)</option>
+            <option value="click">Clique moderno (cortes rápidos)</option>
+          </select>
         </label>
 
         <label class="toggle-row">
@@ -256,23 +268,17 @@
         </label>
 
         <div class="res-section" style="margin-top:10px">
-          <span class="res-label">🎞️ B-roll (tela dividida / complementar)</span>
+          <span class="res-label">🎞️ B-rolls (múltiplos · tela dividida ou cheia)</span>
           <label class="broll-upload-btn" id="brollUploadLbl">
-            <input type="file" id="brollFile" accept="video/*" hidden>
-            <span id="brollStatus">＋ Enviar vídeo B-roll (opcional)</span>
+            <input type="file" id="brollFile" accept="video/*" multiple hidden>
+            <span id="brollStatus">＋ Adicionar vídeo(s) B-roll</span>
           </label>
-          <div id="brollOptionsBox" class="broll-opts" hidden>
-            <div class="res-grid" id="brollLayoutGrid">
-              <button type="button" class="res-pill is-active" data-blayout="top"><strong>Topo</strong><small>Dividida</small></button>
-              <button type="button" class="res-pill" data-blayout="bottom"><strong>Baixo</strong><small>Dividida</small></button>
-              <button type="button" class="res-pill" data-blayout="full"><strong>Tela cheia</strong><small>Sobreposto</small></button>
-            </div>
-            <small class="broll-hint">Momento automático no ponto de impacto ou escolha na Etapa 4.</small>
-          </div>
+          <div id="brollList" class="media-queue"></div>
+          <small class="broll-hint" id="brollHint" hidden>Automático distribui nos impactos ou escolha qual B-roll entra em cada fala na Etapa 4.</small>
         </div>
 
         <div class="res-section" style="margin-top:10px">
-          <span class="res-label">🖼️ Card / Imagem Flutuante (produto ou print)</span>
+          <span class="res-label">🖼️ Cards &amp; Imagens Flutuantes (múltiplas camadas)</span>
           <label class="toggle-row" style="margin-bottom:6px;padding:6px 10px">
             <div>
               <strong>Remover fundo automático</strong>
@@ -284,18 +290,11 @@
             </span>
           </label>
           <label class="broll-upload-btn" id="cardUploadLbl">
-            <input type="file" id="cardFile" accept="image/*" hidden>
-            <span id="cardStatus">＋ Enviar imagem / card flutuante (opcional)</span>
+            <input type="file" id="cardFile" accept="image/*" multiple hidden>
+            <span id="cardStatus">＋ Adicionar card(s) / imagens flutuantes</span>
           </label>
-          <div id="cardOptionsBox" class="broll-opts" hidden>
-            <div class="hook-style-grid" id="cardAnimGrid">
-              <button type="button" class="res-pill is-active" data-canim="side-right"><strong>Lateral Direita</strong></button>
-              <button type="button" class="res-pill" data-canim="side-left"><strong>Lateral Esquerda</strong></button>
-              <button type="button" class="res-pill" data-canim="corner-top"><strong>Canto Superior</strong></button>
-              <button type="button" class="res-pill" data-canim="behind-peek"><strong>Saindo por trás</strong></button>
-            </div>
-            <small class="broll-hint">Momento automático ou toque em 🖼️ Card na Etapa 4.</small>
-          </div>
+          <div id="cardList" class="media-queue"></div>
+          <small class="broll-hint" id="cardHint" hidden>Automático alterna posições ou marque vários Cards no mesmo momento na Etapa 4.</small>
         </div>
 
         <label class="field hook-field">
