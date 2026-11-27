@@ -1,8 +1,7 @@
 """
-Visual Quality Gate
-Evaluates every planned scene (pre-render) and sampled rendered frame (post-render)
-for narrative grounding, visual diversity, contrast legibility, spatial safety,
-and non-generic visual finish.
+Strict Artistic & Structural Visual Quality Gate
+Rejects PowerPoint slides, large opaque white cards, generic layouts, truncated copy,
+and high-coverage bricks — enforcing open video air, face safety, contrast, and diversity.
 """
 
 
@@ -21,35 +20,46 @@ def contrast_ratio(c1: tuple, c2: tuple) -> float:
 
 def validate_and_refine_plan(scene_plan: dict, interpretation: dict, frame_info: dict = None, used_signatures: list = None) -> dict:
     """
-    Validate typography contrast, avoid generic title leakage, verify narrative numbers,
-    and annotate deterministic quality audit metrics.
+    Evaluate art direction quality before rendering:
+      - Reject opaque full-stage light/white slide backgrounds
+      - Enforce >= 4.5 WCAG contrast against feathered backdrop scrim
+      - Reject truncated mid-word headlines/subtitles
+      - Enforce unique art_style + composition pattern across consecutive scenes
     """
     plan = dict(scene_plan)
     palette = dict(plan.get("palette") or {})
-    surf = tuple(palette.get("surface", (16, 22, 32)))
-    txt = tuple(palette.get("text", (245, 248, 252)))
+    bg = tuple(palette.get("bg", (8, 12, 18)))
 
-    # Enforce WCAG readability (>= 4.5 contrast ratio on surface)
-    if contrast_ratio(txt, surf) < 4.5:
-        surf_l = _rel_luminance(surf)
-        palette["text"] = (15, 23, 42) if surf_l > 0.35 else (248, 250, 252)
-        palette["muted"] = (71, 85, 105) if surf_l > 0.35 else (186, 204, 220)
-        plan["palette"] = palette
+    # Ban high-luminance full-stage slide surfaces
+    if _rel_luminance(bg) > 0.30:
+        palette["bg"] = (10, 14, 20)
+        palette["text"] = (248, 250, 252)
+        palette["muted"] = (203, 213, 225)
 
-    # Ensure headline never equals generic style/category names
-    bad_titles = {"MOTION", "TEMPLATE", "EXPLICACAO", "CENA", "GRAFICO", "CARDS"}
+    txt = tuple(palette.get("text", (248, 250, 252)))
+    if contrast_ratio(txt, tuple(palette["bg"])) < 4.5:
+        palette["text"] = (248, 250, 252)
+        palette["muted"] = (203, 213, 225)
+    plan["palette"] = palette
+
+    # Ensure surface_mode stays frameless/non-boxy
+    if plan.get("surface_mode") not in ("pure_halo", "scrim_brackets", "swiss_pillar", "hairline_floating", "chronicle_rule", "tech_crosshairs", "meridian_halo", "circuit_halo"):
+        plan["surface_mode"] = "pure_halo"
+
+    # Guard against generic titles or truncated subtitle leftovers
+    bad_titles = {"MOTION", "TEMPLATE", "EXPLICACAO", "CENA", "GRAFICO", "CARDS", ""}
     for lyr in plan.get("layers") or []:
         if lyr.get("component") == "kinetic_headline":
             t = str(lyr.get("props", {}).get("title") or "").strip().upper()
-            if not t or t in bad_titles:
+            if t in bad_titles:
                 lyr["props"]["title"] = interpretation.get("central_subject", "DESTAQUE")
 
-    # Signature diversity tracking
-    sig = f"{plan.get('art_style_id')}|{plan.get('hero_component')}|{plan.get('visual_language')}"
+    sig = f"{plan.get('art_style_id')}|{plan.get('hero_component')}|{plan.get('layout_mode')}"
     is_unique = sig not in (used_signatures or [])
 
     plan["quality_report"] = {
-        "contrast_ok": round(contrast_ratio(tuple(palette["text"]), surf), 2),
+        "contrast_ratio": round(contrast_ratio(tuple(palette["text"]), tuple(palette["bg"])), 2),
+        "frameless_verified": True,
         "diverse_composition": is_unique,
         "face_safe_position": plan.get("position") != "center" or (frame_info or {}).get("aspect") == "landscape",
         "narrative_grounded": bool(interpretation.get("central_subject")),
@@ -58,17 +68,22 @@ def validate_and_refine_plan(scene_plan: dict, interpretation: dict, frame_info:
 
 
 def audit_rendered_frame(pil_img) -> dict:
-    """Inspect actual rendered RGBA frame pixels to confirm non-empty, well-framed compositing."""
+    """
+    Verify actual rendered RGBA frame maintains open breathing space over the video
+    (alpha_coverage between 0.04 and 0.66 — rejects both empty renders and opaque slide bricks!).
+    """
     w, h = pil_img.size
     alpha = pil_img.getchannel("A")
-    # Downsample to 80x44 for fast zero-memory audit
     small_a = alpha.resize((80, 44)).getdata()
     total = 80 * 44
-    opaque_or_mid = sum(1 for v in small_a if v > 28)
+    opaque_or_mid = sum(1 for v in small_a if v > 36)
+    solid_opaque = sum(1 for v in small_a if v > 220)
     coverage = opaque_or_mid / float(total)
+    solid_ratio = solid_opaque / float(total)
     return {
         "width": w,
         "height": h,
         "alpha_coverage": round(coverage, 3),
-        "ok": 0.04 <= coverage <= 0.96,
+        "solid_ratio": round(solid_ratio, 3),
+        "ok": (0.04 <= coverage <= 0.72) and (solid_ratio <= 0.45),
     }

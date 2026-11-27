@@ -163,7 +163,7 @@ def _plan_to_ui_params(scene_plan: dict, interpretation: dict, prompt_txt: str) 
     return {
         "title": h_props.get("title") or interpretation.get("central_subject", ""),
         "accent_text": h_props.get("accent") or interpretation.get("accent_phrase", ""),
-        "subtitle": h_props.get("subtitle") or interpretation.get("summary_line", ""),
+        "subtitle": h_props.get("subtitle") or interpretation.get("concise_tag", ""),
         "metric": (m_props.get("numbers") or [""])[0],
         "labels": m_props.get("labels") or interpretation.get("concrete_entities") or [],
         "values": m_props.get("values") or [30, 68, 96],
@@ -337,7 +337,7 @@ def render_motion_clip(
     mid_frame = render_scene_frame(plan, 0.55, float(duration) * 0.55, width=width, height=height)
     audit = audit_rendered_frame(mid_frame)
     if not audit["ok"]:
-        plan["border_style"] = "hairline_rule"
+        plan["surface_mode"] = "pure_halo"
 
     return render_scene_clip(
         plan,

@@ -96,52 +96,31 @@
 
   function drawSceneBackdrop(ctx, w, h, plan, alphaEnv, enterP) {
     const pal = plan.palette || {};
-    const surf = pal.surface || [14, 22, 34];
     const prim = pal.primary || [34, 197, 94];
-    const sec = pal.secondary || [255, 255, 255];
     const bg = pal.bg || [10, 14, 22];
-    const sa = Math.max(0.2, Math.min(0.96, (pal.surface_alpha || 215) / 255));
-    const bstyle = plan.border_style || 'frameless_halo';
+    const smode = plan.surface_mode || 'pure_halo';
     const dy = (1 - enterP) * 14;
     const x0 = w * 0.03, y0 = h * 0.03 + dy, x1 = w * 0.97, y1 = h * 0.97 + dy;
-    const bw = x1 - x0, bh = y1 - y0;
 
-    if (bstyle === 'frameless_halo') {
-      const rg = ctx.createRadialGradient(w / 2, h / 2 + dy, w * 0.06, w / 2, h / 2 + dy, w * 0.48);
-      rg.addColorStop(0, rgbStr(bg, 0.78 * alphaEnv));
-      rg.addColorStop(0.75, rgbStr(bg, 0.30 * alphaEnv));
-      rg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = rg;
-      ctx.fillRect(0, 0, w, h);
-      return dy;
-    }
+    // Frameless feathered radial scrim strictly inside canvas bounds (never opaque PowerPoint box!)
+    const rg = ctx.createRadialGradient(w / 2, h / 2 + dy, w * 0.05, w / 2, h / 2 + dy, w * 0.44);
+    rg.addColorStop(0, rgbStr(bg, 0.78 * alphaEnv));
+    rg.addColorStop(0.70, rgbStr(bg, 0.34 * alphaEnv));
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, w, h);
 
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = rgbStr(surf, sa * alphaEnv);
-    ctx.fillRect(x0, y0, bw, bh);
-    ctx.shadowBlur = 0;
-
-    if (bstyle === 'brackets') {
-      ctx.strokeStyle = rgbStr(prim, 0.9 * alphaEnv); ctx.lineWidth = 2;
+    if (smode === 'scrim_brackets') {
+      ctx.strokeStyle = rgbStr(prim, 0.85 * alphaEnv); ctx.lineWidth = 1.8;
       const L = 12;
-      [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]].forEach(([cx, cy, dx, dy2]) => {
+      [[x0 + 8, y0 + 8, 1, 1], [x1 - 8, y0 + 8, -1, 1], [x0 + 8, y1 - 8, 1, -1], [x1 - 8, y1 - 8, -1, -1]].forEach(([cx, cy, dx, dy2]) => {
         ctx.beginPath(); ctx.moveTo(cx + dx * L, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy2 * L); ctx.stroke();
       });
-    } else if (bstyle === 'hairline_rule') {
-      ctx.fillStyle = rgbStr(sec, 0.9 * alphaEnv); ctx.fillRect(x0, y0, bw, 3);
-      ctx.fillStyle = rgbStr(prim, 0.9 * alphaEnv); ctx.fillRect(x0, y0 + 5, bw, 1.5);
-    } else if (bstyle === 'crosshair_grid') {
-      ctx.strokeStyle = rgbStr(prim, 0.22 * alphaEnv); ctx.lineWidth = 1;
-      for (let gx = x0 + 24; gx < x1; gx += 28) { ctx.beginPath(); ctx.moveTo(gx, y0); ctx.lineTo(gx, y1); ctx.stroke(); }
-      for (let gy = y0 + 24; gy < y1; gy += 28) { ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x1, gy); ctx.stroke(); }
-      ctx.strokeStyle = rgbStr(prim, 0.7 * alphaEnv); ctx.strokeRect(x0, y0, bw, bh);
-    } else if (bstyle === 'swiss_bar') {
-      ctx.fillStyle = rgbStr(prim, 0.95 * alphaEnv); ctx.fillRect(x0, y0, 7, bh);
-    } else {
-      ctx.strokeStyle = rgbStr(prim, 0.65 * alphaEnv); ctx.lineWidth = 1.4;
-      ctx.strokeRect(x0, y0, bw, bh);
+    } else if (smode === 'swiss_pillar') {
+      ctx.fillStyle = rgbStr(prim, 0.92 * alphaEnv); ctx.fillRect(x0 + 10, y0 + 10, 4, y1 - y0 - 20);
+    } else if (smode === 'hairline_floating' || smode === 'chronicle_rule') {
+      ctx.fillStyle = rgbStr(prim, 0.75 * alphaEnv); ctx.fillRect(x0 + 14, y0 + 8, x1 - x0 - 28, 1.8);
     }
     ctx.restore();
     return dy;

@@ -1,8 +1,9 @@
 """
 A. Visual Interpreter
-Understands spoken narration in context (prev + current + next utterances)
-and extracts subject, intent, entities, numbers, causal relations, visual metaphor,
-and narrative beats — never relying on naive keyword-to-template matching.
+Analyzes spoken transcript + surrounding context (`prev_text`, `next_text`),
+classifies speech act (filtering out greetings, filler, transitions, and vague chat),
+extracts concise visual insight (never raw truncated sentences!), concrete entities,
+numbers, causal relations, visual metaphor, and animated narrative beats.
 """
 import json
 import os
@@ -10,20 +11,19 @@ import re
 import textwrap
 import urllib.request
 
-
 INTENTS = (
-    "money_growth",           # faturamento > X, caixa, lucro, receitas
-    "security_tactical",      # operação policial, segurança, perímetro, ação estratégica
-    "ai_architecture",        # funcionamento de IA, redes neurais, sistemas digitais
-    "geo_journey",            # viagem entre cidades, logística, localização, rotas
-    "value_comparison",       # comparação entre valores/cenários/antes e depois
-    "machine_mechanics",      # funcionamento interno de máquina/motor/equipamento
-    "business_scale",         # crescimento de empresa, métricas, expansão
-    "historical_chronology",  # acontecimentos históricos, datas, evolução temporal
-    "scientific_principle",   # física, química, biologia, experimento, átomos/ondas
-    "process_transformation", # transformação de estado, etapas, fluxo operacional
-    "educational_craft",      # caligrafia, método prático, aula, estudo, treino
-    "conceptual_focus",       # ideia abstrata, dica, manifesto, alerta
+    "money_growth",
+    "security_tactical",
+    "ai_architecture",
+    "geo_journey",
+    "value_comparison",
+    "machine_mechanics",
+    "business_scale",
+    "historical_chronology",
+    "scientific_principle",
+    "process_transformation",
+    "educational_craft",
+    "conceptual_focus",
 )
 
 
@@ -35,47 +35,92 @@ def extract_numbers(text: str) -> list:
     )
 
 
-def _extract_headline_parts(text: str, intent: str) -> tuple:
-    raw = re.sub(r"\s+", " ", (text or "").strip()).strip(" .!?")
-    if not raw:
-        return ("CENÁRIO VISUAL", "", "")
+def _is_non_visual_filler(txt: str) -> tuple:
+    """Detect greetings, personal remarks, transitions, and empty conversational padding."""
+    low = re.sub(r"\s+", " ", (txt or "").strip().lower()).strip(" .!?,;")
+    if not low:
+        return True, "trecho vazio"
 
+    words = low.split()
+    has_num = bool(extract_numbers(low))
+    # Explicit non-visual conversational patterns
+    if re.search(
+        r"(?:^(?:oi|ol[áa]|fala pessoal|tudo bem|bom dia|boa tarde|boa noite|e a[ií]|bem-vindo|"
+        r"deixa eu te falar|presta aten[çc][aã]o|escuta s[óo]|antes de continuar|"
+        r"como eu tava dizendo|eu acho que|na minha opini[aã]o|enfim|ent[aã]o gente)\b|"
+        r"se inscrev|curte o v[ií]deo|deixa o like|comenta aqui|compartilha)",
+        low,
+    ) and not has_num and len(words) < 12:
+        return True, "saudação/transição/CTA sem valor visual"
+
+    if len(words) <= 5 and not has_num and not re.search(
+        r"polic|m[áa]quin|motor|[áa]tom|s[ée]cul|viag|fatur|r\$|%|cresc|ia\b|caligraf|compar|process", low
+    ):
+        return True, "frase curta sem informação explicativa"
+
+    if re.search(r"^(?:isso [ée] muito|eu gosto muito|que legal|caramba|nossa|exatamente|com certeza)", low) and not has_num:
+        return True, "observação pessoal sem dado visual"
+
+    return False, ""
+
+
+def _craft_concise_copy(txt: str, intent: str, nums: list, places: list) -> tuple:
+    """
+    Produce crisp, designer-ready (headline, accent, concise_tag) that NEVER
+    slices raw transcripts mid-word ('mês ne', 'viaturas co').
+    """
+    raw = re.sub(r"\s+", " ", (txt or "").strip()).strip(" .!?")
     cleaned = re.sub(
-        r"^(?:então|olha só|olha|veja bem|é uma|é um|isso é|esse é|essa é|aqui tem|"
-        r"a gente faz|a gente|nós fazemos|você faz|você pode|na verdade|basicamente)\s+",
+        r"^(?:então|olha só|veja bem|é uma|é um|isso é|esse é|essa é|aqui tem|"
+        r"a gente faz|a gente|nós fazemos|você faz|você pode|na física quântica|veja o|no nosso)\s+",
         "",
         raw,
         flags=re.I,
     ).strip()
 
-    words = cleaned.split()
-    if len(words) <= 2:
-        return (cleaned.upper()[:24], "", raw[:52])
+    if intent == "geo_journey" and len(places) >= 2:
+        head = places[0].upper()[:16]
+        acc = f"→ {' → '.join(places[1:3])}"[:22]
+        return head, acc, f"Rota entre {len(places)} destinos"
 
-    split_idx = None
-    for i in range(1, min(len(words), 5)):
-        if words[i].lower() in ("para", "por", "sem", "com", "entre", "contra", "em", "até", "no", "na", "vs") and i >= 2:
-            split_idx = i
-            break
+    if intent == "value_comparison" and len(nums) >= 2:
+        return nums[0].upper()[:12], f"vs {nums[1].upper()}"[:16], "Comparativo de valor"
 
-    if split_idx is not None:
-        head = " ".join(words[:split_idx]).strip(".,!?")
-        acc = " ".join(words[split_idx : split_idx + 3]).strip(".,!?")
-    else:
-        head = " ".join(words[: min(3, len(words))]).strip(".,!?")
-        acc = " ".join(words[min(3, len(words)) : min(6, len(words))]).strip(".,!?")
+    if intent == "historical_chronology" and len(nums) >= 2:
+        return f"{nums[0]} → {nums[-1]}"[:20], "linha histórica", "Marcos cronológicos"
 
-    hw = head.split()
-    while len(hw) > 1 and hw[-1].lower() in ("de", "do", "da", "dos", "das", "e", "o", "a", "um", "uma", "em"):
-        acc = f"{hw.pop()} {acc}".strip()
-    head = " ".join(hw)
-    w_head = textwrap.wrap(head, width=24, break_long_words=False)
-    w_acc = textwrap.wrap(acc, width=22, break_long_words=False)
-    return ((w_head[0] if w_head else head[:24]).upper(), (w_acc[0] if w_acc else acc[:22]).lower(), raw[:56])
+    if intent == "money_growth" and nums:
+        return nums[0].upper()[:16], "acima da meta" if "acima" in raw.lower() else "faturamento", "Marco financeiro"
+
+    words = [w.strip(".,!?;:") for w in cleaned.split() if w.strip(".,!?;:")]
+    # Drop trailing loose prepositions/articles cleanly
+    stop_tail = {"de", "do", "da", "dos", "das", "e", "o", "a", "um", "uma", "em", "no", "na", "por", "para", "com", "que"}
+    h_words = words[:3]
+    while len(h_words) > 1 and h_words[-1].lower() in stop_tail:
+        h_words.pop()
+    head = " ".join(h_words).upper()
+
+    rest = words[len(h_words) : len(h_words) + 3]
+    while len(rest) > 1 and rest[-1].lower() in stop_tail:
+        rest.pop()
+    acc_raw = " ".join(rest).lower()
+    w_acc = textwrap.wrap(acc_raw, width=22, break_long_words=False) if acc_raw else []
+    acc = w_acc[0] if w_acc else acc_raw[:22]
+
+    # Concise insight subtitle <= 32 chars on whole word boundaries (zero truncated transcripts!)
+    tag_words = words[:5]
+    while len(tag_words) > 2 and tag_words[-1].lower() in stop_tail:
+        tag_words.pop()
+    tag = " ".join(tag_words)
+    if len(tag) > 32:
+        wr = textwrap.wrap(tag, width=32, break_long_words=False)
+        tag = wr[0] if wr else tag[:32]
+    w_hd = textwrap.wrap(head, width=24, break_long_words=False) if head else []
+    return (w_hd[0] if w_hd else head[:24]), acc, tag
 
 
-def _extract_clauses(text: str, max_items: int = 3, max_chars: int = 30) -> list:
-    parts = re.split(r"[,;:.!?]+|\b(?:e depois|depois|então|mas|porém|enquanto|para que|onde|até)\b", text or "", flags=re.I)
+def _clean_clauses(text: str, max_items: int = 3, max_chars: int = 24) -> list:
+    parts = re.split(r"[,;:.!?]+|\b(?:e depois|depois|então|mas|porém|enquanto|para que|onde|até|vs\.?|versus|contra)\b", text or "", flags=re.I)
     out = []
     for p in parts:
         p = re.sub(r"\s+", " ", p).strip()
@@ -92,122 +137,115 @@ def _extract_clauses(text: str, max_items: int = 3, max_chars: int = 30) -> list
 
 def _heuristic_interpret(text: str, prev_text: str = "", next_text: str = "") -> dict:
     txt = re.sub(r"\s+", " ", (text or "").strip())
-    ctx = f"{prev_text} {txt} {next_text}".lower()
     low = txt.lower()
     nums = extract_numbers(txt)
     places = [
         m.strip(".,!?;:")
         for m in re.findall(r"\b[A-ZÀ-Ú][a-zà-ú]{1,}(?:\s+[A-ZÀ-Ú][a-zà-ú]{1,})*", " ".join(txt.split()[1:]) if len(txt.split()) > 1 else "")
-        if m.lower() not in ("agora", "antes", "depois", "passo", "hoje", "então", "isso", "quando")
+        if m.lower() not in ("agora", "antes", "depois", "passo", "hoje", "então", "isso", "quando", "plano")
     ]
 
-    # Contextual multi-domain narrative intent detection
-    if re.search(r"polic|opera[çc][aã]o|viatur|cerco|per[ií]metr|delegac|investiga|suspeit|crime|seguran[çc]a p[úu]blica|t[áa]tic|alvo", low):
+    skip, skip_reason = _is_non_visual_filler(txt)
+
+    if re.search(r"polic|opera[çc][aã]o|viatur|cerco|per[ií]metr|delegac|investiga|suspeit|seguran[çc]a|t[áa]tic|alvo", low):
         intent = "security_tactical"
-        metaphor = "Mapa tático operacional com varredura de radar, perímetro delimitado e convergência de unidades."
-    elif re.search(r"m[áa]quin|motor|engrenag|pist[aã]o|cilindr|press[aã]o|turbina|mecanism|interno|pe[çc]a|torque|eixo", low):
+        metaphor = "Varredura tática de radar com perímetro delimitado e vetores convergindo ao alvo."
+    elif re.search(r"m[áa]quin|motor|engrenag|pist[aã]o|cilindr|press[aã]o|turbina|mecanism|interno|torque|eixo", low):
         intent = "machine_mechanics"
-        metaphor = "Corte técnico esquemático com engrenagens sincronizadas e transmissão mecânica em ação."
+        metaphor = "Corte técnico animado com engrenagens interligadas transmitindo movimento ao pistão."
     elif re.search(r"[áa]tom|mol[ée]cul|el[ée]tron|energ|onda|frequ[êe]nc|experimento|f[íi]sic|qu[íi]mic|biolog|c[ée]lul|gravidade|rea[çc][aã]o|cient[íi]f", low):
         intent = "scientific_principle"
-        metaphor = "Modelo científico dinâmico com órbitas, partículas carregadas e oscilação de energia."
-    elif re.search(r"s[ée]cul|guerra|imp[ée]rio|revolu[çc]|hist[óo]ri|d[ée]cada|fundad|acontec|\b(1[5-9]\d{2}|20[0-2]\d)\b.*(?:depois|quando|em seguida)", low) or (
-        re.search(r"\b1[5-9]\d{2}\b", low)
-    ):
+        metaphor = "Órbitas atômicas tridimensionais emitindo energia modulada em onda física."
+    elif re.search(r"s[ée]cul|guerra|imp[ée]rio|revolu[çc]|hist[óo]ri|d[ée]cada|fundad|constitui|regime|\b1[5-9]\d{2}\b", low):
         intent = "historical_chronology"
-        metaphor = "Crônica documental com linha do tempo em arquivo histórico e marcos cronológicos revelados."
-    elif re.search(r"\bintelig[eê]ncia\b|\bia\b|rede neural|modelo|treinamento|algoritm|dados|processamento|n[úu]cleo|sistema digital", low):
+        metaphor = "Linha temporal luminosa marcando os anos-chave e a virada histórica."
+    elif re.search(r"\bintelig[eê]ncia\b|\bia\b|rede neural|algoritm|processamento|dados|sistema digital", low):
         intent = "ai_architecture"
-        metaphor = "Arquitetura tecnológica em camadas com prisma central 3D, sinais circulando e nós de processamento."
-    elif re.search(r"viag|cidad|aeroporto|trajet|rota|sa[ií]ndo de|indo para|chegando em|pa[ií]s|fronteira|quil[ôo]metr", low) or len(places) >= 2:
+        metaphor = "Núcleo 3D octaédrico recebendo fluxos de entrada e distribuindo sinais neurais."
+    elif re.search(r"viag|cidad|aeroporto|trajet|rota|sa[ií]ndo de|indo para|chegando em|pa[ií]s|fronteira", low) or len(places) >= 2:
         intent = "geo_journey"
-        metaphor = "Atlas cartográfico em perspectiva com arcos geográficos conectando localidades reais."
-    elif re.search(r"compar|versus|\bvs\b|enquanto|diferen[çc]|maior que|menor que|antes.*agora|antes.*depois", low):
+        metaphor = "Arcos geográficos luminosos ligando as cidades citadas sobre curvas cartográficas."
+    elif re.search(r"compar|versus|\bvs\b|enquanto|diferen[çc]|antes.*agora|antes.*depois", low):
         intent = "value_comparison"
-        metaphor = "Balança editorial assimétrica contrastando os dois valores/estados com proporção real."
-    elif re.search(r"fatur|receit|lucr|dinheir|r\$|reais|caixa|invest|vend", low):
+        metaphor = "Escala proporcional flutuante contrastando os dois valores e revelando a diferença."
+    elif re.search(r"fatur|receit|lucr|dinheir|r\$|reais|caixa|invest", low):
         intent = "money_growth"
-        metaphor = "Composição 3D financeira com moedas/pilares em perspectiva e meta destacada."
-    elif re.search(r"cresc|empres|escal|expans|triplic|dobr|mercado|faturamento|cliente", low):
+        metaphor = "Moedas 3D metálicas subindo além da linha de meta financeira."
+    elif re.search(r"cresc|empres|escal|expans|triplic|dobr|mercado|cliente", low):
         intent = "business_scale"
-        metaphor = "Arquitetura corporativa em ascensão com barras volumétricas 3D e curva de projeção."
-    elif re.search(r"transform|metamorfose|etapa|processo|fluxo|passo|passa a ser|converte|muda de|evolu", low):
+        metaphor = "Colunas 3D em perspectiva ascendendo com curva de aceleração."
+    elif re.search(r"transform|metamorfose|etapa|processo|fluxo|passo|converte|mat[ée]ria|refinad", low):
         intent = "process_transformation"
-        metaphor = "Diagrama vivo de transformação conectando estado inicial, catalisador e resultado."
-    elif re.search(r"caligraf|imprim|escrev|caderno|minut|por dia|aula|curso|estudo|m[eé]todo|rotina", low):
+        metaphor = "Fluxo catalítico transformando matéria inicial em estrutura final refinada."
+    elif re.search(r"caligraf|imprim|escrev|caderno|papel", low):
         intent = "educational_craft"
-        metaphor = "Cena ilustrativa orgânica unindo objeto prático da fala e ritmo temporal claro."
+        metaphor = "Traço cursivo animado desenhado em tempo real sobre guias de treino."
     else:
         intent = "conceptual_focus"
-        metaphor = "Tipografia cinética de alto contraste integrada ao assunto central com elemento focal."
+        metaphor = "Tipografia cinética com revelação por máscara e acento visual integrado."
 
-    head, accent, sub = _extract_headline_parts(txt, intent)
-    clauses = _extract_clauses(txt, max_items=3, max_chars=28)
+    head, acc, concise_tag = _craft_concise_copy(txt, intent, nums, places)
+    clauses = _clean_clauses(txt, max_items=3, max_chars=24)
+
+    # Smart domain label extraction
     if intent == "value_comparison":
-        vs_parts = [re.sub(r"^(?:comparando\s+dois\s+valores:\s*)", "", p.strip(" ,.;:!?"), flags=re.I) for p in re.split(r"\b(?:vs\.?|versus|contra|enquanto)\b", txt, maxsplit=1, flags=re.I) if p.strip()]
+        vs_parts = [
+            re.sub(r"\s*(?:de\s+)?r\$\s*[\d.,]+.*$", "", re.sub(r"^(?:comparando\s+dois\s+valores:\s*)", "", p.strip(" ,.;:!?"), flags=re.I), flags=re.I).strip()
+            for p in re.split(r"\b(?:vs\.?|versus|contra|enquanto)\b", txt, maxsplit=1, flags=re.I)
+            if p.strip()
+        ]
         if len(vs_parts) >= 2:
-            clauses = [vs_parts[0][:24], vs_parts[1][:24]]
+            clauses = [vs_parts[0][:22] or "Opção A", vs_parts[1][:22] or "Opção B"]
     elif intent == "process_transformation":
-        tr_parts = [re.sub(r"^(?:.*?\bconverte\b|.*?\btransforma\b)", "", p.strip(" ,.;:!?"), flags=re.I).strip() for p in re.split(r"\b(?:em|para)\b", txt, maxsplit=1, flags=re.I) if p.strip()]
-        if len(tr_parts) >= 2:
-            clauses = [tr_parts[0][:20], "Catalisador", tr_parts[1][:20]]
-
-    # Check if segment carries meaningful visual explanation vs trivial filler
-    trivial = len(txt.split()) < 4 and not nums and intent == "conceptual_focus"
-    should_render = not trivial
-
-    entities = places[:]
-    if not entities:
-        entities = [c[:22] for c in clauses[:3]]
-
-    # Build 3 narrative beats aligned with spoken progression
-    beats = [
-        {"phase": "intro", "t0": 0.0, "t1": 0.28, "goal": f"Introduzir contexto de '{head.lower()}'"},
-        {"phase": "development", "t0": 0.25, "t1": 0.76, "goal": metaphor},
-        {"phase": "resolution", "t0": 0.72, "t1": 1.0, "goal": f"Consolidar síntese visual ({nums[0] if nums else head})"},
-    ]
+        tr = re.split(r"\b(?:converte|transforma)\b", txt, maxsplit=1, flags=re.I)
+        if len(tr) >= 2:
+            sub_p = re.split(r"\b(?:em|para)\b", tr[1], maxsplit=1, flags=re.I)
+            if len(sub_p) >= 2:
+                clauses = [sub_p[0].strip(" .")[:18], "Catalisador", sub_p[1].strip(" .")[:18]]
+    elif intent == "historical_chronology" and len(nums) >= 2:
+        clauses = [n for n in nums[:4]]
 
     return {
         "central_subject": head,
-        "accent_phrase": accent,
+        "accent_phrase": acc,
+        "concise_tag": concise_tag,
         "narrative_intent": intent,
-        "concrete_entities": entities[:4],
+        "speech_act": "non_visual" if skip else "visual_explanation",
+        "skip_reason": skip_reason,
+        "should_render": not skip,
+        "concrete_entities": (places or clauses)[:4],
         "abstract_concepts": clauses[:3],
         "extracted_numbers": nums[:4],
         "places": places[:4],
-        "relations": clauses[:2],
         "visual_metaphor": metaphor,
-        "narrative_beats": beats,
-        "summary_line": sub,
-        "should_render": should_render,
-        "complexity": "high" if (len(nums) >= 2 or len(clauses) >= 3 or intent in ("machine_mechanics", "security_tactical", "scientific_principle", "geo_journey")) else "medium",
+        "narrative_beats": [
+            {"phase": "build", "t0": 0.0, "t1": 0.30, "goal": "Construção espacial"},
+            {"phase": "action", "t0": 0.25, "t1": 0.78, "goal": metaphor},
+            {"phase": "climax", "t0": 0.74, "t1": 1.0, "goal": "Síntese e saída"},
+        ],
+        "complexity": "high" if (len(nums) >= 2 or intent in ("machine_mechanics", "security_tactical", "scientific_principle", "geo_journey", "historical_chronology")) else "medium",
     }
 
 
 def interpret_segment(text: str, prev_text: str = "", next_text: str = "", frame_info: dict = None) -> dict:
-    """
-    Use Groq LLM contextual director when configured, validated strictly and paired with
-    semantic PT-BR fallback so every topic receives bespoke visual interpretation.
-    """
+    """Contextual Visual Interpreter (LLM + PT-BR semantic fallback with narrative skip gate)."""
     base = _heuristic_interpret(text, prev_text, next_text)
+    if not base["should_render"]:
+        return base
+
     groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not groq_key:
         return base
 
     try:
         sys_msg = (
-            "Você é o Visual Interpreter de um estúdio de Motion Design (nível documentário/Vox/Kurzgesagt).\n"
-            "Analise a fala considerando o contexto anterior/posterior e decida SE vale criar Motion Graphic e O QUE representar.\n"
-            "REGRAS:\n"
-            "1. 'central_subject': manchete curta (2-4 palavras) tirada do assunto real da fala (PROIBIDO nome genérico de template!).\n"
-            "2. 'narrative_intent' deve ser exatamente um de: "
-            f"{list(INTENTS)}.\n"
-            "3. 'concrete_entities': objetos físicos, cidades, peças ou atores concretos citados (máx 4).\n"
-            "4. 'extracted_numbers': APENAS números/valores/datas ditos na fala (NUNCA invente!).\n"
-            "5. 'visual_metaphor': descreva em 1 frase clara a metáfora visual específica para esta cena.\n"
-            "6. Retorne APENAS JSON: {\"should_render\": bool, \"central_subject\": string, \"accent_phrase\": string, "
-            "\"narrative_intent\": string, \"concrete_entities\": [string], \"abstract_concepts\": [string], "
-            "\"extracted_numbers\": [string], \"places\": [string], \"visual_metaphor\": string}.\n"
+            "Você é o Visual Interpreter de um estúdio premiado de Motion Design.\n"
+            "Avalie a fala NO CONTEXTO e decida: (1) se realmente precisa de Motion Graphic (`should_render`: false para cumprimentos, opiniões vagas ou frases de ligação!) "
+            "e (2) se precisar, planeje manchete curta (2-3 palavras, SEM truncar frases!), números reais, entidades e metáfora visual.\n"
+            f"Intents válidos: {list(INTENTS)}.\n"
+            "Retorne APENAS JSON: {\"should_render\": bool, \"skip_reason\": string, \"central_subject\": string, \"accent_phrase\": string, "
+            "\"concise_tag\": string, \"narrative_intent\": string, \"concrete_entities\": [string], \"extracted_numbers\": [string], "
+            "\"places\": [string], \"visual_metaphor\": string}.\n"
             f"Anterior: {prev_text}\nAtual: {text}\nPróxima: {next_text}"
         )
         req_body = json.dumps({
@@ -224,21 +262,25 @@ def interpret_segment(text: str, prev_text: str = "", next_text: str = "", frame
         with urllib.request.urlopen(req, timeout=11) as resp:
             parsed = json.loads(json.loads(resp.read().decode("utf-8"))["choices"][0]["message"]["content"])
 
+        if isinstance(parsed.get("should_render"), bool):
+            base["should_render"] = parsed["should_render"]
+            if parsed.get("skip_reason"):
+                base["skip_reason"] = str(parsed["skip_reason"])[:80]
         if parsed.get("narrative_intent") in INTENTS:
             base["narrative_intent"] = parsed["narrative_intent"]
         if parsed.get("central_subject"):
-            cs = str(parsed["central_subject"]).strip()[:26].upper()
-            if cs and cs not in ("MOTION GRAPHIC", "TEMPLATE", "EXPLICACAO", "CENA"):
+            cs = str(parsed["central_subject"]).strip()[:22].upper()
+            if cs and cs not in ("MOTION", "TEMPLATE", "CENA"):
                 base["central_subject"] = cs
         if parsed.get("accent_phrase"):
-            base["accent_phrase"] = str(parsed["accent_phrase"]).strip()[:24].lower()
-        for k in ("concrete_entities", "abstract_concepts", "extracted_numbers", "places"):
+            base["accent_phrase"] = str(parsed["accent_phrase"]).strip()[:20].lower()
+        if parsed.get("concise_tag"):
+            base["concise_tag"] = str(parsed["concise_tag"]).strip()[:32]
+        for k in ("concrete_entities", "extracted_numbers", "places"):
             if isinstance(parsed.get(k), list) and parsed[k]:
-                base[k] = [str(x)[:26] for x in parsed[k][:4]]
+                base[k] = [str(x)[:22] for x in parsed[k][:4]]
         if parsed.get("visual_metaphor"):
             base["visual_metaphor"] = str(parsed["visual_metaphor"])[:140]
-        if isinstance(parsed.get("should_render"), bool):
-            base["should_render"] = parsed["should_render"]
     except Exception:
         pass
     return base

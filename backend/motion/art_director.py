@@ -1,225 +1,202 @@
 """
 B. Art Direction Engine
-Selects bespoke visual language, artistic identity, color system, typography pairing,
-spatial integration (guided by frame analysis), depth plan, and camera choreography.
-Enforces visual diversity across scenes and prevents generic black/gold/rounded-box repetition.
+Plans authentic Motion Design compositions with:
+  - ZERO opaque full-stage white/beige slides pasted over the speaker
+  - Explicit composition brief (focal element, gaze flow, spatial footprint, development)
+  - Adaptive positioning guided by free frame pockets (shoulder walls, compact lower-third, side splits)
+  - Varied lighting, materials, typography, camera paths, and color systems
 """
 import textwrap
 
 ART_STYLES = {
     "tactical_hud": {
         "id": "tactical_hud",
-        "name": "HUD Tático Operacional",
-        "bg": (10, 18, 29),
-        "surface": (14, 24, 38),
-        "surface_alpha": 212,
-        "primary": (245, 158, 11),      # Amber tactical
-        "secondary": (239, 68, 68),     # Alert Crimson
-        "text": (241, 245, 249),
-        "muted": (148, 163, 184),
+        "name": "HUD Tático Noturno",
+        "bg": (8, 14, 22),
+        "primary": (245, 158, 11),      # Amber radar
+        "secondary": (239, 68, 68),     # Target Crimson
+        "text": (248, 250, 252),
+        "muted": (203, 213, 225),
         "headline_font": "BebasNeue-Regular.ttf",
         "accent_font": "DMSans.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "brackets",
-        "material": "matte_hud",
+        "surface_mode": "scrim_brackets",
+        "material": "radar_glass",
     },
-    "editorial_broadsheet": {
-        "id": "editorial_broadsheet",
-        "name": "Editorial de Revista",
-        "bg": (247, 243, 234),
-        "surface": (252, 249, 242),
-        "surface_alpha": 238,
-        "primary": (220, 38, 38),       # Crimson Editorial
-        "secondary": (15, 23, 42),      # Carbon Ink
-        "text": (17, 24, 39),
-        "muted": (75, 85, 99),
+    "editorial_ink": {
+        "id": "editorial_ink",
+        "name": "Editorial de Alto Contraste",
+        "bg": (10, 14, 20),
+        "primary": (244, 63, 94),       # Editorial Crimson Coral
+        "secondary": (226, 232, 240),   # Cool Alabaster
+        "text": (255, 255, 255),
+        "muted": (203, 213, 225),
         "headline_font": "CreatoDisplay-ExtraBold.otf",
         "accent_font": "AppleGaramond-BoldItalic.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "hairline_rule",
-        "material": "paper",
+        "surface_mode": "hairline_floating",
+        "material": "editorial_silk",
     },
     "industrial_blueprint": {
         "id": "industrial_blueprint",
-        "name": "Blueprint Técnico / Engenharia",
-        "bg": (9, 29, 58),
-        "surface": (12, 38, 74),
-        "surface_alpha": 218,
+        "name": "Blueprint Técnico",
+        "bg": (7, 22, 46),
         "primary": (56, 189, 248),      # Blueprint Cyan
-        "secondary": (251, 146, 60),    # Engineering Copper
+        "secondary": (251, 146, 60),    # Copper Torque
         "text": (240, 249, 255),
-        "muted": (147, 197, 253),
+        "muted": (186, 230, 253),
         "headline_font": "CreatoDisplay-ExtraBold.otf",
         "accent_font": "Geist.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "crosshair_grid",
-        "material": "steel",
+        "surface_mode": "tech_crosshairs",
+        "material": "anodized_steel",
     },
     "bioluminescent_lab": {
         "id": "bioluminescent_lab",
-        "name": "Laboratório Científico",
-        "bg": (5, 20, 28),
-        "surface": (9, 31, 42),
-        "surface_alpha": 204,
-        "primary": (20, 184, 166),      # Teal
-        "secondary": (103, 232, 249),   # Cyan glow
-        "text": (236, 254, 255),
+        "name": "Ciência Bioluminescente",
+        "bg": (4, 18, 24),
+        "primary": (45, 212, 191),      # Aqua Teal
+        "secondary": (103, 232, 249),   # Ice Energy
+        "text": (240, 253, 250),
         "muted": (153, 246, 228),
         "headline_font": "Geist.ttf",
         "accent_font": "AppleGaramond-Italic.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "frameless_halo",
-        "material": "glass",
+        "surface_mode": "pure_halo",
+        "material": "energy_glow",
     },
     "cartographic_atlas": {
         "id": "cartographic_atlas",
-        "name": "Atlas Cartográfico",
-        "bg": (12, 26, 43),
-        "surface": (17, 36, 58),
-        "surface_alpha": 215,
-        "primary": (16, 185, 129),      # Emerald Route
-        "secondary": (231, 216, 185),   # Atlas Sand
+        "name": "Atlas Cartográfico Translúcido",
+        "bg": (9, 20, 34),
+        "primary": (16, 185, 129),      # Route Emerald
+        "secondary": (245, 208, 138),   # Map Gold Sand
         "text": (248, 250, 252),
-        "muted": (186, 210, 228),
+        "muted": (203, 213, 225),
         "headline_font": "CreatoDisplay-Bold.otf",
         "accent_font": "AppleGaramond-BoldItalic.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "meridian_frame",
-        "material": "atlas",
+        "surface_mode": "meridian_halo",
+        "material": "atlas_glass",
     },
     "archival_chronicle": {
         "id": "archival_chronicle",
         "name": "Crônica Documental",
-        "bg": (26, 20, 15),
-        "surface": (244, 232, 209),     # Aged Parchment
-        "surface_alpha": 236,
-        "primary": (180, 83, 9),        # Burnished Amber
-        "secondary": (127, 29, 29),     # Archival Wax Red
-        "text": (30, 22, 14),
-        "muted": (92, 74, 56),
+        "bg": (18, 13, 10),
+        "primary": (245, 158, 11),      # Brass Year Gold
+        "secondary": (253, 230, 138),   # Archival Warm Ink
+        "text": (255, 251, 235),
+        "muted": (253, 230, 138),
         "headline_font": "AppleGaramond-BoldItalic.ttf",
         "accent_font": "CreatoDisplay-ExtraBold.otf",
         "body_font": "DMSans.ttf",
-        "border_style": "editorial_ticks",
-        "material": "parchment",
+        "surface_mode": "chronicle_rule",
+        "material": "brass_plate",
     },
     "luxury_3d_stage": {
         "id": "luxury_3d_stage",
         "name": "Palco 3D Volumétrico",
-        "bg": (11, 15, 23),
-        "surface": (18, 24, 36),
-        "surface_alpha": 195,
+        "bg": (8, 12, 18),
         "primary": (34, 197, 94),       # Kinetic Emerald
-        "secondary": (250, 204, 21),    # Specular Gold
-        "text": (248, 250, 252),
-        "muted": (167, 201, 184),
+        "secondary": (250, 204, 21),    # Metallic Gold
+        "text": (255, 255, 255),
+        "muted": (187, 247, 208),
         "headline_font": "BebasNeue-Regular.ttf",
         "accent_font": "AppleGaramond-BoldItalic.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "frameless_halo",
+        "surface_mode": "pure_halo",
         "material": "metallic_3d",
     },
     "cyber_neural": {
         "id": "cyber_neural",
         "name": "Arquitetura Neural",
-        "bg": (13, 9, 26),
-        "surface": (21, 16, 42),
-        "surface_alpha": 208,
+        "bg": (10, 7, 22),
         "primary": (34, 211, 238),      # Neon Cyan
-        "secondary": (232, 121, 249),   # Neural Magenta
+        "secondary": (232, 121, 249),   # Magenta Signal
         "text": (248, 250, 252),
-        "muted": (196, 181, 253),
+        "muted": (221, 214, 254),
         "headline_font": "Geist.ttf",
         "accent_font": "CreatoDisplay-ExtraBold.otf",
         "body_font": "DMSans.ttf",
-        "border_style": "circuit_nodes",
-        "material": "hologram",
+        "surface_mode": "circuit_halo",
+        "material": "hologram_3d",
     },
-    "swiss_minimal": {
-        "id": "swiss_minimal",
-        "name": "Suíço Minimalista",
-        "bg": (248, 250, 252),
-        "surface": (255, 255, 255),
-        "surface_alpha": 236,
-        "primary": (37, 99, 235),       # Klein Blue
-        "secondary": (15, 23, 42),
-        "text": (15, 23, 42),
-        "muted": (71, 85, 105),
+    "swiss_electric": {
+        "id": "swiss_electric",
+        "name": "Cinético Elétrico",
+        "bg": (9, 14, 28),
+        "primary": (96, 165, 250),      # Electric Azure
+        "secondary": (248, 250, 252),
+        "text": (255, 255, 255),
+        "muted": (191, 219, 254),
         "headline_font": "Coolvetica-Regular.otf",
         "accent_font": "AppleGaramond-BoldItalic.ttf",
         "body_font": "DMSans.ttf",
-        "border_style": "swiss_bar",
-        "material": "matte_clean",
+        "surface_mode": "swiss_pillar",
+        "material": "matte_vector",
     },
 }
 
-_INTENT_TO_LANGUAGE_STYLE = {
-    "money_growth": ("motion_3d", "editorial", "luxury_3d_stage", "dolly_in"),
-    "security_tactical": ("geographic", "narrative_doc", "tactical_hud", "rack_focus"),
-    "ai_architecture": ("technological", "motion_3d", "cyber_neural", "orbit_3d"),
-    "geo_journey": ("geographic", "narrative_doc", "cartographic_atlas", "pan_sweep"),
-    "value_comparison": ("editorial", "kinetic_type", "editorial_broadsheet", "tilt_reveal"),
-    "machine_mechanics": ("process_flow", "motion_3d", "industrial_blueprint", "dolly_in"),
-    "business_scale": ("motion_3d", "editorial", "swiss_minimal", "orbit_3d"),
-    "historical_chronology": ("narrative_doc", "editorial", "archival_chronicle", "pan_sweep"),
-    "scientific_principle": ("scientific_edu", "motion_3d", "bioluminescent_lab", "orbit_3d"),
-    "process_transformation": ("process_flow", "illustrative", "industrial_blueprint", "pan_sweep"),
-    "educational_craft": ("illustrative", "kinetic_type", "editorial_broadsheet", "tilt_reveal"),
-    "conceptual_focus": ("kinetic_type", "illustrative", "swiss_minimal", "dolly_in"),
+_INTENT_ROUTING = {
+    "money_growth": ("motion_3d", "editorial", "luxury_3d_stage", "dolly_in", "wide_scrim"),
+    "security_tactical": ("geographic", "narrative_doc", "tactical_hud", "rack_focus", "split_asymmetric"),
+    "ai_architecture": ("technological", "motion_3d", "cyber_neural", "orbit_3d", "split_asymmetric"),
+    "geo_journey": ("geographic", "narrative_doc", "cartographic_atlas", "pan_sweep", "wide_scrim"),
+    "value_comparison": ("editorial", "kinetic_type", "editorial_ink", "tilt_reveal", "dual_wings"),
+    "machine_mechanics": ("process_flow", "motion_3d", "industrial_blueprint", "dolly_in", "split_asymmetric"),
+    "business_scale": ("motion_3d", "editorial", "swiss_electric", "orbit_3d", "split_asymmetric"),
+    "historical_chronology": ("narrative_doc", "editorial", "archival_chronicle", "pan_sweep", "wide_ribbon"),
+    "scientific_principle": ("scientific_edu", "motion_3d", "bioluminescent_lab", "orbit_3d", "split_asymmetric"),
+    "process_transformation": ("process_flow", "illustrative", "industrial_blueprint", "pan_sweep", "wide_scrim"),
+    "educational_craft": ("illustrative", "kinetic_type", "editorial_ink", "tilt_reveal", "split_asymmetric"),
+    "conceptual_focus": ("kinetic_type", "editorial", "swiss_electric", "dolly_in", "compact_callout"),
 }
 
 _DIVERSITY_ROTATION = [
-    "editorial_broadsheet",
+    "editorial_ink",
     "bioluminescent_lab",
     "cartographic_atlas",
-    "industrial_blueprint",
-    "swiss_minimal",
-    "cyber_neural",
+    "swiss_electric",
     "tactical_hud",
+    "cyber_neural",
     "archival_chronicle",
+    "industrial_blueprint",
     "luxury_3d_stage",
 ]
 
 
-def _pick_layout(frame_info: dict, intent: str, forced_position: str = None) -> tuple:
+def _pick_spatial_slot(frame_info: dict, intent: str, forced_position: str = None) -> tuple:
+    """Place composition using actual analyzed video pockets (shoulders/wall or compact lower third)."""
     if forced_position in ("top-center", "top-left", "top-right", "bottom-card", "center"):
-        slot_map = {
-            "top-center": "top_hud",
-            "top-left": "asymmetric_left",
-            "top-right": "asymmetric_right",
-            "bottom-card": "lower_stage",
-            "center": "full_plate",
-        }
-        return forced_position, slot_map[forced_position]
+        fp = "compact" if forced_position in ("top-left", "top-right") else "wide"
+        return forced_position, fp
 
     aspect = (frame_info or {}).get("aspect", "portrait")
-    free_slots = (frame_info or {}).get("free_slots", ["lower_stage"])
+    pockets = (frame_info or {}).get("free_pockets", ["bottom_compact"])
+    best = pockets[0] if pockets else "bottom_compact"
 
-    if intent in ("security_tactical", "geo_journey", "historical_chronology", "machine_mechanics"):
-        # Complex scenes prefer clean lower/side stage without obscuring face
-        pos = "bottom-card" if aspect == "portrait" else ("top-right" if "right_stage" in free_slots else "top-left")
-        return pos, "lower_stage" if pos == "bottom-card" else "side_column"
+    # Compact conceptual or numeric callouts look super natural in free upper shoulder wall pocket!
+    if intent in ("conceptual_focus",) and best in ("top_left_wall", "top_right_wall"):
+        return ("top-left" if best == "top_left_wall" else "top-right"), "compact"
 
-    pos = "bottom-card"
-    if free_slots and free_slots[0] == "top_floating":
-        pos = "top-center"
-    elif free_slots and free_slots[0] == "right_stage":
-        pos = "top-right"
-    elif free_slots and free_slots[0] == "left_stage":
-        pos = "top-left"
-    return pos, free_slots[0] if free_slots else "lower_stage"
+    if aspect == "landscape":
+        if "right_shoulder" in pockets:
+            return "top-right", "compact"
+        if "left_shoulder" in pockets:
+            return "top-left", "compact"
+
+    return "bottom-card", "wide"
 
 
 def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list = None, forced_style_id: str = None, forced_position: str = None, custom_accent_hex: str = None) -> dict:
-    """Produce a bespoke visual art direction plan based on interpretation + frame space."""
+    """Design a complete visual identity + layout + camera + narrative gaze plan."""
     intent = interpretation.get("narrative_intent", "conceptual_focus")
-    lang_main, lang_sec, default_style, cam_motion = _INTENT_TO_LANGUAGE_STYLE.get(
-        intent, ("kinetic_type", "editorial", "editorial_broadsheet", "dolly_in")
+    lang_main, lang_sec, default_style, cam_motion, comp_pattern = _INTENT_ROUTING.get(
+        intent, ("kinetic_type", "editorial", "editorial_ink", "dolly_in", "compact_callout")
     )
 
     style_id = forced_style_id if forced_style_id in ART_STYLES else default_style
     used = list(used_styles or [])
-    # Enforce art-style diversity across consecutive scenes unless explicitly forced
     if not forced_style_id and style_id in used:
         for alt in _DIVERSITY_ROTATION:
             if alt not in used:
@@ -231,19 +208,22 @@ def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list 
         hx = custom_accent_hex.lstrip("#")
         style["primary"] = (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
 
-    position, layout_mode = _pick_layout(frame_info, intent, forced_position=forced_position)
-    # Invert bright paper cards automatically if background is very bright on frame without surface contrast
-    density = "rich" if interpretation.get("complexity") == "high" else "balanced"
-
-    # Build bespoke description of THIS planned visual composition (zero generic boilerplate!)
+    position, footprint = _pick_spatial_slot(frame_info, intent, forced_position=forced_position)
     subj = interpretation.get("central_subject", "Conceito")
     metaphor = interpretation.get("visual_metaphor", "")
+
+    composition_brief = {
+        "focal_element": metaphor,
+        "gaze_flow": f"Elemento visual ({lang_main}) -> manchete '{subj}' -> síntese contextual",
+        "footprint": footprint,
+        "composition_pattern": comp_pattern,
+        "avoids_face": position != "center",
+    }
+
     desc = (
-        f"Direção '{style['name']}' ({lang_main} + {lang_sec}): {metaphor} "
-        f"Composição posicionada em '{position}' respeitando o quadro do vídeo, "
-        f"com câmera '{cam_motion}' e revelação progressiva em 3 atos sobre '{subj.lower()}'."
+        f"[{style['name']}] {metaphor} "
+        f"Composição '{comp_pattern}' ({footprint}) em '{position}', movimento '{cam_motion}'."
     )
-    desc = textwrap.shorten(desc, width=220, placeholder="…")
 
     return {
         "visual_language": lang_main,
@@ -252,8 +232,6 @@ def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list 
         "art_style_name": style["name"],
         "palette": {
             "bg": style["bg"],
-            "surface": style["surface"],
-            "surface_alpha": style["surface_alpha"],
             "primary": style["primary"],
             "secondary": style["secondary"],
             "text": style["text"],
@@ -265,16 +243,16 @@ def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list 
             "accent_font": style["accent_font"],
             "body_font": style["body_font"],
         },
-        "border_style": style["border_style"],
+        "surface_mode": style["surface_mode"],
         "material": style["material"],
-        "layout_mode": layout_mode,
+        "layout_mode": comp_pattern,
+        "footprint": footprint,
         "position": position,
-        "density": density,
         "camera": {
             "motion": cam_motion,
             "dolly_scale": 0.08 if cam_motion in ("dolly_in", "orbit_3d") else 0.03,
-            "pan_px": 28 if cam_motion == "pan_sweep" else 10,
-            "parallax": 1.0,
+            "pan_px": 24 if cam_motion == "pan_sweep" else 10,
         },
-        "description": desc,
+        "composition_brief": composition_brief,
+        "description": textwrap.shorten(desc, width=210, placeholder="…"),
     }
