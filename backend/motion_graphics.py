@@ -444,17 +444,17 @@ def _parse_speech_to_scene(text: str, preferred_tid: str = None) -> dict:
             tid = "cycle_loop"
         elif re.search(r"primeiro|segundo|terceiro|etapa|passo|processo|fluxo|mecanism|funciona", low):
             tid = "flow_diagram"
-        elif re.search(r"intelig[eê]ncia|ia\b|algoritm|neural|rede|autom|motor", low):
+        elif re.search(r"\bintelig[eê]ncia\b|\bia\b|algoritm|neural|\brede\b|autom|rob[oô]", low):
             tid = "ai_network"
-        elif re.search(r"sistema|aplicativo|painel|dados|tela|plataforma|app\b", low):
+        elif re.search(r"sistema|aplicativo|painel|dados|\btela\b|plataforma|\bapp\b", low):
             tid = "data_dashboard"
-        elif re.search(r"\b(19|20)\d{2}\b|linha do tempo|cronolog|hist[oó]ri|anos|meses", low):
+        elif re.search(r"\b(19|20)\d{2}\b|linha do tempo|cronolog|hist[oó]ri|anos|meses|por dia|todos os dias", low):
             tid = "timeline_steps"
         elif any("%" in n for n in nums):
             tid = "donut_share"
         elif len(nums) >= 2:
             tid = "bar_chart"
-        elif nums:
+        elif nums or re.search(r"\b(?:um|dois|tr[eê]s|quatro|cinco|dez|vinte|trinta|cem)\s+minut", low):
             tid = "counter_kpi"
         elif re.search(r"cuidado|aten[çc]|erro|alerta|nunca|proibid", low):
             tid = "badge_alert"
@@ -740,7 +740,8 @@ def analyze_video_for_motion(captions, video_path=None):
             re.search(
                 r"triplic|dobr|fatur|receit|lucr|dinheir|r\$|%|cidad|estad|pa[ií]s|mapa|rota|trajet|"
                 r"antes.*depois|diferen|compar|primeiro|segundo|etapa|passo|processo|fluxo|ciclo|"
-                r"intelig|ia\b|sistema|dados|painel|\b(19|20)\d{2}\b|\b\d+\b|segredo|motivo|porque|funciona",
+                r"\bintelig[eê]ncia\b|\bia\b|sistema|dados|painel|\b(19|20)\d{2}\b|\b\d+\b|"
+                r"segredo|motivo|porque|funciona|cole[çc][aã]o|m[eé]todo|aprender|minutinhos|por dia",
                 low,
             )
         )
@@ -759,7 +760,7 @@ def analyze_video_for_motion(captions, video_path=None):
             "template_id": tid,
             "template_name": scene["template_name"],
             "reason": f"Ilustra visualmente o conceito falado ({scene['template_name']}) substituindo a legenda.",
-            "relevance": "Alta" if re.search(r"\d|%|triplic|dobr|cidad|antes|passo|ia\b", low) else "Média",
+            "relevance": "Alta" if re.search(r"\d|%|triplic|dobr|cidad|antes|passo|\bia\b|m[eé]todo|cole[çc]", low) else "Média",
             "position": "center",
             "replace_captions": True,
             "prompt": scene["params"].get("visual_prompt", txt),
