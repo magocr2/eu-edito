@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
 from processor import (
+    _prepare_card_png,
     apply_manual_caption_cuts,
     build_captions,
     compute_keep_ranges,
@@ -131,6 +132,28 @@ def api_upload_broll():
     return jsonify({"broll_id": bid, "filename": safe_name})
 
 
+@app.route("/api/upload_card", methods=["POST"])
+def api_upload_card():
+    f = request.files.get("card")
+    if not f or not f.filename:
+        return jsonify({"error": "Nenhuma imagem enviada."}), 400
+    cdir = JOBS_DIR / "_cards"
+    cdir.mkdir(parents=True, exist_ok=True)
+    safe_name = secure_filename(f.filename) or "card.png"
+    uid = uuid.uuid4().hex[:10]
+    raw_path = cdir / f"raw_{uid}_{safe_name}"
+    out_name = f"{uid}_card.png"
+    out_path = cdir / out_name
+    f.save(str(raw_path))
+    rem_bg = request.form.get("remove_bg", "1") != "0"
+    _prepare_card_png(raw_path, out_path, remove_bg=rem_bg)
+    try:
+        raw_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return jsonify({"card_id": out_name, "filename": safe_name})
+
+
 def _run_transcribe_pipeline(job_id, opts):
     try:
         j = _get_job(job_id)
@@ -226,6 +249,22 @@ def _run_render_pipeline(job_id, opts):
             elif captions:
                 broll_start = float(captions[min(len(captions) - 1, 1)]["s"])
 
+        card_id = (opts.get("card_id") or "").strip()
+        card_path = (JOBS_DIR / "_cards" / secure_filename(card_id)) if card_id else None
+        if card_path and not card_path.exists():
+            card_path = None
+        card_start = None
+        card_dur = 3.2
+        if card_path:
+            marked_c = [c for c in captions if c.get("card")]
+            if marked_c:
+                card_start = float(marked_c[0]["s"])
+                card_dur = max(2.0, min(4.5, float(marked_c[0]["e"]) - float(marked_c[0]["s"]) + 0.8))
+            elif impacts:
+                card_start = float(impacts[-1][0] if len(impacts) > 1 else impacts[0][0])
+            elif captions:
+                card_start = float(captions[min(len(captions) - 1, 2 if len(captions) > 2 else 0)]["s"])
+
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
         render_video(
             src_path,
@@ -243,6 +282,11 @@ def _run_render_pipeline(job_id, opts):
             broll_layout=opts.get("broll_layout", "top"),
             broll_start=broll_start,
             broll_dur=broll_dur,
+            color_grade=bool(opts.get("color_grade", False)),
+            card_path=card_path,
+            card_anim=opts.get("card_anim", "side-right"),
+            card_start=card_start,
+            card_dur=card_dur,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)

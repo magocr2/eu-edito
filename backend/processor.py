@@ -519,8 +519,132 @@ def sync_edited_captions(edited_captions):
             item["sfx"] = bool(cap["sfx"])
         if cap.get("broll"):
             item["broll"] = True
+        if cap.get("card"):
+            item["card"] = True
         synced.append(item)
     return synced
+
+
+def _ensure_bokeh_mask(mask_path, w, h, strength=0.65):
+    """Generate a smooth radial alpha mask PNG for optical bokeh (center sharp, edges blurred)."""
+    from PIL import Image, ImageFilter
+
+    p = Path(mask_path)
+    if p.exists() and p.stat().st_size > 500:
+        return p
+    # Build small gradient mask then upscale smoothly for fast generation
+    mw, mh = max(64, w // 8), max(64, h // 8)
+    mask = Image.new("L", (mw, mh), 0)
+    px = mask.load()
+    cx, cy = mw * 0.5, mh * 0.44
+    rx, ry = mw * 0.40, mh * 0.34
+    max_alpha = int(255 * max(0.2, min(0.85, strength)))
+    for y in range(mh):
+        dy = (y - cy) / max(ry, 1.0)
+        for x in range(mw):
+            dx = (x - cx) / max(rx, 1.0)
+            d = (dx * dx + dy * dy) ** 0.5
+            if d <= 0.65:
+                a = 0
+            elif d >= 1.35:
+                a = max_alpha
+            else:
+                t = (d - 0.65) / 0.70
+                t = t * t * (3.0 - 2.0 * t)
+                a = int(max_alpha * t)
+            px[x, y] = a
+    mask = mask.resize((w, h), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(4))
+    rgba = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+    rgba.putalpha(mask)
+    rgba.save(str(p), "PNG")
+    return p
+
+
+def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=440):
+    """Prepare uploaded card/product image as clean RGBA PNG with optional flood-fill BG removal & soft shadow."""
+    from collections import deque
+    from PIL import Image, ImageDraw, ImageFilter
+
+    im = Image.open(str(src_img_path)).convert("RGBA")
+    im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    w, h = im.size
+
+    # Check if image already has meaningful transparency
+    alpha_ext = im.getchannel("A").getextrema()
+    has_alpha = alpha_ext[0] < 240
+
+    if remove_bg and not has_alpha and w >= 16 and h >= 16:
+        px = im.load()
+        samples = [
+            px[2, 2][:3], px[w - 3, 2][:3],
+            px[2, h - 3][:3], px[w - 3, h - 3][:3],
+            px[w // 2, 2][:3], px[2, h // 2][:3],
+        ]
+        # Check if border colors are uniform enough to be a solid/studio background
+        avg = tuple(sum(s[c] for s in samples) // len(samples) for c in range(3))
+        spread = max(sum(abs(s[c] - avg[c]) for c in range(3)) for s in samples)
+        if spread < 85:
+            tol = 58
+            visited = bytearray(w * h)
+            bg_mask = bytearray(w * h)
+            q = deque()
+            for x in range(w):
+                q.append((x, 0))
+                q.append((x, h - 1))
+            for y in range(h):
+                q.append((0, y))
+                q.append((w - 1, y))
+            while q:
+                cx, cy = q.popleft()
+                idx = cy * w + cx
+                if visited[idx]:
+                    continue
+                visited[idx] = 1
+                r, g, b, _ = px[cx, cy]
+                if abs(r - avg[0]) + abs(g - avg[1]) + abs(b - avg[2]) <= tol:
+                    bg_mask[idx] = 1
+                    if cx > 0:
+                        q.append((cx - 1, cy))
+                    if cx + 1 < w:
+                        q.append((cx + 1, cy))
+                    if cy > 0:
+                        q.append((cx, cy - 1))
+                    if cy + 1 < h:
+                        q.append((cx, cy + 1))
+
+            removed_ratio = sum(bg_mask) / float(w * h)
+            if 0.08 < removed_ratio < 0.92:
+                a_img = Image.new("L", (w, h), 255)
+                apx = a_img.load()
+                for y in range(h):
+                    for x in range(w):
+                        if bg_mask[y * w + x]:
+                            apx[x, y] = 0
+                a_img = a_img.filter(ImageFilter.GaussianBlur(1.1))
+                im.putalpha(a_img)
+                has_alpha = True
+
+    if not has_alpha:
+        # Card / screenshot mode: apply crisp rounded corners
+        rad = max(14, min(w, h) // 10)
+        rmask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(rmask).rounded_rectangle([0, 0, w - 1, h - 1], radius=rad, fill=255)
+        im.putalpha(rmask)
+
+    # Trim empty transparent margins and add subtle drop shadow padding
+    bbox = im.getbbox()
+    if bbox:
+        im = im.crop(bbox)
+    cw, ch = im.size
+    pad = 18
+    canvas = Image.new("RGBA", (cw + pad * 2, ch + pad * 2), (0, 0, 0, 0))
+    sh = Image.new("RGBA", im.size, (0, 0, 0, 140))
+    sh.putalpha(im.getchannel("A").point(lambda v: int(v * 0.45)))
+    canvas.paste(sh, (pad, pad + 6))
+    canvas = canvas.filter(ImageFilter.GaussianBlur(6))
+    canvas.paste(im, (pad, pad), im)
+    canvas.save(str(out_png_path), "PNG")
+    return out_png_path
 
 
 def _ensure_sfx_wav(sfx_dir, kind="pop"):
@@ -1090,6 +1214,11 @@ def render_video(
     broll_layout="top",
     broll_start=None,
     broll_dur=3.5,
+    color_grade=False,
+    card_path=None,
+    card_anim="side-right",
+    card_start=None,
+    card_dur=3.2,
 ):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
@@ -1142,6 +1271,8 @@ def render_video(
     extra_inputs = []
     next_in_idx = 1
     has_broll = bool(broll_path and Path(broll_path).exists() and broll_start is not None)
+    has_card = bool(card_path and Path(card_path).exists() and card_start is not None)
+    has_bokeh = bool(color_grade and not low_ram)
     sfx_list = [float(t) for t in (sfx_times or []) if float(t) >= 0.0][:10]
     has_sfx = bool(sfx_list)
 
@@ -1151,6 +1282,19 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-i", str(broll_path)]
 
+    card_idx = None
+    if has_card:
+        card_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-loop", "1", "-i", str(card_path)]
+
+    mask_idx = None
+    if has_bokeh:
+        mask_png = _ensure_bokeh_mask(Path(out_path).parent / f"bokeh_{w_even}x{h_even}.png", w_even, h_even, strength=0.65)
+        mask_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-loop", "1", "-i", str(mask_png)]
+
     sfx_idx = None
     if has_sfx:
         sfx_wav = _ensure_sfx_wav(Path(out_path).parent, "pop")
@@ -1158,12 +1302,22 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-i", str(sfx_wav)]
 
-    use_fc = bool(fc_parts or has_broll or has_sfx)
+    use_fc = bool(fc_parts or has_broll or has_card or color_grade or has_sfx)
     af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if studio_audio else ""
 
     if use_fc:
-        fc_parts.append(f"{v_chain}{scale_base}{zoom_filter}[vprep]")
+        grade_4k = ",unsharp=5:5:0.75:3:3:0.0,eq=contrast=1.08:saturation=1.14:brightness=0.02:gamma=1.02" if color_grade else ""
+        fc_parts.append(f"{v_chain}{scale_base}{zoom_filter}{grade_4k}[vprep]")
         cur_v = "[vprep]"
+
+        if has_bokeh:
+            fc_parts.append(
+                f"{cur_v}split=2[vsharp][vbsrc];"
+                f"[vbsrc]scale=w=trunc(iw/3/2)*2:h=trunc(ih/3/2)*2,gblur=sigma=5,scale=w={w_even}:h={h_even}:flags=bilinear[vbokeh];"
+                f"[vbokeh][{mask_idx}:v]alphamerge[vbokeh_a];"
+                f"[vsharp][vbokeh_a]overlay=0:0:shortest=1[vgraded]"
+            )
+            cur_v = "[vgraded]"
 
         if has_broll:
             b_info = probe_video(broll_path)
@@ -1195,6 +1349,32 @@ def render_video(
                 )
                 fc_parts.append(f"[vshifted][vbroll]overlay=0:y='{b_y}':enable='between(t,{bs:.3f},{be:.3f})'[vbcomp]")
             cur_v = "[vbcomp]"
+
+        if has_card:
+            cs = max(0.0, float(card_start))
+            cd = max(1.6, min(5.0, float(card_dur or 3.2)))
+            ce = cs + cd
+            cw_target = max(160, int(w_even * 0.34))
+            cw_target -= cw_target % 2
+            cramp = f"min(1,min((t-{cs:.3f})/0.24,({ce:.3f}-t)/0.24))"
+            bob = f"8*sin(3.2*(t-{cs:.3f}))"
+            canim = (card_anim or "side-right").lower()
+            margin = max(24, int(w_even * 0.04))
+            if canim == "side-left":
+                cx = f"-w+(w+{margin})*{cramp}"
+                cy = f"{int(h_even * 0.24)}+{bob}"
+            elif canim == "corner-top":
+                cx = f"{w_even}-w-{margin}"
+                cy = f"-h+(h+{int(h_even * 0.12)})*{cramp}+{bob}"
+            elif canim == "behind-peek":
+                cx = f"{int(w_even * 0.5)}-w/2+({int(w_even * 0.27)})*{cramp}"
+                cy = f"{int(h_even * 0.28)}+{bob}"
+            else:
+                cx = f"{w_even}-(w+{margin})*{cramp}"
+                cy = f"{int(h_even * 0.24)}+{bob}"
+            fc_parts.append(f"[{card_idx}:v]scale={cw_target}:-2:flags={scale_flags},format=rgba[vcard]")
+            fc_parts.append(f"{cur_v}[vcard]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':shortest=1[vccomp]")
+            cur_v = "[vccomp]"
 
         fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
 

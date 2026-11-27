@@ -280,6 +280,12 @@ body {
 }
 .cap-chip-sfx.is-on { background: rgba(56,189,248,0.18); border-color: #38bdf8; color: #7dd3fc; }
 .cap-chip-broll.is-on { background: rgba(250,204,21,0.18); border-color: #facc15; color: #fde047; }
+.cap-chip-card {
+  border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04);
+  color: var(--muted); font-size: 10.5px; font-weight: 700; border-radius: 999px;
+  padding: 2px 8px; cursor: pointer;
+}
+.cap-chip-card.is-on { background: rgba(192,132,252,0.22); border-color: #c084fc; color: #e9d5ff; }
 .broll-upload-btn {
   display: flex; align-items: center; justify-content: center;
   padding: 9px 12px; border-radius: 12px; cursor: pointer;

@@ -12,6 +12,8 @@ let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
 let selectedBrollId = '';
 let selectedBrollLayout = 'top';
+let selectedCardId = '';
+let selectedCardAnim = 'side-right';
 let deferredPrompt = null;
 let lastVideoUrl = '';
 let cachedVideoBlob = null;
@@ -415,6 +417,36 @@ $('brollFile')?.addEventListener('change', async (e) => {
   }
 });
 
+$('cardAnimGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $('cardAnimGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    selectedCardAnim = btn.dataset.canim || 'side-right';
+    markDirtyAfterRender();
+  });
+});
+
+$('cardFile')?.addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  $('cardStatus').textContent = '⏳ Preparando imagem…';
+  try {
+    const fd = new FormData();
+    fd.append('card', f, f.name || 'card.png');
+    fd.append('remove_bg', $('cardRemoveBgToggle')?.checked ? '1' : '0');
+    const res = await fetch('/api/upload_card', { method: 'POST', body: fd });
+    const data = await safeJson(res);
+    if (data.error || !data.card_id) throw new Error(data.error || 'Erro no envio.');
+    selectedCardId = data.card_id;
+    $('cardStatus').textContent = `🖼️ ${f.name} (pronto)`;
+    $('cardOptionsBox').hidden = false;
+    markDirtyAfterRender();
+  } catch (err) {
+    selectedCardId = '';
+    $('cardStatus').textContent = '❌ Falha ao enviar imagem. Toque para tentar novamente';
+  }
+});
+
 $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     $('resGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
@@ -696,6 +728,22 @@ function renderCaptionEditor(captions) {
         });
         chipsBox.append(bBtn);
       }
+
+      if (selectedCardId) {
+        const cBtn = document.createElement('button');
+        cBtn.type = 'button';
+        cBtn.className = 'cap-chip-card' + (currentCaptions[idx].card ? ' is-on' : '');
+        cBtn.textContent = '🖼️ Card';
+        cBtn.title = 'Exibir card/imagem flutuante neste momento';
+        cBtn.addEventListener('click', () => {
+          const next = !currentCaptions[idx].card;
+          currentCaptions.forEach((c) => { c.card = false; });
+          currentCaptions[idx].card = next;
+          renderCaptionEditor(currentCaptions);
+          markDirtyAfterRender();
+        });
+        chipsBox.append(cBtn);
+      }
     }
     renderChips();
 
@@ -812,8 +860,11 @@ $('generateBtn').addEventListener('click', async () => {
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,
         sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
+        color_grade: $('colorGradeToggle') ? $('colorGradeToggle').checked : false,
         broll_id: selectedBrollId,
         broll_layout: selectedBrollLayout,
+        card_id: selectedCardId,
+        card_anim: selectedCardAnim,
         hook_title: ($('hookTitleInput')?.value || '').trim(),
         hook_style: selectedHookStyle,
         hook_y: selectedHookY,
