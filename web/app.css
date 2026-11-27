@@ -119,12 +119,13 @@ body {
   text-shadow: 0 0 14px var(--accent, rgba(255,255,255,0.45)), 0 2px 8px rgba(0,0,0,0.55);
 }
 .live-overlay.is-one-line {
-  flex-direction: row !important; flex-wrap: nowrap; justify-content: center; align-items: baseline; gap: 5px;
+  flex-direction: row !important; flex-wrap: nowrap !important; justify-content: center; align-items: baseline; gap: 5px;
+  max-width: none !important; width: max-content !important;
 }
 .live-overlay.is-one-line strong, .live-overlay.is-one-line em { font-size: 16.5px; }
 .live-overlay.is-two-line .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 4px; white-space: nowrap; }
 .pv-quick-ctrl {
-  position: absolute; left: 8px; bottom: 8px; z-index: 6;
+  position: absolute; left: 10px; top: 38px; z-index: 6;
   display: inline-flex; align-items: center; gap: 4px;
   background: rgba(6, 11, 8, 0.78); border: 1px solid rgba(255,255,255,0.14);
   border-radius: 999px; padding: 3px 6px; backdrop-filter: blur(6px);

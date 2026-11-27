@@ -121,9 +121,9 @@ function animateOverlay(style) {
   parts.forEach((node, idx) => {
     node.getAnimations?.().forEach((a) => a.cancel());
     const isMain = node.tagName === 'STRONG' || node.tagName === 'EM';
-    const delay = idx * 80;
+    const delay = idx * 55;
     let frames = [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }];
-    let dur = 320;
+    let dur = 240;
     if (style === 'clean-14' || style === 'clean-12' || style === 'model-07') {
       frames = isMain
         ? [{ opacity: 0, transform: 'scale(.76)' }, { opacity: 1, transform: 'scale(1.05)', offset: 0.72 }, { opacity: 1, transform: 'scale(1)' }]
@@ -143,7 +143,13 @@ function animateOverlay(style) {
 
 function syncOverlay(animate = false) {
   const ov = $('liveOverlay');
-  const lineMode = selectedStyle === 'clean-10' ? 1 : selectedLines;
+  const isClean10 = (selectedStyle === 'clean-10');
+  const lineMode = isClean10 ? 1 : selectedLines;
+  $('linesGrid')?.querySelectorAll('.res-pill').forEach((b) => {
+    const l = Number(b.dataset.lines || 3);
+    b.disabled = isClean10 && l !== 1;
+    b.classList.toggle('is-active', l === lineMode);
+  });
   const modeCls = lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '');
   ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
