@@ -91,6 +91,7 @@ body {
   background: radial-gradient(circle at 50% 35%, #12261a, #040806 72%);
   border-radius: 20px; overflow: hidden;
   border: 1.5px solid rgba(255,255,255,0.12);
+  touch-action: pan-y;
 }
 .phone-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .empty-stage {
@@ -104,17 +105,37 @@ body {
   font-size: 10.5px; font-weight: 700; padding: 4px 9px;
 }
 .live-overlay {
-  position: absolute; left: 50%; top: 74%; transform: translate(-50%, -50%) scale(var(--cap-scale, 1));
-  text-align: center; width: 88%; pointer-events: none;
+  position: absolute; left: 50%; top: 74%;
+  transform: translate(-50%, -50%) scale(calc(var(--cap-scale, 1) * var(--cap-fit, 1)));
+  text-align: center; width: max-content; max-width: 94%;
+  pointer-events: auto; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
   text-shadow: 0 2px 10px rgba(0,0,0,0.9);
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; z-index: 4;
 }
-.live-overlay small { display: block; font-size: 13px; color: #fff; line-height: 1.1; }
+.live-overlay:active { cursor: grabbing; }
+.live-overlay small { display: block; font-size: 12px; color: #fff; line-height: 1.12; white-space: nowrap; }
 .live-overlay strong, .live-overlay em {
-  display: block; font-size: 21px; color: var(--accent, #ffffff); line-height: 1.05;
-  text-shadow: 0 0 14px var(--accent, rgba(255,255,255,0.45)), 0 2px 10px rgba(0,0,0,0.92);
+  display: block; font-size: 19px; color: var(--accent, #ffffff); line-height: 1.06; white-space: nowrap;
+  text-shadow: 0 0 14px var(--accent, rgba(255,255,255,0.45)), 0 2px 8px rgba(0,0,0,0.55);
 }
-.live-overlay.is-two-line .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 5px; }
+.live-overlay.is-one-line {
+  flex-direction: row !important; flex-wrap: nowrap; justify-content: center; align-items: baseline; gap: 5px;
+}
+.live-overlay.is-one-line strong, .live-overlay.is-one-line em { font-size: 16.5px; }
+.live-overlay.is-two-line .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 4px; white-space: nowrap; }
+.pv-quick-ctrl {
+  position: absolute; left: 8px; bottom: 8px; z-index: 6;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(6, 11, 8, 0.78); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 999px; padding: 3px 6px; backdrop-filter: blur(6px);
+}
+.pv-quick-ctrl button {
+  border: 0; background: rgba(34, 197, 94, 0.22); color: #eafff0;
+  font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 7px; cursor: pointer;
+}
+.pv-quick-ctrl span {
+  font-size: 9.5px; color: var(--muted); font-weight: 600; padding: 0 2px; white-space: nowrap;
+}
 
 /* Authentic 11 caption model styles in preview (matched 1-to-1 with ASS output) */
 .live-overlay.style-classic small { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; }

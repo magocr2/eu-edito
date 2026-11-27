@@ -153,7 +153,16 @@ function syncOverlay(animate = false) {
   ov.style.top = $('posY').value + '%';
   const sc = Number($('capScale')?.value || 100);
   ov.style.setProperty('--cap-scale', (sc / 100).toFixed(2));
+  ov.style.removeProperty('--cap-fit');
   if ($('capScaleVal')) $('capScaleVal').textContent = sc + '%';
+  const frame = $('previewWrap');
+  if (frame && frame.clientWidth) {
+    const maxW = frame.clientWidth * 0.90;
+    const natW = ov.scrollWidth;
+    if (natW > maxW && natW > 0) {
+      ov.style.setProperty('--cap-fit', Math.max(0.54, maxW / natW).toFixed(3));
+    }
+  }
   const fontChoice = $('fontSelect')?.value || '';
   const FONT_CSS_MAP = {
     'bebas': ["'BebasNeue', sans-serif", 'normal', '400'],
@@ -233,10 +242,107 @@ $('hookStyleGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
     selectedHookY = Math.round(Math.max(8, Math.min(55, origPct + dy)));
     ho.style.top = selectedHookY + '%';
     ho.dataset.hy = String(selectedHookY);
+    markDirtyAfterRender();
   });
   const stop = () => { dragging = false; };
   ho.addEventListener('pointerup', stop);
   ho.addEventListener('pointercancel', stop);
+})();
+
+// Direct on-preview drag (height) + 2-finger pinch (size) + A-/A+ buttons for captions
+(() => {
+  const ov = $('liveOverlay'), frame = $('previewWrap');
+  if (!ov || !frame) return;
+  const badge = $('pvLiveBadge');
+  let badgeTimer = null;
+  function flashBadge(txt) {
+    if (!badge) return;
+    badge.textContent = txt;
+    clearTimeout(badgeTimer);
+    badgeTimer = setTimeout(() => { badge.textContent = '↕ Pinça'; }, 1400);
+  }
+  function setScalePct(nextPct) {
+    const clamped = Math.round(Math.max(65, Math.min(135, nextPct)));
+    if ($('capScale')) $('capScale').value = String(clamped);
+    syncOverlay(false);
+    markDirtyAfterRender();
+    flashBadge(`${clamped}% · ${$('posY').value}%`);
+  }
+
+  $('pvSizeDown')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setScalePct(Number($('capScale')?.value || 100) - 5);
+  });
+  $('pvSizeUp')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setScalePct(Number($('capScale')?.value || 100) + 5);
+  });
+
+  const ptrs = new Map();
+  let dragStartY = 0, origPosY = 74;
+  let pinchStartDist = 0, origScale = 100;
+
+  function dist2(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  ov.addEventListener('pointerdown', (e) => {
+    ptrs.set(e.pointerId, e);
+    try { ov.setPointerCapture(e.pointerId); } catch {}
+    if (ptrs.size === 1) {
+      dragStartY = e.clientY;
+      origPosY = Number($('posY')?.value || 74);
+    } else if (ptrs.size === 2) {
+      const [p1, p2] = [...ptrs.values()];
+      pinchStartDist = Math.max(10, dist2(p1, p2));
+      origScale = Number($('capScale')?.value || 100);
+    }
+    e.preventDefault();
+  });
+
+  frame.addEventListener('pointerdown', (e) => {
+    if (e.target === ov || ov.contains(e.target)) return;
+    ptrs.set(e.pointerId, e);
+    if (ptrs.size === 2) {
+      const [p1, p2] = [...ptrs.values()];
+      pinchStartDist = Math.max(10, dist2(p1, p2));
+      origScale = Number($('capScale')?.value || 100);
+    }
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, e);
+    if (ptrs.size >= 2) {
+      const [p1, p2] = [...ptrs.values()];
+      const d = dist2(p1, p2);
+      if (pinchStartDist > 0) {
+        setScalePct(origScale * (d / pinchStartDist));
+      }
+      return;
+    }
+    if (ptrs.size === 1 && (e.target === ov || ov.contains(e.target) || ov.hasPointerCapture?.(e.pointerId))) {
+      const rect = frame.getBoundingClientRect();
+      if (!rect.height) return;
+      const dy = ((e.clientY - dragStartY) / rect.height) * 100;
+      const nextY = Math.round(Math.max(18, Math.min(86, origPosY + dy)));
+      if ($('posY')) $('posY').value = String(nextY);
+      syncOverlay(false);
+      markDirtyAfterRender();
+      flashBadge(`${$('capScale')?.value || 100}% · ${nextY}%`);
+    }
+  });
+
+  const endPtr = (e) => {
+    ptrs.delete(e.pointerId);
+    if (ptrs.size === 1) {
+      const [rem] = [...ptrs.values()];
+      dragStartY = rem.clientY;
+      origPosY = Number($('posY')?.value || 74);
+    }
+  };
+  window.addEventListener('pointerup', endPtr);
+  window.addEventListener('pointercancel', endPtr);
 })();
 
 $('customColorToggle')?.addEventListener('change', () => {
