@@ -1,4 +1,4 @@
-const CACHE = 'hogus-studio-web-v1';
+const CACHE = 'hogus-studio-web-v2';
 const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -7,7 +7,9 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (e) => {

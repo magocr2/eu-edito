@@ -678,7 +678,7 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     shadow = round(max(1.2, 2.0 * scale_f), 1)
     main_shadow = round(max(0.6, 1.0 * scale_f), 1)
     pos_x = int(width * 0.5)
-    pos_y = int(height * max(16, min(84, float(pos_y_pct))) / 100.0)
+    pos_y = int(height * max(16, min(86, float(pos_y_pct))) / 100.0)
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
     glow_blur = round(max(10.0, 18.0 * scale_f), 1)

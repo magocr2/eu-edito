@@ -12,10 +12,42 @@ let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
 let deferredPrompt = null;
 let lastVideoUrl = '';
+let cachedVideoBlob = null;
 let currentJobId = '';
 let currentCaptions = [];
 let flowStage = 'transcribe'; // 'transcribe' -> 'render'
 let maxExportRes = '1080p';
+
+function markDirtyAfterRender() {
+  if (flowStage === 'render' && $('resultBox') && !$('resultBox').hidden) {
+    $('generateBtn').textContent = '🎨 Gerar novamente com estes ajustes →';
+    setStickyVisible(true);
+  }
+}
+
+async function getVideoBlob() {
+  if (cachedVideoBlob) return cachedVideoBlob;
+  if (!lastVideoUrl) throw new Error('Vídeo indisponível.');
+  const res = await fetch(lastVideoUrl + '?dl=1');
+  if (!res.ok) throw new Error('Falha ao baixar vídeo.');
+  cachedVideoBlob = await res.blob();
+  return cachedVideoBlob;
+}
+
+function triggerBlobDownload(blob, filename) {
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(objUrl);
+  }, 15000);
+}
 
 function setStickyVisible(vis) {
   const cta = document.querySelector('.sticky-cta');
@@ -166,6 +198,7 @@ $('linesGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
     btn.classList.add('is-active');
     selectedLines = Number(btn.dataset.lines || 2);
     syncOverlay(true);
+    markDirtyAfterRender();
   });
 });
 
@@ -176,6 +209,7 @@ $('hookStyleGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
     selectedHookStyle = btn.dataset.hstyle || 'pill-white';
     const ho = $('hookOverlay');
     if (ho) ho.className = 'hook-overlay hook-' + selectedHookStyle;
+    markDirtyAfterRender();
   });
 });
 
@@ -208,6 +242,7 @@ $('hookStyleGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
 $('customColorToggle')?.addEventListener('change', () => {
   $('accentColor').disabled = !$('customColorToggle').checked;
   syncOverlay(false);
+  markDirtyAfterRender();
 });
 
 $('catTabs').querySelectorAll('.cat-tab').forEach((tab) => {
@@ -227,10 +262,7 @@ $('styleGrid').querySelectorAll('.style-pill').forEach((btn) => {
     btn.classList.add('is-active');
     selectedStyle = btn.dataset.style;
     syncOverlay(true);
-    if (flowStage === 'render' && !$('resultBox').hidden) {
-      $('generateBtn').textContent = '🎨 Gerar novamente com este modelo →';
-      setStickyVisible(true);
-    }
+    markDirtyAfterRender();
   });
 });
 
@@ -255,10 +287,10 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
   });
 });
 
-$('accentColor').addEventListener('input', () => syncOverlay(false));
-$('posY').addEventListener('input', () => syncOverlay(false));
-$('capScale')?.addEventListener('input', () => syncOverlay(false));
-$('fontSelect')?.addEventListener('change', () => syncOverlay(true));
+$('accentColor').addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
+$('posY').addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
+$('capScale')?.addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
+$('fontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirtyAfterRender(); });
 
 // Initialize accent color input state on load (customColorToggle starts checked)
 (function initColorToggle() {
@@ -293,6 +325,7 @@ $('videoFile').addEventListener('change', (e) => {
   if (!f) return;
   selectedFile = f;
   currentJobId = '';
+  cachedVideoBlob = null;
   currentCaptions = [];
   flowStage = 'transcribe';
   $('reviewCard').hidden = true;
@@ -329,15 +362,60 @@ $('videoFile').addEventListener('change', (e) => {
 
 $('shareBtn').addEventListener('click', async () => {
   if (!lastVideoUrl) return;
-  $('shareBtn').disabled = true;
+  const btn = $('shareBtn');
+  const origTxt = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Preparando vídeo…';
   try {
-    const blob = await fetch(lastVideoUrl).then((r) => r.blob());
-    const file = new File([blob], 'eu-edito-pronto.mp4', { type: 'video/mp4' });
+    const blob = await getVideoBlob();
+    const file = new File([blob], `eu-edito-${currentJobId || 'pronto'}.mp4`, { type: 'video/mp4' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: 'Vídeo Pronto · Eu Edito' });
+    } else {
+      triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
     }
-  } catch {}
-  $('shareBtn').disabled = false;
+  } catch (err) {
+    if (err && err.name !== 'AbortError') {
+      try {
+        const blob = await getVideoBlob();
+        triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
+      } catch {}
+    }
+  } finally {
+    btn.textContent = origTxt;
+    btn.disabled = false;
+  }
+});
+
+$('downloadMp4')?.addEventListener('click', async (e) => {
+  if (!lastVideoUrl) return;
+  e.preventDefault();
+  const btn = $('downloadMp4');
+  const origTxt = btn.textContent;
+  btn.textContent = '⏳ Baixando vídeo…';
+  btn.style.pointerEvents = 'none';
+  try {
+    const blob = await getVideoBlob();
+    triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
+  } catch {
+    // Fallback without leaving standalone PWA window
+    window.open(lastVideoUrl + '?dl=1', '_blank', 'noopener');
+  } finally {
+    btn.textContent = origTxt;
+    btn.style.pointerEvents = '';
+  }
+});
+
+$('downloadSrt')?.addEventListener('click', async (e) => {
+  const href = $('downloadSrt')?.getAttribute('href');
+  if (!href || href === '#') return;
+  e.preventDefault();
+  try {
+    const blob = await fetch(href).then((r) => r.blob());
+    triggerBlobDownload(blob, `eu-edito-${currentJobId || 'legendas'}.srt`);
+  } catch {
+    window.open(href, '_blank', 'noopener');
+  }
 });
 
 async function safeJson(res) {
@@ -424,6 +502,7 @@ function renderCaptionEditor(captions) {
 $('newVideoBtn')?.addEventListener('click', () => {
   selectedFile = null;
   lastVideoUrl = '';
+  cachedVideoBlob = null;
   currentJobId = '';
   currentCaptions = [];
   flowStage = 'transcribe';
@@ -528,6 +607,8 @@ $('generateBtn').addEventListener('click', async () => {
 
       if (st.status === 'done') {
         lastVideoUrl = st.video_url;
+        cachedVideoBlob = null;
+        getVideoBlob().catch(() => {});
         $('previewVideo').src = st.video_url;
         $('previewVideo').muted = false;
         $('previewVideo').hidden = false;
