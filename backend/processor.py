@@ -1627,16 +1627,16 @@ def render_video(
             md = max(1.0, float(m.get("dur") or 3.2))
             me = ms + md
             mscale = max(0.55, min(1.40, float(m.get("scale", 100)) / 100.0))
-            mw_target = max(260, int(w_even * 0.92 * mscale))
+            mw_target = max(260, int(w_even * 0.94 * mscale))
             mw_target -= mw_target % 2
-            mpos = (m.get("position") or "center").lower()
+            mpos = (m.get("position") or "bottom-card").lower()
             pad_m = max(14, int(w_even * 0.03))
             if mpos == "top-left":
                 mx, my = f"{pad_m}", f"{int(h_even * 0.12)}"
             elif mpos == "top-right":
                 mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.12)}"
             elif mpos == "bottom-card":
-                mx, my = f"(W-w)/2", f"{int(h_even * 0.50)}"
+                mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
             elif mpos == "top-center":
                 mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
             else:

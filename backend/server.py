@@ -252,14 +252,14 @@ def _run_render_pipeline(job_id, opts):
                     params["position"] = ml["position"]
                 if ml.get("prompt"):
                     params["prompt"] = ml["prompt"]
-                mw = 600 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 780
-                mh = 410 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 530
+                mw = 680 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 860
+                mh = 360 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 440
                 asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
                 motion_items.append({
                     "path": asset_path,
                     "start": ms,
                     "dur": dur,
-                    "position": params.get("position", "center"),
+                    "position": params.get("position", "bottom-card"),
                     "scale": float(ml.get("scale", params.get("scale", 100))),
                 })
 
@@ -464,8 +464,8 @@ def api_motion_render_layer():
     tid = data.get("template_id", "revenue_growth")
     params = data.get("params") or {}
     dur = float(data.get("duration", 3.2))
-    def_w = 600 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 780
-    def_h = 410 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 530
+    def_w = 680 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 860
+    def_h = 360 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 440
     w = int(data.get("width", def_w))
     h = int(data.get("height", def_h))
     res = enqueue_motion_render(tid, params, duration=dur, width=w, height=h)

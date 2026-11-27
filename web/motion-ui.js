@@ -1,4 +1,4 @@
-/* Eu Edito — Speech-Driven Explanatory Motion Graphics Frontend Module */
+/* Eu Edito — Motion Director v3 Frontend Module (Face-Safe, Script-Driven, Frameless) */
 (function () {
   const $ = (id) => document.getElementById(id);
 
@@ -20,20 +20,22 @@
   function ease(t, mode) {
     const u = Math.max(0, Math.min(1, t));
     if (mode === 'spring') {
-      if (u < 0.72) {
-        const s = u / 0.72;
-        return 1.06 * (1 - Math.pow(1 - s, 3));
+      if (u < 0.68) {
+        const s = u / 0.68;
+        return 1.08 * (1 - Math.pow(1 - s, 3));
       }
-      const s = (u - 0.72) / 0.28;
-      return 1.06 - 0.06 * (s * s * (3 - 2 * s));
+      const s = (u - 0.68) / 0.32;
+      return 1.08 - 0.08 * (s * s * (3 - 2 * s));
     }
     if (mode === 'smooth') return u * u * (3 - 2 * u);
     return 1 - Math.pow(1 - u, 3);
   }
 
   function roundRect(ctx, x, y, w, h, r) {
+    const ww = Math.max(2, w);
+    const hh = Math.max(2, h);
     ctx.beginPath();
-    ctx.roundRect(x, y, Math.max(2, w), Math.max(2, h), Math.min(r, w / 2, h / 2));
+    ctx.roundRect(x, y, ww, hh, Math.min(r, ww / 2, hh / 2));
   }
 
   function hexRgba(hex, a) {
@@ -45,73 +47,101 @@
     return `rgba(${r},${g},${b},${a})`;
   }
 
-  function drawSceneHeader(ctx, bx, by, bw, h, title, sub, metric, accent, animP) {
-    const scaleY = h / 260;
-    const padX = Math.max(10, Math.round(bw * 0.04));
-    // Progress accent bar at top
-    roundRect(ctx, bx + padX, by + Math.max(5, Math.round(7 * scaleY)), Math.max(6, (bw - padX * 2) * animP), Math.max(2, Math.round(3 * scaleY)), 2);
-    ctx.fillStyle = accent;
+  function drawGlassPill(ctx, x, y, w, h, r, accent, glow = true, tint = null) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.fillStyle = tint || 'rgba(12, 18, 28, 0.78)';
     ctx.fill();
-
-    const titleSz = Math.max(10, Math.round(16 * scaleY));
-    const subSz = Math.max(8, Math.round(10.5 * scaleY));
-    const metSz = Math.max(10, Math.round(15 * scaleY));
-
-    if (metric) {
-      ctx.font = `900 ${metSz}px sans-serif`;
-      const mw = Math.min(bw * 0.36, ctx.measureText(metric).width + 16);
-      const pillH = Math.max(14, Math.round(22 * scaleY));
-      const mx = bx + bw - padX - mw;
-      const my = by + Math.max(10, Math.round(14 * scaleY));
-      roundRect(ctx, mx, my, mw, pillH, Math.round(pillH / 2));
-      ctx.fillStyle = hexRgba(accent, 0.2);
-      ctx.fill();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.fillText(metric.slice(0, 14), mx + mw / 2, my + pillH * 0.68);
-      ctx.textAlign = 'left';
-    }
-
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = `800 ${titleSz}px sans-serif`;
-    ctx.fillText(title.slice(0, 28), bx + padX, by + Math.max(18, Math.round(28 * scaleY)));
-
-    if (sub) {
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = `500 ${subSz}px sans-serif`;
-      ctx.fillText(sub.slice(0, 42), bx + padX, by + Math.max(28, Math.round(43 * scaleY)));
-    }
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = glow ? hexRgba(accent, 0.78) : 'rgba(255,255,255,0.20)';
+    ctx.lineWidth = glow ? 1.4 : 1;
+    ctx.stroke();
+    ctx.restore();
   }
 
-  function drawPointsStrip(ctx, bx, by, bw, bh, points, accent, animP, h) {
-    if (!Array.isArray(points) || !points.length || h < 120) return;
-    const list = points.slice(0, 2);
-    const stripH = Math.max(20, Math.round(bh * 0.16));
-    const sy = by + bh - stripH - 8;
-    const pw = (bw - 24 - (list.length - 1) * 6) / list.length;
-    list.forEach((pt, idx) => {
-      const shown = animP >= idx * 0.3;
-      const sx = bx + 12 + idx * (pw + 6);
-      ctx.save();
-      ctx.globalAlpha *= shown ? 1 : 0.25;
-      roundRect(ctx, sx, sy, pw, stripH, 7);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fill();
-      ctx.strokeStyle = hexRgba(accent, shown ? 0.55 : 0.18);
-      ctx.lineWidth = 1;
-      ctx.stroke();
+  function drawMixedHeadline(ctx, x, y, title, accentText, accent, sc, centered = false) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffffff';
+    const fMain = `800 ${Math.max(10, Math.round(17 * sc))}px 'CreatoDisplay', sans-serif`;
+    const fItal = `italic 700 ${Math.max(10, Math.round(17.5 * sc))}px 'AppleGaramond', Georgia, serif`;
+    ctx.font = fMain;
+    ctx.textAlign = centered ? 'center' : 'left';
+    ctx.fillText(String(title || '').slice(0, 26), x, y);
+    if (accentText) {
+      ctx.font = fItal;
       ctx.fillStyle = accent;
+      if (centered) {
+        ctx.fillText(String(accentText).slice(0, 22), x, y + Math.round(15 * sc));
+      } else {
+        ctx.font = fMain;
+        const tw = ctx.measureText(String(title || '').slice(0, 26)).width;
+        ctx.font = fItal;
+        const ax = x + tw + 6 * sc;
+        if (ax < ctx.canvas.width * 0.76) {
+          ctx.fillText(String(accentText).slice(0, 20), ax, y);
+        } else {
+          ctx.fillText(String(accentText).slice(0, 24), x, y + Math.round(14 * sc));
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawVectorIcon(ctx, iconId, cx, cy, r, accent, animP, tSec) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = hexRgba(accent, 0.22);
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.fillStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    if (iconId === 'clock') {
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.54, 0, Math.PI * 2); ctx.stroke();
+      const ang = -Math.PI / 2 + Math.PI * 2 * ((animP + tSec * 0.3) % 1);
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(ang) * r * 0.36, cy + Math.sin(ang) * r * 0.36); ctx.stroke();
+    } else if (iconId === 'check') {
+      ctx.beginPath(); ctx.moveTo(cx - r * 0.34, cy); ctx.lineTo(cx - r * 0.08, cy + r * 0.28); ctx.lineTo(cx + r * 0.36, cy - r * 0.26); ctx.stroke();
+    } else if (iconId === 'pen') {
       ctx.beginPath();
-      ctx.arc(sx + 10, sy + stripH / 2, 3, 0, Math.PI * 2);
+      ctx.moveTo(cx - r * 0.32, cy + r * 0.28);
+      ctx.lineTo(cx + r * 0.30, cy - r * 0.34);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx - r * 0.32, cy + r * 0.28, 2.5, 0, Math.PI * 2); ctx.fillStyle = accent; ctx.fill();
+    } else if (iconId === 'bolt') {
+      ctx.beginPath();
+      ctx.moveTo(cx + r * 0.1, cy - r * 0.45);
+      ctx.lineTo(cx - r * 0.25, cy + r * 0.04);
+      ctx.lineTo(cx + r * 0.04, cy + r * 0.04);
+      ctx.lineTo(cx - r * 0.1, cy + r * 0.45);
+      ctx.closePath();
+      ctx.fillStyle = accent; ctx.fill();
+    } else if (iconId === 'rocket') {
+      ctx.beginPath();
+      ctx.moveTo(cx + r * 0.35, cy - r * 0.35);
+      ctx.lineTo(cx - r * 0.2, cy + r * 0.25);
+      ctx.lineTo(cx - r * 0.32, cy + r * 0.08);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = `600 ${Math.max(8, Math.round(h * 0.042))}px sans-serif`;
-      ctx.fillText(String(pt).slice(0, 24), sx + 18, sy + stripH * 0.62);
-      ctx.restore();
-    });
+    } else {
+      // Sparkle star
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 0.48); ctx.lineTo(cx + r * 0.14, cy - r * 0.14);
+      ctx.lineTo(cx + r * 0.48, cy); ctx.lineTo(cx + r * 0.14, cy + r * 0.14);
+      ctx.lineTo(cx, cy + r * 0.48); ctx.lineTo(cx - r * 0.14, cy + r * 0.14);
+      ctx.lineTo(cx - r * 0.48, cy); ctx.lineTo(cx - r * 0.14, cy - r * 0.14);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawMotionCanvas(canvas, tplId, params, prog, tSec) {
@@ -123,387 +153,180 @@
 
     const p = params || {};
     const accent = p.accent_color || '#22C55E';
-    const easingMode = p.easing || 'cubic-out';
-    const enterP = ease(Math.min(1, prog / 0.16), easingMode);
+    const easingMode = p.easing || 'spring';
+    const enterP = ease(Math.min(1, prog / 0.18), easingMode);
     const exitP = ease(Math.min(1, (1 - prog) / 0.14), 'smooth');
     const alphaEnv = Math.max(0, Math.min(1, Math.min(enterP, exitP)));
     const animP = ease(Math.max(0, Math.min(1, (prog - 0.04) / 0.68)), easingMode);
+    const sc = w / 400;
+    const dy = (1 - enterP) * 14 * sc + Math.sin(tSec * 2.6) * 2.2 * sc;
 
     ctx.save();
     ctx.globalAlpha = alphaEnv;
-    const pad = Math.max(4, Math.round(w * 0.025));
-    const dy = (1 - enterP) * 14;
-    const bx = pad;
-    const by = pad + dy;
-    const bw = w - pad * 2;
-    const bh = h - pad * 2;
 
-    // Distinct card backdrop + soft glow border
-    roundRect(ctx, bx, by, bw, bh, Math.max(8, Math.round(h * 0.06)));
-    const bgGrad = ctx.createLinearGradient(bx, by, bx, by + bh);
-    bgGrad.addColorStop(0, 'rgba(11, 18, 28, 0.92)');
-    bgGrad.addColorStop(1, 'rgba(7, 11, 18, 0.94)');
-    ctx.fillStyle = bgGrad;
-    ctx.fill();
-    ctx.strokeStyle = hexRgba(accent, 0.72);
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
+    // Soft radial backdrop cushion ONLY (no ugly boxy rectangle border!)
+    const rg = ctx.createRadialGradient(w * 0.5, h * 0.52 + dy, w * 0.06, w * 0.5, h * 0.52 + dy, w * 0.48);
+    rg.addColorStop(0, 'rgba(6, 10, 16, 0.72)');
+    rg.addColorStop(0.75, 'rgba(6, 10, 16, 0.28)');
+    rg.addColorStop(1, 'rgba(6, 10, 16, 0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, w, h);
 
-    const title = String(p.title || 'Motion');
-    const sub = String(p.subtitle || '');
+    const title = String(p.title || 'Destaque da Fala');
+    const accentText = String(p.accent_text || '');
     const metric = String(p.metric || '');
-    const labels = Array.isArray(p.labels) && p.labels.length ? p.labels : ['Passo 1', 'Passo 2', 'Passo 3'];
+    const iconId = String(p.icon || 'spark');
+    const labels = Array.isArray(p.labels) && p.labels.length ? p.labels : ['Item 1', 'Item 2', 'Item 3'];
     const vals = Array.isArray(p.values) && p.values.length ? p.values.map(Number) : [28, 64, 96];
     const points = Array.isArray(p.points) ? p.points : [];
 
-    drawSceneHeader(ctx, bx, by, bw, h, title, sub, metric, accent, animP);
-
-    const hasPts = points.length > 0 && h >= 120;
-    const gx = bx + Math.max(10, Math.round(bw * 0.045));
-    const gy = by + Math.round(h * 0.24);
-    const gw = bw - Math.max(20, Math.round(bw * 0.09));
-    const gh = bh - Math.round(h * (hasPts ? 0.44 : 0.30));
-
-    if (tplId === 'revenue_growth') {
-      // Grid + climbing exponential curve + milestone nodes
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-      ctx.lineWidth = 1;
-      for (let r = 1; r <= 3; r++) {
-        const yy = gy + (gh * r) / 4;
-        ctx.beginPath(); ctx.moveTo(gx, yy); ctx.lineTo(gx + gw, yy); ctx.stroke();
+    if (tplId === 'sketch_calligraphy') {
+      // Paper sheet on left + animated cursive pen wave
+      drawGlassPill(ctx, 16 * sc, 20 * sc + dy, 105 * sc, h - 42 * sc, 10 * sc, accent, true, 'rgba(245,247,252,0.92)');
+      ctx.strokeStyle = 'rgba(140,165,195,0.45)'; ctx.lineWidth = 1;
+      for (let ln = 0; ln < 3; ln++) {
+        const ly = (44 + ln * 24) * sc + dy;
+        ctx.beginPath(); ctx.moveTo(26 * sc, ly); ctx.lineTo(110 * sc, ly); ctx.stroke();
       }
-      const vmax = Math.max(...vals, 1);
-      const pts = vals.map((v, i) => [
-        gx + (gw * i) / Math.max(1, vals.length - 1),
-        gy + gh - gh * 0.85 * (v / vmax) * animP,
-      ]);
-      const areaG = ctx.createLinearGradient(0, gy, 0, gy + gh);
-      areaG.addColorStop(0, hexRgba(accent, 0.42));
-      areaG.addColorStop(1, hexRgba(accent, 0.02));
       ctx.beginPath();
-      ctx.moveTo(pts[0][0], gy + gh);
-      pts.forEach(([px, py]) => ctx.lineTo(px, py));
-      ctx.lineTo(pts[pts.length - 1][0], gy + gh);
-      ctx.closePath();
-      ctx.fillStyle = areaG;
-      ctx.fill();
+      const steps = 28;
+      const nDraw = Math.max(2, Math.floor(steps * animP));
+      for (let i = 0; i < nDraw; i++) {
+        const u = i / (steps - 1);
+        const cxw = (28 + 78 * u) * sc;
+        const cyw = (68 * sc + dy) - Math.sin(u * Math.PI * 3) * 14 * sc;
+        i === 0 ? ctx.moveTo(cxw, cyw) : ctx.lineTo(cxw, cyw);
+      }
+      ctx.strokeStyle = accent; ctx.lineWidth = 2.6 * sc; ctx.stroke();
 
+      const rx = 136 * sc;
+      drawMixedHeadline(ctx, rx, 44 * sc + dy, title, accentText, accent, sc);
+      labels.slice(0, 3).forEach((lbl, idx) => {
+        if (animP < idx * 0.2) return;
+        const px = rx + idx * 78 * sc;
+        const py = 74 * sc + dy;
+        drawGlassPill(ctx, px, py, 72 * sc, 24 * sc, 12 * sc, accent, true);
+        ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.max(8, Math.round(9.5 * sc))}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText(String(lbl).slice(0, 10), px + 36 * sc, py + 15 * sc);
+      });
+      ctx.textAlign = 'left';
+      if (points[0]) {
+        drawGlassPill(ctx, rx, 112 * sc + dy, w - rx - 16 * sc, 28 * sc, 10 * sc, accent, false);
+        ctx.fillStyle = '#e2e8f0'; ctx.font = `600 ${Math.max(8, Math.round(10 * sc))}px sans-serif`;
+        ctx.fillText(String(points[0]).slice(0, 32), rx + 10 * sc, 130 * sc + dy);
+      }
+    } else if (tplId === 'kinetic_timer') {
+      const cx = 74 * sc, cy = h * 0.5 + dy, r = 44 * sc;
+      drawGlassPill(ctx, cx - r, cy - r, r * 2, r * 2, r, accent, false);
+      ctx.beginPath(); ctx.arc(cx, cy, r - 6 * sc, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * animP);
+      ctx.strokeStyle = accent; ctx.lineWidth = 5 * sc; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(13 * sc)}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText(metric.slice(0, 8), cx, cy + 4 * sc);
+      ctx.textAlign = 'left';
+
+      const rx = 136 * sc;
+      drawMixedHeadline(ctx, rx, 46 * sc + dy, title, accentText, accent, sc);
+      labels.slice(0, 5).forEach((lbl, idx) => {
+        const lit = animP >= idx / 5;
+        const px = rx + idx * 48 * sc, py = 78 * sc + dy;
+        drawGlassPill(ctx, px, py, 42 * sc, 28 * sc, 9 * sc, accent, lit, lit ? accent : null);
+        ctx.fillStyle = lit ? '#0b1220' : '#cbd5e1';
+        ctx.font = `800 ${Math.max(8, Math.round(9 * sc))}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText(String(lbl).slice(0, 5), px + 21 * sc, py + 17 * sc);
+      });
+      ctx.textAlign = 'left';
+    } else if (tplId === 'revenue_growth' || tplId === 'rocket_boost') {
+      drawMixedHeadline(ctx, 22 * sc, 30 * sc + dy, title, accentText, accent, sc);
+      if (metric) {
+        drawGlassPill(ctx, w - 96 * sc, 14 * sc + dy, 80 * sc, 26 * sc, 13 * sc, accent, true);
+        ctx.fillStyle = accent; ctx.font = `900 ${Math.round(12 * sc)}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText(metric.slice(0, 10), w - 56 * sc, 31 * sc + dy);
+        ctx.textAlign = 'left';
+      }
+      const gx = 32 * sc, gy = 62 * sc + dy, gw = w - 64 * sc, gh = h - 98 * sc;
+      const cvals = vals.slice(0, 4);
+      while (cvals.length < 3) cvals.unshift(Math.max(5, cvals[0] * 0.45));
+      const vmax = Math.max(...cvals, 1);
+      const pts = cvals.map((v, i) => [gx + (gw * i) / (cvals.length - 1), gy + gh - gh * 0.85 * (v / vmax) * animP]);
+      const grad = ctx.createLinearGradient(0, gy, 0, gy + gh);
+      grad.addColorStop(0, hexRgba(accent, 0.45)); grad.addColorStop(1, hexRgba(accent, 0));
+      ctx.beginPath(); ctx.moveTo(pts[0][0], gy + gh);
+      pts.forEach(([px, py]) => ctx.lineTo(px, py));
+      ctx.lineTo(pts[pts.length - 1][0], gy + gh); ctx.closePath();
+      ctx.fillStyle = grad; ctx.fill();
       ctx.beginPath();
       pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 2.8;
-      ctx.stroke();
-
-      pts.forEach(([px, py], i) => {
-        const last = i === pts.length - 1;
-        ctx.beginPath();
-        ctx.arc(px, py, last ? 4.5 + Math.sin(tSec * 5) * 1.4 : 3.2, 0, Math.PI * 2);
-        ctx.fillStyle = last ? '#ffffff' : accent;
-        ctx.fill();
-        if (labels[i] && h >= 100) {
-          ctx.fillStyle = '#cbd5e1';
-          ctx.font = `600 ${Math.max(8, Math.round(h * 0.042))}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(String(labels[i]).slice(0, 10), px, gy + gh + 10);
-        }
+      ctx.strokeStyle = accent; ctx.lineWidth = 3 * sc; ctx.stroke();
+      pts.forEach(([px, py]) => {
+        ctx.beginPath(); ctx.arc(px, py, 4 * sc, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff'; ctx.fill();
       });
+    } else if (tplId === 'vs_split_card' || tplId === 'before_after_meter') {
+      drawMixedHeadline(ctx, w / 2, 26 * sc + dy, title, accentText, accent, sc, true);
+      const colW = (w - 64 * sc) / 2;
+      drawGlassPill(ctx, 20 * sc, 56 * sc + dy, colW, h - 82 * sc, 14 * sc, '#F43F5E', true, 'rgba(42, 16, 24, 0.82)');
+      drawGlassPill(ctx, w / 2 + 12 * sc, 56 * sc + dy, colW, h - 82 * sc, 14 * sc, accent, true, 'rgba(12, 36, 24, 0.82)');
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fecdd3'; ctx.font = `700 ${Math.round(11 * sc)}px sans-serif`;
+      ctx.fillText(String(labels[0] || 'Antes').slice(0, 18), 20 * sc + colW / 2, 102 * sc + dy);
+      ctx.fillStyle = '#bbf7d0';
+      ctx.fillText(String(labels[1] || 'Agora').slice(0, 18), w / 2 + 12 * sc + colW / 2, 102 * sc + dy);
+      drawVectorIcon(ctx, 'bolt', w / 2, 102 * sc + dy, 16 * sc, accent, animP, tSec);
       ctx.textAlign = 'left';
-    } else if (tplId === 'money_flow') {
-      // Stacked gold coins + transfer arrows + value pills
-      const stacks = Math.min(3, Math.max(2, vals.length));
-      const slotW = gw / stacks;
-      for (let i = 0; i < stacks; i++) {
-        const cx = gx + slotW * (i + 0.5);
-        const coinCount = Math.max(2, Math.min(6, Math.round((vals[i] / Math.max(...vals, 1)) * 5 * animP) + 1));
-        const cw = Math.min(48, slotW * 0.54);
-        for (let c = 0; c < coinCount; c++) {
-          const cy = gy + gh - 12 - c * Math.max(6, Math.round(gh * 0.11));
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, cw / 2, Math.max(4, cw * 0.22), 0, 0, Math.PI * 2);
-          ctx.fillStyle = i === stacks - 1 ? '#FACC15' : '#EAB308';
-          ctx.fill();
-          ctx.strokeStyle = '#713F12';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-        if (i < stacks - 1) {
-          const ax1 = cx + cw * 0.55;
-          const ax2 = cx + slotW - cw * 0.55;
-          const ay = gy + gh * 0.45;
-          ctx.strokeStyle = accent;
-          ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.moveTo(ax1, ay); ctx.lineTo(ax2, ay); ctx.stroke();
-        }
-        ctx.fillStyle = '#fef08a';
-        ctx.font = `700 ${Math.max(8, Math.round(h * 0.045))}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(String(labels[i] || `$${vals[i]}`).slice(0, 10), cx, gy + gh + 8);
-      }
-      ctx.textAlign = 'left';
-    } else if (tplId === 'bar_chart') {
-      const nb = Math.max(2, Math.min(5, vals.length));
-      const vmax = Math.max(...vals.slice(0, nb), 1);
-      const gap = Math.max(6, Math.round(gw * 0.04));
-      const barW = Math.max(12, (gw - gap * (nb - 1)) / nb);
-      for (let i = 0; i < nb; i++) {
-        const ratio = (vals[i] / vmax) * ease(Math.max(0, Math.min(1, animP * 1.2 - i * 0.12)), easingMode);
-        const ch = Math.max(6, (gh - 18) * ratio);
-        const x0 = gx + i * (barW + gap);
-        const y0 = gy + gh - 12 - ch;
-        roundRect(ctx, x0, y0, barW, ch, 5);
-        ctx.fillStyle = i === nb - 1 ? accent : hexRgba(accent, 0.45 + i * 0.08);
-        ctx.fill();
-        if (h >= 100) {
-          ctx.fillStyle = '#ffffff';
-          ctx.font = `700 ${Math.max(8, Math.round(h * 0.042))}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(String(Math.round(vals[i] * animP)), x0 + barW / 2, y0 - 4);
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillText(String(labels[i] || '').slice(0, 9), x0 + barW / 2, gy + gh + 6);
-        }
-      }
-      ctx.textAlign = 'left';
-    } else if (tplId === 'donut_share') {
-      const r = Math.max(16, Math.min(gw * 0.25, gh * 0.40));
-      const cx = gx + r + 8;
-      const cy = gy + gh / 2;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = Math.max(5, r * 0.28); ctx.stroke();
-      const segs = vals.slice(0, 3);
-      const tot = segs.reduce((a, b) => a + Math.max(1, b), 0);
-      const palette = [accent, '#38BDF8', '#A78BFA'];
-      let ang = -Math.PI / 2;
-      segs.forEach((v, idx) => {
-        const sweep = ((Math.max(1, v) / tot) * Math.PI * 2) * animP;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, ang, ang + sweep);
-        ctx.strokeStyle = palette[idx % palette.length];
-        ctx.lineWidth = Math.max(5, r * 0.28);
-        ctx.stroke();
-        ang += sweep;
-      });
-      // Right-hand breakdown bars
-      const lx = cx + r + 16;
-      const lw = Math.max(30, gx + gw - lx);
-      segs.forEach((v, idx) => {
-        const ly = gy + 6 + idx * Math.max(16, (gh - 8) / segs.length);
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = `700 ${Math.max(8, Math.round(h * 0.044))}px sans-serif`;
-        ctx.fillText(String(labels[idx] || `Item ${idx + 1}`).slice(0, 14), lx, ly + 8);
-        roundRect(ctx, lx, ly + 12, lw, 6, 3);
-        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
-        roundRect(ctx, lx, ly + 12, Math.max(4, lw * (v / tot) * animP), 6, 3);
-        ctx.fillStyle = palette[idx % palette.length]; ctx.fill();
-      });
     } else if (tplId === 'multi_city_map' || tplId === 'route_path') {
-      // Radar rings + landmass shapes + curved trajectory arcs + animated pins
-      const midX = gx + gw / 2;
-      const midY = gy + gh / 2;
-      [0.35, 0.68, 0.96].forEach((f) => {
-        ctx.beginPath();
-        ctx.ellipse(midX, midY, gw * 0.45 * f, gh * 0.44 * f, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      });
-      const n = Math.max(2, Math.min(4, labels.length));
-      const pts = Array.from({ length: n }, (_, i) => [
-        gx + gw * (0.14 + (0.72 * i) / Math.max(1, n - 1)),
-        gy + gh * (i % 2 === 0 ? 0.66 : 0.28),
-      ]);
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 2.4;
+      drawMixedHeadline(ctx, 22 * sc, 28 * sc + dy, title, accentText, accent, sc);
+      const pts = labels.slice(0, 3).map((_, i) => [56 * sc + (w - 112 * sc) * (i / Math.max(1, Math.min(3, labels.length) - 1)), (i % 2 === 0 ? 115 : 74) * sc + dy]);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2.4 * sc;
       for (let i = 0; i < pts.length - 1; i++) {
         const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
-        const mx = (x0 + x1) / 2, my = Math.min(y0, y1) - 18;
         ctx.beginPath(); ctx.moveTo(x0, y0);
-        ctx.quadraticCurveTo(mx, my, x0 + (x1 - x0) * animP, y0 + (y1 - y0) * animP);
+        ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - 24 * sc, x0 + (x1 - x0) * animP, y0 + (y1 - y0) * animP);
         ctx.stroke();
       }
       pts.forEach(([px, py], i) => {
-        ctx.beginPath(); ctx.arc(px, py, 5 + Math.abs(Math.sin(tSec * 4 + i)) * 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = hexRgba(accent, 0.35); ctx.fill();
-        ctx.beginPath(); ctx.arc(px, py, 3.8, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff'; ctx.fill();
-        if (h >= 95) {
-          ctx.fillStyle = '#f8fafc';
-          ctx.font = `700 ${Math.max(8, Math.round(h * 0.044))}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(String(labels[i] || `Ponto ${i + 1}`).slice(0, 12), px, py + 15);
-        }
+        ctx.beginPath(); ctx.arc(px, py, 5 * sc, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        drawGlassPill(ctx, px - 36 * sc, py + 10 * sc, 72 * sc, 20 * sc, 10 * sc, accent, true);
+        ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(9 * sc)}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText(String(labels[i] || '').slice(0, 11), px, py + 23 * sc);
       });
       ctx.textAlign = 'left';
-    } else if (tplId === 'ai_network') {
-      // Hexagonal neural core + pulsing satellite chips
-      const cx = gx + gw / 2;
-      const cy = gy + gh / 2;
-      const rad = Math.max(20, Math.min(gw, gh) * 0.42);
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(tSec * 0.35);
-      ctx.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const a = (k * Math.PI) / 3;
-        const rx = Math.cos(a) * rad * 0.45, ry = Math.sin(a) * rad * 0.45;
-        k === 0 ? ctx.moveTo(rx, ry) : ctx.lineTo(rx, ry);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = accent; ctx.lineWidth = 1.6; ctx.stroke();
-      ctx.restore();
-
-      const sats = Math.max(3, Math.min(5, labels.length));
-      for (let i = 0; i < sats; i++) {
-        const a = -Math.PI / 2 + (i * Math.PI * 2) / sats;
-        const sx = cx + Math.cos(a) * rad * 0.92;
-        const sy = cy + Math.sin(a) * rad * 0.78;
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(sx, sy);
-        ctx.strokeStyle = hexRgba(accent, 0.48); ctx.lineWidth = 1.4; ctx.stroke();
-        const tx = cx + (sx - cx) * ((tSec * 0.9 + i * 0.25) % 1);
-        const ty = cy + (sy - cy) * ((tSec * 0.9 + i * 0.25) % 1);
-        ctx.beginPath(); ctx.arc(tx, ty, 2.8, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff'; ctx.fill();
-
-        roundRect(ctx, sx - 26, sy - 9, 52, 18, 6);
-        ctx.fillStyle = 'rgba(15,23,42,0.92)'; ctx.fill();
-        ctx.strokeStyle = accent; ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = '#f1f5f9';
-        ctx.font = `700 ${Math.max(7.5, Math.round(h * 0.038))}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(String(labels[i] || `Nó ${i + 1}`).slice(0, 9), sx, sy + 3);
-      }
-      ctx.beginPath(); ctx.arc(cx, cy, Math.max(10, rad * 0.26), 0, Math.PI * 2);
-      ctx.fillStyle = accent; ctx.fill();
-      ctx.fillStyle = '#071018';
-      ctx.font = `900 ${Math.max(8, Math.round(h * 0.045))}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText('IA', cx, cy + 4);
-      ctx.textAlign = 'left';
-    } else if (tplId === 'data_dashboard') {
-      // OS window chrome + live equalizer + sparkline pane
-      roundRect(ctx, gx, gy, gw, gh, 8);
-      ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1; ctx.stroke();
-      ['#EF4444', '#F59E0B', '#22C55E'].forEach((dc, di) => {
-        ctx.beginPath(); ctx.arc(gx + 12 + di * 10, gy + 10, 2.8, 0, Math.PI * 2);
-        ctx.fillStyle = dc; ctx.fill();
+    } else if (tplId === 'flow_diagram' || tplId === 'timeline_steps' || tplId === 'checklist_reveal') {
+      drawMixedHeadline(ctx, 22 * sc, 28 * sc + dy, title, accentText, accent, sc);
+      const items = labels.slice(0, 3);
+      items.forEach((lbl, i) => {
+        if (animP < i * 0.25) return;
+        const iy = (54 + i * 42) * sc + dy;
+        drawGlassPill(ctx, 22 * sc, iy, w - 44 * sc, 34 * sc, 12 * sc, accent, true);
+        drawVectorIcon(ctx, tplId === 'checklist_reveal' ? 'check' : 'spark', 42 * sc, iy + 17 * sc, 11 * sc, accent, animP, tSec);
+        ctx.fillStyle = '#f8fafc'; ctx.font = `700 ${Math.round(11 * sc)}px sans-serif`;
+        ctx.fillText(String(lbl).slice(0, 30), 62 * sc, iy + 21 * sc);
       });
-      const half = gw * 0.55;
-      // Sparkline left
-      const vmax = Math.max(...vals, 1);
-      ctx.beginPath();
-      vals.forEach((v, i) => {
-        const px = gx + 12 + ((half - 20) * i) / Math.max(1, vals.length - 1);
-        const py = gy + gh - 14 - (gh - 36) * (v / vmax) * animP;
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      });
-      ctx.strokeStyle = accent; ctx.lineWidth = 2.4; ctx.stroke();
-      // Live mini bars right
-      const eqX = gx + half + 6;
-      const eqW = (gw - half - 18) / 5;
-      for (let b = 0; b < 5; b++) {
-        const bh2 = (gh - 34) * (0.35 + 0.55 * Math.abs(Math.sin(tSec * 3.2 + b)));
-        roundRect(ctx, eqX + b * (eqW + 2), gy + gh - 12 - bh2, Math.max(4, eqW - 2), bh2, 2);
-        ctx.fillStyle = hexRgba(accent, 0.55 + b * 0.09); ctx.fill();
-      }
-    } else if (tplId === 'vs_split_card' || tplId === 'before_after_meter') {
-      // Red left vs Green right split comparison + glowing VS pill
-      const colW = (gw - 16) / 2;
-      roundRect(ctx, gx, gy, colW, gh, 9);
-      ctx.fillStyle = 'rgba(239,68,68,0.16)'; ctx.fill();
-      ctx.strokeStyle = 'rgba(239,68,68,0.65)'; ctx.lineWidth = 1.4; ctx.stroke();
-
-      roundRect(ctx, gx + colW + 16, gy, colW, gh, 9);
-      ctx.fillStyle = hexRgba(accent, 0.18); ctx.fill();
-      ctx.strokeStyle = accent; ctx.lineWidth = 1.4; ctx.stroke();
-
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#fca5a5';
-      ctx.font = `800 ${Math.max(9, Math.round(h * 0.055))}px sans-serif`;
-      ctx.fillText(String(labels[0] || 'ANTES').slice(0, 14), gx + colW / 2, gy + gh * 0.42);
-      ctx.fillStyle = '#86efac';
-      ctx.fillText(String(labels[1] || 'AGORA').slice(0, 14), gx + colW + 16 + colW / 2, gy + gh * 0.42);
-
-      // Center VS badge
-      const vcx = gx + gw / 2, vcy = gy + gh / 2;
-      ctx.beginPath(); ctx.arc(vcx, vcy, Math.max(10, Math.round(h * 0.07)), 0, Math.PI * 2);
-      ctx.fillStyle = '#0f172a'; ctx.fill();
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${Math.max(8, Math.round(h * 0.048))}px sans-serif`;
-      ctx.fillText('VS', vcx, vcy + 4);
-      ctx.textAlign = 'left';
-    } else if (tplId === 'cycle_loop') {
-      const cx = gx + gw / 2, cy = gy + gh / 2;
-      const rad = Math.max(18, Math.min(gw, gh) * 0.36);
-      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-      ctx.strokeStyle = hexRgba(accent, 0.45); ctx.lineWidth = 2; ctx.stroke();
-      const n = 3;
-      for (let i = 0; i < n; i++) {
-        const a = -Math.PI / 2 + (i * Math.PI * 2) / n + tSec * 0.25;
-        const nx = cx + Math.cos(a) * rad;
-        const ny = cy + Math.sin(a) * rad;
-        roundRect(ctx, nx - 28, ny - 10, 56, 20, 8);
-        ctx.fillStyle = 'rgba(15,23,42,0.92)'; ctx.fill();
-        ctx.strokeStyle = accent; ctx.lineWidth = 1.2; ctx.stroke();
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = `700 ${Math.max(8, Math.round(h * 0.04))}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(String(labels[i] || `Etapa ${i + 1}`).slice(0, 10), nx, ny + 3);
-      }
-      ctx.textAlign = 'left';
-    } else if (tplId === 'counter_kpi') {
-      const cx = gx + gw / 2, cy = gy + gh / 2;
-      const r = Math.max(18, Math.min(gw, gh) * 0.42);
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 5; ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * animP);
-      ctx.strokeStyle = accent; ctx.lineWidth = 5; ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${Math.max(14, Math.round(h * 0.14))}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText((metric || String(vals[0] || '+100%')).slice(0, 12), cx, cy + 5);
-      ctx.textAlign = 'left';
     } else {
-      // flow_diagram, timeline_steps, concept_callout, badge_alert: sequential numbered step cards
-      const n = Math.max(2, Math.min(3, labels.length));
-      const gap = 12;
-      const sw = Math.max(32, (gw - gap * (n - 1)) / n);
-      const ch = Math.max(28, Math.min(gh * 0.72, 64));
-      const cy = gy + (gh - ch) / 2;
-      for (let i = 0; i < n; i++) {
-        const sx = gx + i * (sw + gap);
-        const lit = animP >= i / n;
-        roundRect(ctx, sx, cy, sw, ch, 8);
-        ctx.fillStyle = lit ? hexRgba(accent, 0.22) : 'rgba(255,255,255,0.06)';
-        ctx.fill();
-        ctx.strokeStyle = lit ? accent : 'rgba(255,255,255,0.22)';
-        ctx.lineWidth = 1.4; ctx.stroke();
-
-        // Step number badge
-        ctx.beginPath(); ctx.arc(sx + 12, cy + 12, 7, 0, Math.PI * 2);
-        ctx.fillStyle = lit ? accent : 'rgba(255,255,255,0.2)'; ctx.fill();
-        ctx.fillStyle = lit ? '#071018' : '#f8fafc';
-        ctx.font = '800 9px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(String(i + 1), sx + 12, cy + 15);
-
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = `700 ${Math.max(8, Math.round(h * 0.044))}px sans-serif`;
-        ctx.fillText(String(labels[i] || `Passo ${i + 1}`).slice(0, 12), sx + sw / 2, cy + ch * 0.68);
-        if (i < n - 1) {
-          ctx.strokeStyle = accent; ctx.lineWidth = 1.6;
-          ctx.beginPath(); ctx.moveTo(sx + sw + 2, cy + ch / 2); ctx.lineTo(sx + sw + gap - 2, cy + ch / 2); ctx.stroke();
+      // Frameless Hero Vector Icon + Mixed Creator Typography + Highlight Pill
+      drawVectorIcon(ctx, iconId, 66 * sc, h * 0.5 + dy, 36 * sc, accent, animP, tSec);
+      const rx = 118 * sc;
+      drawMixedHeadline(ctx, rx, 56 * sc + dy, title, accentText, accent, sc);
+      if (points[0]) {
+        const pw = Math.max(40, (w - rx - 20 * sc) * animP);
+        drawGlassPill(ctx, rx, 78 * sc + dy, pw, 32 * sc, 11 * sc, accent, true);
+        if (animP > 0.35) {
+          ctx.fillStyle = '#f8fafc'; ctx.font = `700 ${Math.round(10.5 * sc)}px sans-serif`;
+          ctx.fillText(String(points[0]).slice(0, 30), rx + 10 * sc, 98 * sc + dy);
         }
       }
+      labels.slice(0, 3).forEach((lbl, ci) => {
+        const px = rx + ci * 86 * sc;
+        if (px + 78 * sc <= w && animP >= ci * 0.2) {
+          drawGlassPill(ctx, px, 122 * sc + dy, 78 * sc, 22 * sc, 11 * sc, accent, false);
+          ctx.fillStyle = '#cbd5e1'; ctx.font = `700 ${Math.round(9 * sc)}px sans-serif`; ctx.textAlign = 'center';
+          ctx.fillText(String(lbl).slice(0, 10), px + 39 * sc, 136 * sc + dy);
+        }
+      });
       ctx.textAlign = 'left';
-    }
-
-    if (hasPts) {
-      drawPointsStrip(ctx, bx, by, bw, bh, points, accent, animP, h);
     }
     ctx.restore();
   }
 
-  // Live preview animation loop over #previewVideo inside #previewWrap
   function tickPreviewLoop(nowMs) {
     const cv = $('motionPreviewCanvas');
     const vid = $('previewVideo');
@@ -520,7 +343,7 @@
       }
       if (active) {
         cv.hidden = false;
-        const pos = active.position || (active.params && active.params.position) || 'center';
+        const pos = active.position || (active.params && active.params.position) || 'bottom-card';
         cv.dataset.pos = pos;
         const sc = Math.max(0.55, Math.min(1.35, Number(active.scale || 100) / 100));
         if (pos === 'center') {
@@ -530,7 +353,7 @@
         } else {
           cv.style.transform = `scale(${sc})`;
         }
-        const dur = Math.max(1.2, (active.end - active.start) || 3.5);
+        const dur = Math.max(1.2, (active.end - active.start) || 3.2);
         const prog = (vidLoaded && !vid.paused)
           ? Math.max(0, Math.min(1, (tNow - active.start) / dur))
           : ((nowMs / 1000) % dur) / dur;
@@ -547,13 +370,12 @@
       if (vidLoaded && liveOverlay) liveOverlay.hidden = false;
     }
 
-    // Animate suggestion thumbnails
     document.querySelectorAll('canvas[data-mg-thumb]').forEach((c) => {
       const idx = Number(c.dataset.mgThumb);
       const s = suggestions[idx];
       if (!s) return;
       const p = ((nowMs / 1000) % 2.8) / 2.8;
-      drawMotionCanvas(c, s.template_id, s.params || {}, 0.22 + 0.72 * p, nowMs / 1000);
+      drawMotionCanvas(c, s.template_id, s.params || {}, 0.25 + 0.7 * p, nowMs / 1000);
     });
     requestAnimationFrame(tickPreviewLoop);
   }
@@ -573,25 +395,24 @@
       const top = document.createElement('div');
       top.className = 'mg-sug-top';
       const cv = document.createElement('canvas');
-      cv.width = 220; cv.height = 110;
+      cv.width = 240; cv.height = 124;
       cv.className = 'mg-thumb-cv';
       cv.dataset.mgThumb = String(idx);
 
       const meta = document.createElement('div');
       meta.className = 'mg-sug-meta';
-      const catObj = catalog.categories.find((c) => c.id === sug.category);
+      const scriptHeadline = (sug.params && sug.params.title) || sug.subject || sug.template_name;
       const promptTxt = sug.prompt || (sug.params && sug.params.visual_prompt) || '';
       const repBadge = sug.replace_captions !== false
         ? '<span class="mg-pill" style="background:rgba(34,197,94,0.16);color:#86efac;">Substitui legenda</span>'
         : '';
       meta.innerHTML = `
         <div class="mg-badges">
-          <span class="mg-pill">${catObj ? catObj.name : sug.category}</span>
-          <span class="mg-pill rel-${(sug.relevance || 'Média').toLowerCase()}">Relevância: ${sug.relevance || 'Média'}</span>
+          <span class="mg-pill">${sug.template_name || sug.template_id}</span>
           ${repBadge}
           <span class="mg-time">${Number(sug.start).toFixed(1)}s – ${Number(sug.end).toFixed(1)}s</span>
         </div>
-        <strong>${sug.template_name || sug.template_id}</strong>
+        <strong>${scriptHeadline}</strong>
         <p class="mg-excerpt">"${sug.excerpt || ''}"</p>
         ${promptTxt ? `<div class="mg-prompt-tag" style="font-size:11px;color:#cbd5e1;background:rgba(255,255,255,0.04);padding:4px 7px;border-radius:6px;margin:4px 0;">💬 <em>${promptTxt}</em></div>` : ''}
         <small class="mg-reason">${sug.reason || ''}</small>
@@ -674,7 +495,7 @@
       category: sug.category,
       start: Number(sug.start),
       end: Number(sug.end),
-      position: sug.position || (sug.params && sug.params.position) || 'center',
+      position: sug.position || (sug.params && sug.params.position) || 'bottom-card',
       scale: Number((sug.params && sug.params.scale) || 100),
       replace_captions: sug.replace_captions !== false,
       prompt: sug.prompt || (sug.params && sug.params.visual_prompt) || sug.excerpt || '',
@@ -695,7 +516,7 @@
     const vid = $('previewVideo');
     const curT = (vid && !vid.hidden && !isNaN(vid.currentTime)) ? Number(vid.currentTime.toFixed(1)) : 1.0;
     const defParams = JSON.parse(JSON.stringify(t.default_params || {}));
-    defParams.position = 'center';
+    defParams.position = 'bottom-card';
     layers.push({
       id: 'layer_' + Date.now(),
       template_id: t.id,
@@ -703,7 +524,7 @@
       category: t.category,
       start: curT,
       end: Number((curT + 3.5).toFixed(1)),
-      position: 'center',
+      position: 'bottom-card',
       scale: 100,
       replace_captions: true,
       prompt: defParams.visual_prompt || '',
@@ -801,7 +622,8 @@
       row.className = 'mg-layer-row';
       const head = document.createElement('div');
       head.className = 'mg-layer-head';
-      head.innerHTML = `<strong>📊 ${l.template_name || l.template_id}</strong><span class="mg-time">${l.start.toFixed(1)}s → ${l.end.toFixed(1)}s</span>`;
+      const layerTitle = (l.params && l.params.title) || l.template_name || l.template_id;
+      head.innerHTML = `<strong>🎬 ${layerTitle}</strong><span class="mg-time">${l.start.toFixed(1)}s → ${l.end.toFixed(1)}s</span>`;
 
       const ctrls = document.createElement('div');
       ctrls.className = 'mg-layer-ctrls';
@@ -823,9 +645,15 @@
 
       const posSel = document.createElement('select');
       posSel.className = 'media-sel';
-      [['center', 'Centro (Explicativo)'], ['top-center', 'Topo Centro'], ['bottom-card', 'Inferior'], ['top-right', 'Topo Direita'], ['top-left', 'Topo Esquerda']].forEach(([v, txt]) => {
+      [
+        ['bottom-card', 'Inferior (Sem cobrir rosto)'],
+        ['top-center', 'Topo Flutuante'],
+        ['top-right', 'Topo Direita'],
+        ['top-left', 'Topo Esquerda'],
+        ['center', 'Centro'],
+      ].forEach(([v, txt]) => {
         const o = document.createElement('option'); o.value = v; o.textContent = txt;
-        if ((l.position || 'center') === v) o.selected = true;
+        if ((l.position || 'bottom-card') === v) o.selected = true;
         posSel.append(o);
       });
       posSel.addEventListener('change', () => {
@@ -890,11 +718,11 @@
               </label>
             </div>
           </label>
-          <label><span>Título</span><input type="text" data-p="title" value="${(p.title || '').replace(/"/g, '&quot;')}"></label>
-          <label><span>Subtítulo</span><input type="text" data-p="subtitle" value="${(p.subtitle || '').replace(/"/g, '&quot;')}"></label>
+          <label><span>Título do roteiro</span><input type="text" data-p="title" value="${(p.title || '').replace(/"/g, '&quot;')}"></label>
+          <label><span>Destaque itálico</span><input type="text" data-p="accent_text" value="${(p.accent_text || '').replace(/"/g, '&quot;')}"></label>
           <label><span>Métrica / Valor</span><input type="text" data-p="metric" value="${(p.metric || '').replace(/"/g, '&quot;')}"></label>
-          <label><span>Rótulos (vírgula)</span><input type="text" data-p="labels" value="${(Array.isArray(p.labels) ? p.labels.join(', ') : '').replace(/"/g, '&quot;')}"></label>
-          <label style="grid-column:1 / -1;"><span>Pontos explicativos (1 por linha)</span><textarea rows="2" data-p="points">${ptsVal.replace(/</g, '&lt;')}</textarea></label>
+          <label><span>Tags / Itens (vírgula)</span><input type="text" data-p="labels" value="${(Array.isArray(p.labels) ? p.labels.join(', ') : '').replace(/"/g, '&quot;')}"></label>
+          <label style="grid-column:1 / -1;"><span>Frase explicativa (1 por linha)</span><textarea rows="2" data-p="points">${ptsVal.replace(/</g, '&lt;')}</textarea></label>
           <label><span>Cor</span><input type="color" data-p="accent_color" value="${p.accent_color || '#22C55E'}"></label>
           <label><span>Tamanho (%)</span><input type="number" min="60" max="135" step="5" data-p="scale" value="${l.scale || 100}"></label>
         `;
@@ -911,7 +739,7 @@
             } else if (key === 'labels') {
               l.params.labels = inp.value.split(',').map((s) => s.trim()).filter(Boolean);
             } else if (key === 'points') {
-              l.params.points = inp.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3);
+              l.params.points = inp.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 2);
             } else if (key === 'visual_prompt') {
               l.prompt = inp.value;
               l.params.visual_prompt = inp.value;
@@ -939,7 +767,7 @@
       const caps = window.getEuEditoCaptions?.() || [];
       if (!jid || !caps.length) return;
       btn.disabled = true;
-      btn.textContent = '🤖 Analisando fala e gerando cenas Motion…';
+      btn.textContent = '🤖 Criando cenas do roteiro…';
       try {
         const res = await fetch('/api/motion/analyze', {
           method: 'POST',
@@ -970,7 +798,7 @@
     $('addManualMotionBtn')?.addEventListener('click', async () => {
       if (!catalog.templates.length) await loadCatalog();
       const sel = $('manualMotionTplSelect');
-      addManualLayer((sel && sel.value) || 'revenue_growth');
+      addManualLayer((sel && sel.value) || 'sketch_calligraphy');
     });
 
     loadCatalog().then(() => {
