@@ -10,6 +10,8 @@ let selectedHookStyle = 'pill-white';
 let selectedHookY = 16;
 let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
+let selectedBrollId = '';
+let selectedBrollLayout = 'top';
 let deferredPrompt = null;
 let lastVideoUrl = '';
 let cachedVideoBlob = null;
@@ -384,6 +386,35 @@ $('rhythmGrid').querySelectorAll('.res-pill').forEach((btn) => {
   });
 });
 
+$('brollLayoutGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $('brollLayoutGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    selectedBrollLayout = btn.dataset.blayout || 'top';
+    markDirtyAfterRender();
+  });
+});
+
+$('brollFile')?.addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  $('brollStatus').textContent = '⏳ Enviando B-roll…';
+  try {
+    const fd = new FormData();
+    fd.append('broll', f, f.name || 'broll.mp4');
+    const res = await fetch('/api/upload_broll', { method: 'POST', body: fd });
+    const data = await safeJson(res);
+    if (data.error || !data.broll_id) throw new Error(data.error || 'Erro no envio.');
+    selectedBrollId = data.broll_id;
+    $('brollStatus').textContent = `🎞️ ${f.name} (pronto)`;
+    $('brollOptionsBox').hidden = false;
+    markDirtyAfterRender();
+  } catch (err) {
+    selectedBrollId = '';
+    $('brollStatus').textContent = '❌ Falha ao enviar B-roll. Toque para tentar novamente';
+  }
+});
+
 $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     $('resGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
@@ -638,6 +669,33 @@ function renderCaptionEditor(captions) {
         });
         chipsBox.append(chip);
       });
+      const sfxBtn = document.createElement('button');
+      sfxBtn.type = 'button';
+      sfxBtn.className = 'cap-chip-sfx' + (currentCaptions[idx].sfx ? ' is-on' : '');
+      sfxBtn.textContent = '🔊 SFX';
+      sfxBtn.title = 'Ativar efeito sonoro na palavra em destaque';
+      sfxBtn.addEventListener('click', () => {
+        currentCaptions[idx].sfx = !currentCaptions[idx].sfx;
+        renderChips();
+        markDirtyAfterRender();
+      });
+      chipsBox.append(sfxBtn);
+
+      if (selectedBrollId) {
+        const bBtn = document.createElement('button');
+        bBtn.type = 'button';
+        bBtn.className = 'cap-chip-broll' + (currentCaptions[idx].broll ? ' is-on' : '');
+        bBtn.textContent = '🎞️ B-roll';
+        bBtn.title = 'Encaixar B-roll neste momento';
+        bBtn.addEventListener('click', () => {
+          const next = !currentCaptions[idx].broll;
+          currentCaptions.forEach((c) => { c.broll = false; });
+          currentCaptions[idx].broll = next;
+          renderCaptionEditor(currentCaptions);
+          markDirtyAfterRender();
+        });
+        chipsBox.append(bBtn);
+      }
     }
     renderChips();
 
@@ -753,6 +811,9 @@ $('generateBtn').addEventListener('click', async () => {
         caption_lines: selectedLines,
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,
+        sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
+        broll_id: selectedBrollId,
+        broll_layout: selectedBrollLayout,
         hook_title: ($('hookTitleInput')?.value || '').trim(),
         hook_style: selectedHookStyle,
         hook_y: selectedHookY,

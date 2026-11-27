@@ -233,6 +233,33 @@
           </span>
         </label>
 
+        <label class="toggle-row">
+          <div>
+            <strong>🔊 Efeitos sonoros nos destaques</strong>
+            <small>Pop sutil automático ou escolha na Etapa 4</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="sfxToggle" checked>
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <div class="res-section" style="margin-top:10px">
+          <span class="res-label">🎞️ B-roll (tela dividida / complementar)</span>
+          <label class="broll-upload-btn" id="brollUploadLbl">
+            <input type="file" id="brollFile" accept="video/*" hidden>
+            <span id="brollStatus">＋ Enviar vídeo B-roll (opcional)</span>
+          </label>
+          <div id="brollOptionsBox" class="broll-opts" hidden>
+            <div class="res-grid" id="brollLayoutGrid">
+              <button type="button" class="res-pill is-active" data-blayout="top"><strong>Topo</strong><small>Dividida</small></button>
+              <button type="button" class="res-pill" data-blayout="bottom"><strong>Baixo</strong><small>Dividida</small></button>
+              <button type="button" class="res-pill" data-blayout="full"><strong>Tela cheia</strong><small>Sobreposto</small></button>
+            </div>
+            <small class="broll-hint">Momento automático no ponto de impacto ou escolha na Etapa 4.</small>
+          </div>
+        </div>
+
         <label class="field hook-field">
           <span>🎯 Título de Gancho (3,5s · arraste na prévia para posicionar)</span>
           <input type="text" id="hookTitleInput" maxlength="55" placeholder="Ex.: O segredo que ninguém te conta…">

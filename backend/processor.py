@@ -515,8 +515,93 @@ def sync_edited_captions(edited_captions):
                     item["main_idx"] = mi
             except Exception:
                 pass
+        if "sfx" in cap and cap["sfx"] is not None:
+            item["sfx"] = bool(cap["sfx"])
+        if cap.get("broll"):
+            item["broll"] = True
         synced.append(item)
     return synced
+
+
+def _ensure_sfx_wav(sfx_dir, kind="pop"):
+    """Synthesize a clean, subtle studio SFX WAV file if not already cached."""
+    import math
+    import struct
+    import wave
+
+    Path(sfx_dir).mkdir(parents=True, exist_ok=True)
+    out_wav = Path(sfx_dir) / f"sfx_{kind}.wav"
+    if out_wav.exists() and out_wav.stat().st_size > 1000:
+        return out_wav
+
+    sr = 44100
+    dur = 0.16
+    n_samples = int(sr * dur)
+    frames = bytearray()
+    for i in range(n_samples):
+        t = i / sr
+        env = math.exp(-t * 28.0) * min(1.0, t / 0.004)
+        # Warm soft pop: quick pitch drop 260Hz -> 95Hz + subtle air click
+        freq = 95.0 + 165.0 * math.exp(-t * 36.0)
+        val = 0.26 * env * math.sin(2.0 * math.pi * freq * t)
+        val += 0.06 * math.exp(-t * 65.0) * math.sin(2.0 * math.pi * 1150.0 * t)
+        sample = max(-32767, min(32767, int(val * 32767)))
+        frames.extend(struct.pack("<h", sample))
+
+    with wave.open(str(out_wav), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(bytes(frames))
+    return out_wav
+
+
+def pick_sfx_moments(captions, max_sfx=8, min_gap_s=2.8):
+    """Return sorted timestamps (seconds in output timeline) for subtle SFX on highlight words."""
+    if not captions:
+        return []
+    explicit = []
+    auto_candidates = []
+    for c in captions:
+        words = c.get("words") or []
+        if not words:
+            continue
+        custom_main = c.get("main_idx")
+        if custom_main is not None and 0 <= int(custom_main) < len(words):
+            mi = int(custom_main)
+        else:
+            mi = max(range(len(words)), key=lambda i: len(re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", words[i]["w"])))
+        t_word = max(0.0, float(words[mi]["s"]))
+        if c.get("sfx") is True:
+            explicit.append(t_word)
+        elif c.get("sfx") is False:
+            continue
+        else:
+            txt = c.get("text") or ""
+            sc = 0.0
+            if float(c.get("s", 0.0)) <= 3.5:
+                sc += 2.5
+            if "?" in txt or "!" in txt:
+                sc += 2.0
+            if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
+                sc += 2.2
+            for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
+                if wd in _IMPACT_WORDS:
+                    sc += 2.0
+            if sc >= 1.5:
+                auto_candidates.append((sc, t_word))
+
+    if explicit:
+        return sorted(set(round(t, 3) for t in explicit))[:10]
+
+    auto_candidates.sort(key=lambda x: (-x[0], x[1]))
+    chosen = []
+    for _, t in auto_candidates:
+        if all(abs(t - ct) >= min_gap_s for ct in chosen):
+            chosen.append(round(t, 3))
+        if len(chosen) >= max_sfx:
+            break
+    return sorted(chosen)
 
 
 def pick_impact_moments(captions, min_gap_s=6.0, max_ratio=0.30):
@@ -989,7 +1074,23 @@ def resolve_export_size(src_w, src_h, resolution="1080p"):
     return tw - (tw % 2), th - (th % 2)
 
 
-def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zoom_enabled=True, width=1080, height=1920, studio_audio=False):
+def render_video(
+    src_path,
+    out_path,
+    keep_ranges,
+    ass_path,
+    impact_times,
+    hw,
+    zoom_enabled=True,
+    width=1080,
+    height=1920,
+    studio_audio=False,
+    sfx_times=None,
+    broll_path=None,
+    broll_layout="top",
+    broll_start=None,
+    broll_dur=3.5,
+):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
     fonts_escaped = str(FONTS_DIR).replace("\\", "/").replace(":", "\\:")
@@ -1009,12 +1110,12 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
 
     if n_segs == 1 and keep_ranges[0]["s"] == 0.0:
         v_chain = "[0:v]"
-        a_map = "0:a?"
+        a_chain = "[0:a]"
         fc_parts = []
     else:
         fc_parts.append("".join(concat_inputs) + f"concat=n={n_segs}:v=1:a=1[vcat][acat]")
         v_chain = "[vcat]"
-        a_map = "[acat]"
+        a_chain = "[acat]"
 
     low_ram = hw.get("ram_gb", 8.0) <= 1.2
 
@@ -1025,7 +1126,7 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
         else:
             w_even, h_even = 1280, 720
     scale_flags = "bilinear" if low_ram else "lanczos"
-    scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black,"
+    scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black"
 
     # Smooth ease-in-out zoom pulse on key impact moments (skipped on <=1.2GB RAM to avoid OOM)
     zoom_filter = ""
@@ -1036,21 +1137,92 @@ def render_video(src_path, out_path, keep_ranges, ass_path, impact_times, hw, zo
             terms.append(f"between(t,{imp_s:.2f},{(imp_s+dur):.2f})*0.12*0.5*(1-cos(2*PI*(t-{imp_s:.2f})/{dur:.2f}))")
         if terms:
             z_expr = "1+" + "+".join(terms)
-            zoom_filter = f"scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':eval=frame,crop=w={w_even}:h={h_even},"
+            zoom_filter = f",scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':eval=frame,crop=w={w_even}:h={h_even}"
 
-    sub_filter = f"{scale_base}{zoom_filter}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'"
+    extra_inputs = []
+    next_in_idx = 1
+    has_broll = bool(broll_path and Path(broll_path).exists() and broll_start is not None)
+    sfx_list = [float(t) for t in (sfx_times or []) if float(t) >= 0.0][:10]
+    has_sfx = bool(sfx_list)
+
+    broll_idx = None
+    if has_broll:
+        broll_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-i", str(broll_path)]
+
+    sfx_idx = None
+    if has_sfx:
+        sfx_wav = _ensure_sfx_wav(Path(out_path).parent, "pop")
+        sfx_idx = next_in_idx
+        next_in_idx += 1
+        extra_inputs += ["-i", str(sfx_wav)]
+
+    use_fc = bool(fc_parts or has_broll or has_sfx)
     af_chain = "highpass=f=85,afftdn=nf=-22,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,loudnorm=I=-14:TP=-1.5:LRA=11" if studio_audio else ""
-    if fc_parts:
-        fc_parts.append(f"{v_chain}{sub_filter}[vout]")
+
+    if use_fc:
+        fc_parts.append(f"{v_chain}{scale_base}{zoom_filter}[vprep]")
+        cur_v = "[vprep]"
+
+        if has_broll:
+            b_info = probe_video(broll_path)
+            b_dur = max(1.6, min(5.5, float(broll_dur or 3.5), float(b_info.get("duration") or 3.5)))
+            bs = max(0.0, float(broll_start))
+            be = bs + b_dur
+            hh = (h_even // 2) - ((h_even // 2) % 2)
+            layout = (broll_layout or "top").lower()
+            ramp = f"min(1,min((t-{bs:.3f})/0.22,({be:.3f}-t)/0.22))"
+            if layout == "full":
+                fc_parts.append(
+                    f"[{broll_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
+                    f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},setsar=1[vbroll]"
+                )
+                fc_parts.append(f"{cur_v}[vbroll]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})'[vbcomp]")
+            else:
+                shift_px = int(hh * 0.30)
+                main_y = f"if(between(t,{bs:.3f},{be:.3f}),{shift_px if layout == 'top' else -shift_px}*{ramp},0)"
+                b_y = (
+                    f"-{hh}+{hh}*{ramp}"
+                    if layout == "top"
+                    else f"{h_even}-{hh}*{ramp}"
+                )
+                fc_parts.append(f"color=c=black:s={w_even}x{h_even}:r=30[vbg]")
+                fc_parts.append(f"[vbg]{cur_v}overlay=0:y='{main_y}':shortest=1[vshifted]")
+                fc_parts.append(
+                    f"[{broll_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS+{bs:.3f}/TB,"
+                    f"scale={w_even}:{hh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{hh},setsar=1[vbroll]"
+                )
+                fc_parts.append(f"[vshifted][vbroll]overlay=0:y='{b_y}':enable='between(t,{bs:.3f},{be:.3f})'[vbcomp]")
+            cur_v = "[vbcomp]"
+
+        fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
+
+        # Audio pipeline + subtle SFX mixing
         if af_chain:
-            fc_parts.append(f"{a_map}{af_chain}[aout]")
-            a_map = "[aout]"
+            fc_parts.append(f"{a_chain}{af_chain}[aclean]")
+            cur_a = "[aclean]"
+        else:
+            cur_a = a_chain
+
+        if has_sfx:
+            sfx_tags = []
+            for k, t_s in enumerate(sfx_list):
+                ms = max(0, int(round(t_s * 1000)))
+                fc_parts.append(f"[{sfx_idx}:a]adelay={ms}|{ms}[sfx{k}]")
+                sfx_tags.append(f"[sfx{k}]")
+            fc_parts.append(f"{cur_a}{''.join(sfx_tags)}amix=inputs={len(sfx_tags)+1}:duration=first:normalize=0[aout]")
+            cur_a = "[aout]"
+        elif cur_a == "[0:a]":
+            cur_a = "0:a?"
+
         fc = ";".join(fc_parts)
-        map_args = ["-filter_complex", fc, "-map", "[vout]", "-map", a_map]
+        map_args = ["-filter_complex", fc, "-map", "[vout]", "-map", cur_a]
     else:
+        sub_filter = f"{scale_base}{zoom_filter},subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'"
         map_args = ["-vf", sub_filter] + (["-af", af_chain] if af_chain else []) + ["-map", "0:v:0", "-map", "0:a?"]
 
-    base_cmd = [ffmpeg, "-y", "-i", str(src_path)] + map_args + [
+    base_cmd = [ffmpeg, "-y", "-i", str(src_path)] + extra_inputs + map_args + [
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"
     ]
 

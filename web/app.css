@@ -273,6 +273,21 @@ body {
   background: rgba(34,197,94,0.20); border-color: var(--green-bright);
   color: var(--green-bright); font-weight: 800;
 }
+.cap-chip-sfx, .cap-chip-broll {
+  border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04);
+  color: var(--muted); font-size: 10.5px; font-weight: 700; border-radius: 999px;
+  padding: 2px 8px; cursor: pointer; margin-left: auto;
+}
+.cap-chip-sfx.is-on { background: rgba(56,189,248,0.18); border-color: #38bdf8; color: #7dd3fc; }
+.cap-chip-broll.is-on { background: rgba(250,204,21,0.18); border-color: #facc15; color: #fde047; }
+.broll-upload-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 9px 12px; border-radius: 12px; cursor: pointer;
+  border: 1px dashed rgba(34,197,94,0.45); background: rgba(8,18,13,0.75);
+  font-size: 12.5px; font-weight: 700; color: var(--green-bright);
+}
+.broll-opts { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.broll-hint { font-size: 11px; color: var(--muted); }
 .cap-edit-time { font-size: 11px; font-weight: 700; color: var(--green-bright); flex-shrink: 0; min-width: 38px; }
 .cap-edit-input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font-size: 13.5px; outline: none; }
 .cap-edit-input:focus { color: #fff; }

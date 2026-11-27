@@ -19,6 +19,7 @@ from processor import (
     generate_ass,
     generate_srt,
     pick_impact_moments,
+    pick_sfx_moments,
     probe_video,
     render_video,
     resolve_export_size,
@@ -117,6 +118,19 @@ def api_upload():
     return jsonify({"job_id": job_id, "filename": safe_name})
 
 
+@app.route("/api/upload_broll", methods=["POST"])
+def api_upload_broll():
+    f = request.files.get("broll")
+    if not f or not f.filename:
+        return jsonify({"error": "Nenhum B-roll enviado."}), 400
+    bdir = JOBS_DIR / "_brolls"
+    bdir.mkdir(parents=True, exist_ok=True)
+    safe_name = secure_filename(f.filename) or "broll.mp4"
+    bid = f"{uuid.uuid4().hex[:10]}_{safe_name}"
+    f.save(str(bdir / bid))
+    return jsonify({"broll_id": bid, "filename": safe_name})
+
+
 def _run_transcribe_pipeline(job_id, opts):
     try:
         j = _get_job(job_id)
@@ -195,6 +209,23 @@ def _run_render_pipeline(job_id, opts):
             hook_y_pct=float(opts.get("hook_y", 16)),
         )
 
+        sfx_times = pick_sfx_moments(captions) if bool(opts.get("sfx", True)) else []
+        broll_id = (opts.get("broll_id") or "").strip()
+        broll_path = (JOBS_DIR / "_brolls" / secure_filename(broll_id)) if broll_id else None
+        if broll_path and not broll_path.exists():
+            broll_path = None
+        broll_start = None
+        broll_dur = 3.5
+        if broll_path:
+            marked = [c for c in captions if c.get("broll")]
+            if marked:
+                broll_start = float(marked[0]["s"])
+                broll_dur = max(2.2, min(4.5, float(marked[0]["e"]) - float(marked[0]["s"]) + 0.8))
+            elif impacts:
+                broll_start = float(impacts[0][0])
+            elif captions:
+                broll_start = float(captions[min(len(captions) - 1, 1)]["s"])
+
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
         render_video(
             src_path,
@@ -207,6 +238,11 @@ def _run_render_pipeline(job_id, opts):
             width=out_w,
             height=out_h,
             studio_audio=bool(opts.get("studio_audio", False)),
+            sfx_times=sfx_times,
+            broll_path=broll_path,
+            broll_layout=opts.get("broll_layout", "top"),
+            broll_start=broll_start,
+            broll_dur=broll_dur,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)
