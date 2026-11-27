@@ -507,7 +507,15 @@ def sync_edited_captions(edited_captions):
                 {"w": tok, "s": round(s + i * step, 3), "e": round(s + (i + 1) * step, 3)}
                 for i, tok in enumerate(new_tokens)
             ]
-        synced.append({"s": round(s, 3), "e": round(e, 3), "text": text, "words": words})
+        item = {"s": round(s, 3), "e": round(e, 3), "text": text, "words": words}
+        if cap.get("main_idx") is not None:
+            try:
+                mi = int(cap["main_idx"])
+                if 0 <= mi < len(words):
+                    item["main_idx"] = mi
+            except Exception:
+                pass
+        synced.append(item)
     return synced
 
 
@@ -885,7 +893,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         t0s = _fmt_ass_time(cap_s)
         t1s = _fmt_ass_time(cap_e + 0.12)
-        main_idx = max(range(len(words)), key=lambda i: _word_score(words[i]))
+        custom_main = c.get("main_idx")
+        if custom_main is not None and 0 <= int(custom_main) < len(words):
+            main_idx = int(custom_main)
+        else:
+            main_idx = max(range(len(words)), key=lambda i: _word_score(words[i]))
 
         # --- MODE 1: Single Unified Line (natural spacing, 100% centered) ---
         if req_lines == 1 or len(words) == 1:

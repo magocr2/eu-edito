@@ -409,10 +409,25 @@ $('fontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirty
 
 syncOverlay(false);
 
+const SAFE_MODES = [
+  { id: 'off', label: '📱 Área segura', bottom: '' },
+  { id: 'reels', label: '📱 Reels', bottom: 'Botões / Legenda Reels' },
+  { id: 'tiktok', label: '🎵 TikTok', bottom: 'Descrição / Som TikTok' },
+  { id: 'shorts', label: '▶ Shorts', bottom: 'Título / Canal Shorts' },
+];
+let safeModeIdx = 0;
 $('safeZoneBtn')?.addEventListener('click', () => {
+  safeModeIdx = (safeModeIdx + 1) % SAFE_MODES.length;
+  const mode = SAFE_MODES[safeModeIdx];
   const sz = $('safeZones');
-  const on = sz.hidden;
+  const on = mode.id !== 'off';
   sz.hidden = !on;
+  if (on) {
+    sz.dataset.platform = mode.id;
+    const btm = sz.querySelector('.sz-bottom');
+    if (btm) btm.textContent = mode.bottom;
+  }
+  $('safeZoneBtn').textContent = mode.label;
   $('safeZoneBtn').classList.toggle('is-on', on);
 });
 
@@ -561,6 +576,16 @@ function uploadWithProgress(file) {
   });
 }
 
+function guessDefaultMainIdx(tokens) {
+  if (!tokens.length) return 0;
+  let best = 0, bestLen = -1;
+  tokens.forEach((t, i) => {
+    const cleanLen = t.replace(/[^\p{L}\p{N}]/gu, '').length;
+    if (cleanLen > bestLen) { bestLen = cleanLen; best = i; }
+  });
+  return best;
+}
+
 function renderCaptionEditor(captions) {
   currentCaptions = (captions || []).map((c) => ({ ...c }));
   const list = $('captionEditorList');
@@ -568,6 +593,8 @@ function renderCaptionEditor(captions) {
   currentCaptions.forEach((cap, idx) => {
     const row = document.createElement('div');
     row.className = 'cap-edit-row';
+    const topBar = document.createElement('div');
+    topBar.className = 'cap-edit-top';
     const playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'cap-edit-play';
@@ -587,8 +614,37 @@ function renderCaptionEditor(captions) {
     inp.type = 'text';
     inp.className = 'cap-edit-input';
     inp.value = cap.text || '';
+
+    const chipsBox = document.createElement('div');
+    chipsBox.className = 'cap-word-chips';
+    function renderChips() {
+      const toks = (inp.value || '').trim().split(/\s+/).filter(Boolean);
+      chipsBox.replaceChildren();
+      if (!toks.length) return;
+      let activeIdx = currentCaptions[idx].main_idx;
+      if (activeIdx == null || activeIdx < 0 || activeIdx >= toks.length) {
+        activeIdx = guessDefaultMainIdx(toks);
+      }
+      toks.forEach((tok, wIdx) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'cap-word-chip' + (wIdx === activeIdx ? ' is-main' : '');
+        chip.textContent = tok;
+        chip.title = 'Tocar para destacar esta palavra';
+        chip.addEventListener('click', () => {
+          currentCaptions[idx].main_idx = wIdx;
+          renderChips();
+          markDirtyAfterRender();
+        });
+        chipsBox.append(chip);
+      });
+    }
+    renderChips();
+
     inp.addEventListener('input', () => {
       currentCaptions[idx].text = inp.value;
+      renderChips();
+      markDirtyAfterRender();
     });
     const cutBtn = document.createElement('button');
     cutBtn.type = 'button';
@@ -599,8 +655,10 @@ function renderCaptionEditor(captions) {
       currentCaptions[idx].cut = !currentCaptions[idx].cut;
       row.classList.toggle('is-cut', !!currentCaptions[idx].cut);
       cutBtn.textContent = currentCaptions[idx].cut ? 'Voltar' : '✂️';
+      markDirtyAfterRender();
     });
-    row.append(playBtn, tm, inp, cutBtn);
+    topBar.append(playBtn, tm, inp, cutBtn);
+    row.append(topBar, chipsBox);
     list.append(row);
   });
 }
