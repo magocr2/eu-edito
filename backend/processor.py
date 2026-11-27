@@ -865,10 +865,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Decide cleanly between 2 rows vs 3 centered rows (keeping MAIN centered when before+after exist)
         use_three = bool(req_lines >= 3 and before and after)
 
-        # Visual baseline offsets: compact, cohesive spacing around MAIN words with zero overlap
+        # Visual baseline offsets: snug, cohesive spacing around MAIN words with zero overlap
         upper_main = cfg["upper"]
-        top_offset = int(m_size * 0.44 + s_size * 0.38)
-        bot_offset = int(m_size * (0.44 if upper_main else 0.48) + s_size * 0.44)
+        top_offset = int(m_size * 0.39 + s_size * 0.30)
+        bot_offset = int(m_size * (0.38 if upper_main else 0.42) + s_size * 0.34)
 
         if use_three:
             # All 3 rows centered so MAIN stays in the middle while surrounding words reveal in speech order
@@ -879,24 +879,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Strictly 2 centered balanced rows when MAIN is in the middle
             before_chars = sum(len(x["w"]) for x in before)
             after_chars = sum(len(x["w"]) for x in after)
-            row_gap_up = int(m_size * 0.34 + s_size * 0.24)
-            row_gap_dn = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.16)
+            row_gap_up = int(m_size * 0.28 + s_size * 0.20)
+            row_gap_dn = int(m_size * (0.18 if upper_main else 0.22) + s_size * 0.14)
             if after_chars <= before_chars:
                 _emit_mixed_line(before, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
                 _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
             else:
                 _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
-                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.14), cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(after, pos_x, pos_y + row_gap_dn + int(s_size * 0.08), cap_s, t0s, t1s, main_local_idx=None)
         elif before:
             # 2 lines cleanly centered: small before on top, MAIN below
-            top_2 = int(m_size * 0.32 + s_size * 0.38)
-            bot_2 = int(m_size * 0.20)
+            top_2 = int(m_size * 0.28 + s_size * 0.32)
+            bot_2 = int(m_size * 0.16)
             _emit_mixed_line(before, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
             # 2 lines cleanly centered: MAIN on top, small after below
-            top_2 = int(m_size * 0.22)
-            bot_2 = int(m_size * (0.28 if upper_main else 0.34) + s_size * 0.42)
+            top_2 = int(m_size * 0.16)
+            bot_2 = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
             _emit_mixed_line(main_w, pos_x, pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x, pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
 
