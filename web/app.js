@@ -8,8 +8,10 @@ let selectedStyle = 'classic';
 let selectedLines = 3;
 let selectedRhythm = 'natural';
 let selectedResolution = '1080p';
-let selectedBrolls = []; // [{ id, name, layout }]
+let selectedBrolls = []; // [{ id, name, layout, start, end, previewUrl, isImage }]
 let selectedCards = [];  // [{ id, name, url, anim }]
+let activePreviewBrollIdx = -1;
+let activePreviewCardIdx = -1;
 let deferredPrompt = null;
 let lastVideoUrl = '';
 let cachedVideoBlob = null;
@@ -17,10 +19,53 @@ let currentJobId = '';
 let currentCaptions = [];
 let flowStage = 'transcribe'; // 'transcribe' -> 'render'
 let maxExportRes = '1080p';
+let currentStep = 1;
+let videoUnlocked = false;
 
-window.getEuEditoJobId = () => currentJobId;
-window.getEuEditoCaptions = () => currentCaptions;
-window.onMotionLayersChanged = () => markDirtyAfterRender();
+function goToStep(step) {
+  const s = Math.max(1, Math.min(7, Number(step) || 1));
+  if (s > 1 && !videoUnlocked) return;
+  currentStep = s;
+
+  // Hide preview in Step 1; show live preview from Step 2 onwards
+  const pvCard = $('previewCard');
+  if (pvCard) pvCard.hidden = (s === 1 || !videoUnlocked);
+
+  document.querySelectorAll('.wizard-step').forEach((sec) => {
+    sec.hidden = Number(sec.dataset.step) !== s;
+  });
+  document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
+    const ps = Number(pill.dataset.step);
+    pill.disabled = ps > 1 && !videoUnlocked;
+    pill.classList.toggle('is-active', ps === s);
+    pill.classList.toggle('is-done', videoUnlocked && ps < s);
+  });
+
+  // Sticky CTA visible only in Step 7 (or when captions review / edit dirty)
+  const inFinalStep = (s === 7);
+  setStickyVisible(inFinalStep && !$('resultBox').hidden ? ($('reviewCard') && !$('reviewCard').hidden) : inFinalStep);
+
+  // When entering Step 7 and there is a configured B-roll/card, preview cleanly
+  if (s !== 7 && $('resultBox').hidden) {
+    clearMediaPreview();
+  }
+  if ($('pvStageHint')) {
+    $('pvStageHint').textContent = s === 7
+      ? 'Prévia ao vivo de legendas, B-rolls e cards'
+      : 'Arraste a legenda ou use A-/A+';
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
+  pill.addEventListener('click', () => goToStep(Number(pill.dataset.step)));
+});
+document.querySelectorAll('[data-next]').forEach((btn) => {
+  btn.addEventListener('click', () => goToStep(Number(btn.dataset.next)));
+});
+document.querySelectorAll('[data-prev]').forEach((btn) => {
+  btn.addEventListener('click', () => goToStep(Number(btn.dataset.prev)));
+});
 
 function markDirtyAfterRender() {
   if (flowStage === 'render' && $('resultBox') && !$('resultBox').hidden) {
@@ -54,7 +99,7 @@ function triggerBlobDownload(blob, filename) {
 }
 
 function setStickyVisible(vis) {
-  const cta = document.querySelector('.sticky-cta');
+  const cta = $('stickyCta');
   if (cta) cta.hidden = !vis;
 }
 
@@ -63,7 +108,7 @@ function updateResTagDisplay() {
   if (maxExportRes === '720p' && (selectedResolution === '1080p' || selectedResolution === '4k')) {
     label = '720p HD';
   }
-  $('resTag').textContent = label;
+  if ($('resTag')) $('resTag').textContent = label;
 }
 
 fetch('/api/hardware').then((r) => r.json()).then((hw) => {
@@ -81,17 +126,17 @@ fetch('/api/hardware').then((r) => r.json()).then((hw) => {
 }).catch(() => {});
 
 const EXAMPLES = {
-  'classic': '<small>só que eu</small><strong>FARIA DIFERENTE</strong><small>hoje</small>',
+  'classic': '<small>só que eu</small><strong>FARIA DIFERENTE</strong><small>neste vídeo</small>',
   'model-07': '<small>disputar a</small><strong>ATENÇÃO</strong><small>do público</small>',
-  'clean-12': '<small>ritmo dinâmico</small><strong>EM MOVIMENTO</strong><small>suave</small>',
+  'clean-12': '<small>ritmo dinâmico</small><strong>EM MOVIMENTO</strong><small>na tela</small>',
   'clean-13': '<small>deslize lateral</small><strong>POR CURIOSIDADE</strong>',
   'clean-14': '<small>Você</small><em>comemorou</em>',
   'clean-9': '<small>leitura limpa e</small><strong>fluida</strong><small>no vídeo</small>',
-  'clean-10': '<small>se eu fosse</small><strong>começar</strong><small>agora</small>',
+  'clean-10': '<small>se eu fosse</small><strong>começar</strong><small>agora mesmo</small>',
   'clean-11': '<small>elegância e</small><strong>sofisticação</strong><small>em cada fala</small>',
   'clean-15': '<small>uma nova forma de</small><strong>imaginar</strong>',
-  'clean-lavish': '<small>Essa</small><strong>CAMPANHA</strong><small>ela tem</small>',
-  'clean': '<small>composição pura</small><strong>seguidores</strong><small>ativos</small>'
+  'clean-lavish': '<small>Essa</small><strong>CAMPANHA</strong><small>tem força</small>',
+  'clean': '<small>composição pura</small><strong>seguidores</strong><small>bem ativos</small>'
 };
 
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -99,7 +144,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
   deferredPrompt = e;
   $('installBtn').hidden = false;
 });
-$('installBtn').addEventListener('click', async () => {
+$('installBtn')?.addEventListener('click', async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   await deferredPrompt.userChoice;
@@ -111,7 +156,7 @@ const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
 if (isIos && !isStandalone) {
   $('iosHint').hidden = false;
-  $('closeIosHint').addEventListener('click', () => { $('iosHint').hidden = true; });
+  $('closeIosHint')?.addEventListener('click', () => { $('iosHint').hidden = true; });
 }
 
 function animateOverlay(style) {
@@ -143,6 +188,7 @@ function animateOverlay(style) {
 
 function syncOverlay(animate = false) {
   const ov = $('liveOverlay');
+  if (!ov) return;
   const isClean10 = (selectedStyle === 'clean-10');
   const lineMode = isClean10 ? 1 : selectedLines;
   $('linesGrid')?.querySelectorAll('.res-pill').forEach((b) => {
@@ -150,12 +196,22 @@ function syncOverlay(animate = false) {
     b.disabled = isClean10 && l !== 1;
     b.classList.toggle('is-active', l === lineMode);
   });
-  const modeCls = lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '');
+  const isBold = !!$('boldToggle')?.checked;
+  const modeCls = (lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '')) + (isBold ? ' is-bold' : '');
   ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
+  // Rule: in 2-line mode, avoid leaving an orphan short tail word on row 3 by combining or balancing cleanly
   if (lineMode === 2 && ov.children.length === 3) {
-    // Strictly 2 clean rows: NEVER mix highlight with a loose word on the same row
-    ov.children[2].remove();
+    const thirdTxt = ov.children[2].textContent.trim();
+    const firstNode = ov.children[0];
+    if (thirdTxt.split(/\s+/).length <= 1 && firstNode.textContent.trim().split(/\s+/).length >= 1) {
+      ov.children[2].remove();
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'row-wrap';
+      wrap.append(ov.children[1], ov.children[2]);
+      ov.append(wrap);
+    }
   }
   ov.style.top = $('posY').value + '%';
   const sc = Number($('capScale')?.value || 100);
@@ -193,7 +249,7 @@ function syncOverlay(animate = false) {
     ov.classList.add('has-custom-font');
     ov.style.setProperty('--main-font', ff);
     ov.style.setProperty('--main-style', fst);
-    ov.style.setProperty('--main-weight', fwt);
+    ov.style.setProperty('--main-weight', isBold ? '800' : fwt);
   } else {
     ov.classList.remove('has-custom-font');
     ov.style.removeProperty('--main-font');
@@ -206,7 +262,7 @@ function syncOverlay(animate = false) {
     ov.classList.add('has-custom-small-font');
     ov.style.setProperty('--small-font', sff);
     ov.style.setProperty('--small-style', sfst);
-    ov.style.setProperty('--small-weight', swt);
+    ov.style.setProperty('--small-weight', isBold ? '800' : swt);
   } else {
     ov.classList.remove('has-custom-small-font');
     ov.style.removeProperty('--small-font');
@@ -221,6 +277,124 @@ function syncOverlay(animate = false) {
   $('posYVal').textContent = $('posY').value + '%';
   if (animate) animateOverlay(selectedStyle);
 }
+
+/* ---------- Live Preview for B-rolls (w/ gradient split mask) & Floating Cards ---------- */
+function clearMediaPreview() {
+  activePreviewBrollIdx = -1;
+  activePreviewCardIdx = -1;
+  const wrap = $('previewWrap');
+  if (wrap) {
+    wrap.classList.remove('split-top', 'split-bottom');
+  }
+  const bl = $('pvBrollLayer');
+  const bv = $('pvBrollVid');
+  const bi = $('pvBrollImg');
+  if (bv) { try { bv.pause(); } catch {} bv.hidden = true; bv.removeAttribute('src'); }
+  if (bi) { bi.hidden = true; bi.removeAttribute('src'); }
+  if (bl) bl.hidden = true;
+  const cs = $('pvCardStage');
+  if (cs) { cs.hidden = true; cs.classList.remove('is-floating'); }
+  if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = true;
+}
+
+$('clearPreviewMediaBtn')?.addEventListener('click', clearMediaPreview);
+
+function previewBrollInStage(idx) {
+  const b = selectedBrolls[idx];
+  const wrap = $('previewWrap');
+  const bl = $('pvBrollLayer');
+  const bi = $('pvBrollImg');
+  const bv = $('pvBrollVid');
+  if (!b || !wrap || !bl) return;
+  activePreviewBrollIdx = idx;
+  let lay = (b.layout || 'auto').toLowerCase();
+  if (lay === 'auto') {
+    const cycle = ['top', 'bottom', 'full'];
+    lay = cycle[idx % cycle.length];
+  }
+  wrap.classList.remove('split-top', 'split-bottom');
+  if (lay === 'top') wrap.classList.add('split-top');
+  else if (lay === 'bottom') wrap.classList.add('split-bottom');
+
+  bl.dataset.layout = lay;
+  bl.hidden = false;
+  if (b.isImage) {
+    bv.hidden = true;
+    try { bv.pause(); } catch {}
+    bi.src = b.previewUrl;
+    bi.hidden = false;
+  } else {
+    bi.hidden = true;
+    bv.src = b.previewUrl;
+    bv.hidden = false;
+    bv.currentTime = 0;
+    bv.play().catch(() => {});
+  }
+  try {
+    bl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out', fill: 'both' });
+  } catch {}
+  if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
+}
+
+function previewCardInStage(idx) {
+  const c = selectedCards[idx];
+  const cs = $('pvCardStage');
+  const ci = $('pvCardImg');
+  if (!c || !cs || !ci) return;
+  activePreviewCardIdx = idx;
+  let anim = (c.anim || 'auto').toLowerCase();
+  if (anim === 'auto') {
+    const cycle = ['side-right', 'side-left', 'corner-top'];
+    anim = cycle[idx % cycle.length];
+  }
+  cs.dataset.anim = anim;
+  ci.src = c.url;
+  cs.hidden = false;
+  cs.classList.add('is-floating');
+  cs.getAnimations?.().forEach((a) => a.cancel());
+  let kf;
+  if (anim === 'side-left') {
+    kf = [
+      { opacity: 0, transform: 'translateX(-72px) scale(.92)' },
+      { opacity: 1, transform: 'translateX(0) scale(1)' },
+    ];
+  } else if (anim === 'corner-top') {
+    kf = [
+      { opacity: 0, transform: 'translateY(-64px) scale(.90)' },
+      { opacity: 1, transform: 'translateY(0) scale(1)' },
+    ];
+  } else {
+    kf = [
+      { opacity: 0, transform: 'translateX(72px) scale(.92)' },
+      { opacity: 1, transform: 'translateX(0) scale(1)' },
+    ];
+  }
+  try {
+    cs.animate(kf, { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' });
+  } catch {}
+  if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
+}
+
+$('previewVideo')?.addEventListener('timeupdate', () => {
+  const vid = $('previewVideo');
+  if (!vid || vid.paused || currentStep !== 7 || !$('resultBox').hidden) return;
+  const t = vid.currentTime || 0;
+  // Sync timed B-rolls during playback if start/end were set
+  const timedB = selectedBrolls.findIndex((b) => {
+    const s = parseFloat(b.start);
+    if (isNaN(s)) return false;
+    const e = isNaN(parseFloat(b.end)) ? s + 3.5 : parseFloat(b.end);
+    return t >= s && t <= e;
+  });
+  if (timedB >= 0 && activePreviewBrollIdx !== timedB) {
+    previewBrollInStage(timedB);
+  } else if (timedB < 0 && selectedBrolls.some((b) => b.start !== '' && b.start !== undefined) && activePreviewBrollIdx >= 0) {
+    const bl = $('pvBrollLayer');
+    if (bl) bl.hidden = true;
+    $('previewWrap')?.classList.remove('split-top', 'split-bottom');
+    activePreviewBrollIdx = -1;
+  }
+});
 
 $('linesGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -333,8 +507,12 @@ $('customColorToggle')?.addEventListener('change', () => {
   syncOverlay(false);
   markDirtyAfterRender();
 });
+$('boldToggle')?.addEventListener('change', () => {
+  syncOverlay(false);
+  markDirtyAfterRender();
+});
 
-$('catTabs').querySelectorAll('.cat-tab').forEach((tab) => {
+$('catTabs')?.querySelectorAll('.cat-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     $('catTabs').querySelectorAll('.cat-tab').forEach((t) => t.classList.remove('is-active'));
     tab.classList.add('is-active');
@@ -345,7 +523,7 @@ $('catTabs').querySelectorAll('.cat-tab').forEach((tab) => {
   });
 });
 
-$('styleGrid').querySelectorAll('.style-pill').forEach((btn) => {
+$('styleGrid')?.querySelectorAll('.style-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     $('styleGrid').querySelectorAll('.style-pill').forEach((b) => b.classList.remove('is-active'));
     btn.classList.add('is-active');
@@ -355,11 +533,11 @@ $('styleGrid').querySelectorAll('.style-pill').forEach((btn) => {
   });
 });
 
-$('cutsToggle').addEventListener('change', () => {
+$('cutsToggle')?.addEventListener('change', () => {
   $('rhythmBox').hidden = !$('cutsToggle').checked;
 });
 
-$('rhythmGrid').querySelectorAll('.res-pill').forEach((btn) => {
+$('rhythmGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     $('rhythmGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
     btn.classList.add('is-active');
@@ -378,6 +556,12 @@ function renderBrollList() {
     const lbl = document.createElement('span');
     lbl.className = 'media-name';
     lbl.textContent = `🎞️ B${idx + 1} · ${b.name}`;
+
+    const pvBtn = document.createElement('button');
+    pvBtn.type = 'button'; pvBtn.className = 'media-preview-btn';
+    pvBtn.textContent = '👁️ Prévia';
+    pvBtn.addEventListener('click', () => previewBrollInStage(idx));
+
     const sel = document.createElement('select');
     sel.className = 'media-sel';
     [['auto', 'Automático'], ['top', 'Topo (dividida)'], ['bottom', 'Baixo (dividida)'], ['full', 'Tela cheia']].forEach(([val, txt]) => {
@@ -386,15 +570,22 @@ function renderBrollList() {
       if (b.layout === val) o.selected = true;
       sel.append(o);
     });
-    sel.addEventListener('change', () => { b.layout = sel.value; markDirtyAfterRender(); });
+    sel.addEventListener('change', () => {
+      b.layout = sel.value;
+      previewBrollInStage(idx);
+      markDirtyAfterRender();
+    });
+
     const del = document.createElement('button');
     del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
     del.addEventListener('click', () => {
       selectedBrolls.splice(idx, 1);
+      if (activePreviewBrollIdx === idx) clearMediaPreview();
       renderBrollList();
       if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
       markDirtyAfterRender();
     });
+
     const times = document.createElement('div');
     times.className = 'media-times';
     const inS = document.createElement('input');
@@ -411,7 +602,7 @@ function renderBrollList() {
     const sTxt2 = document.createElement('span'); sTxt2.textContent = 'Fim (s):';
     times.append(sTxt1, inS, sTxt2, inE);
 
-    row.append(lbl, sel, del, times);
+    row.append(lbl, pvBtn, sel, del, times);
     list.append(row);
   });
 }
@@ -431,6 +622,12 @@ function renderCardList() {
     const lbl = document.createElement('span');
     lbl.className = 'media-name';
     lbl.textContent = `C${idx + 1} · ${c.name}`;
+
+    const pvBtn = document.createElement('button');
+    pvBtn.type = 'button'; pvBtn.className = 'media-preview-btn';
+    pvBtn.textContent = '👁️ Animar';
+    pvBtn.addEventListener('click', () => previewCardInStage(idx));
+
     const sel = document.createElement('select');
     sel.className = 'media-sel';
     [
@@ -444,26 +641,26 @@ function renderCardList() {
       if (c.anim === val) o.selected = true;
       sel.append(o);
     });
-    sel.addEventListener('change', () => { c.anim = sel.value; markDirtyAfterRender(); });
+    sel.addEventListener('change', () => {
+      c.anim = sel.value;
+      previewCardInStage(idx);
+      markDirtyAfterRender();
+    });
+
     const del = document.createElement('button');
     del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
     del.addEventListener('click', () => {
       selectedCards.splice(idx, 1);
+      if (activePreviewCardIdx === idx) clearMediaPreview();
       renderCardList();
       if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
       markDirtyAfterRender();
     });
-    row.append(img, lbl, sel, del);
+    row.append(img, lbl, pvBtn, sel, del);
     list.append(row);
   });
 }
 
-$('sfxToggle')?.addEventListener('change', () => {
-  if ($('sfxBankBox')) $('sfxBankBox').hidden = !$('sfxToggle').checked;
-  markDirtyAfterRender();
-});
-$('sfxStyleSelect')?.addEventListener('change', () => markDirtyAfterRender());
-$('sfxAllToggle')?.addEventListener('change', () => markDirtyAfterRender());
 $('colorGradeToggle')?.addEventListener('change', () => markDirtyAfterRender());
 
 $('brollFile')?.addEventListener('change', async (e) => {
@@ -477,12 +674,21 @@ $('brollFile')?.addEventListener('change', async (e) => {
       const res = await fetch('/api/upload_broll', { method: 'POST', body: fd });
       const data = await safeJson(res);
       if (data.error || !data.broll_id) throw new Error(data.error || 'Erro');
-      selectedBrolls.push({ id: data.broll_id, name: f.name || 'B-roll', layout: 'auto', start: '', end: '' });
+      selectedBrolls.push({
+        id: data.broll_id,
+        name: f.name || 'B-roll',
+        layout: 'top',
+        start: '',
+        end: '',
+        previewUrl: URL.createObjectURL(f),
+        isImage: (f.type || '').startsWith('image/'),
+      });
     } catch {}
   }
   e.target.value = '';
   $('brollStatus').textContent = '＋ Adicionar vídeo(s) ou imagem(ns) B-roll';
   renderBrollList();
+  if (selectedBrolls.length) previewBrollInStage(selectedBrolls.length - 1);
   if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
   markDirtyAfterRender();
 });
@@ -499,17 +705,18 @@ $('cardFile')?.addEventListener('change', async (e) => {
       const res = await fetch('/api/upload_card', { method: 'POST', body: fd });
       const data = await safeJson(res);
       if (data.error || !data.card_id) throw new Error(data.error || 'Erro');
-      selectedCards.push({ id: data.card_id, name: f.name || 'Card', url: data.url, anim: 'auto' });
+      selectedCards.push({ id: data.card_id, name: f.name || 'Card', url: data.url, anim: 'side-right' });
     } catch {}
   }
   e.target.value = '';
   $('cardStatus').textContent = '＋ Adicionar card(s) / imagens flutuantes';
   renderCardList();
+  if (selectedCards.length) previewCardInStage(selectedCards.length - 1);
   if (!$('reviewCard').hidden) renderCaptionEditor(currentCaptions);
   markDirtyAfterRender();
 });
 
-$('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
+$('resGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     $('resGrid').querySelectorAll('.res-pill').forEach((b) => b.classList.remove('is-active'));
     btn.classList.add('is-active');
@@ -518,19 +725,16 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
   });
 });
 
-$('accentColor').addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
-$('posY').addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
+$('accentColor')?.addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
+$('posY')?.addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
 $('capScale')?.addEventListener('input', () => { syncOverlay(false); markDirtyAfterRender(); });
 $('fontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirtyAfterRender(); });
 $('smallFontSelect')?.addEventListener('change', () => { syncOverlay(true); markDirtyAfterRender(); });
 
-// Initialize accent color input state on load (customColorToggle starts checked)
 (function initColorToggle() {
   const toggle = $('customColorToggle');
   const colorInput = $('accentColor');
-  if (toggle && colorInput) {
-    colorInput.disabled = !toggle.checked;
-  }
+  if (toggle && colorInput) colorInput.disabled = !toggle.checked;
 })();
 
 syncOverlay(false);
@@ -561,27 +765,27 @@ $('videoFile').addEventListener('change', (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
   selectedFile = f;
+  videoUnlocked = true;
   currentJobId = '';
   cachedVideoBlob = null;
   currentCaptions = [];
-  window.EuEditoMotion?.reset();
   flowStage = 'transcribe';
+  clearMediaPreview();
   $('reviewCard').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
-  setStickyVisible(true);
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
-  $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto para enviar';
+  $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto!';
+  if ($('step1Nav')) $('step1Nav').hidden = false;
+
   try {
     const vid = $('previewVideo');
     vid.src = URL.createObjectURL(f);
-    vid.muted = true; // must be muted for autoplay first-frame trick on mobile
+    vid.muted = true;
     vid.hidden = false;
     $('emptyStage').hidden = true;
-    // Force first video frame to render immediately (no black screen before play)
     vid.addEventListener('loadedmetadata', () => {
       try {
         vid.currentTime = 0.001;
-        // On mobile, autoplay muted briefly then pause to paint first frame
         vid.play().then(() => {
           setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; }, 80);
         }).catch(() => {
@@ -596,6 +800,9 @@ $('videoFile').addEventListener('change', (e) => {
   $('resultBox').hidden = true;
   $('errorMsg').hidden = true;
   $('generateBtn').disabled = false;
+
+  // Automatically jump straight to Step 2 with live preview enabled
+  goToStep(2);
 });
 
 $('shareBtn').addEventListener('click', async () => {
@@ -636,7 +843,6 @@ $('downloadMp4')?.addEventListener('click', async (e) => {
     const blob = await getVideoBlob();
     triggerBlobDownload(blob, `eu-edito-${currentJobId || 'pronto'}.mp4`);
   } catch {
-    // Fallback without leaving standalone PWA window
     window.open(lastVideoUrl + '?dl=1', '_blank', 'noopener');
   } finally {
     btn.textContent = origTxt;
@@ -755,21 +961,6 @@ function renderCaptionEditor(captions) {
         });
         chipsBox.append(chip);
       });
-      const SFX_CYCLE = [false, 'auto', 'pop', 'whoosh', 'transition', 'impact', 'chime', 'click'];
-      const SFX_LABELS = { auto: '🔊 Auto', pop: '🔊 Pop', whoosh: '🔊 Whoosh', transition: '🔊 Transição', impact: '🔊 Impacto', chime: '🔊 Brilho', click: '🔊 Clique' };
-      const curSfx = currentCaptions[idx].sfx || false;
-      const sfxBtn = document.createElement('button');
-      sfxBtn.type = 'button';
-      sfxBtn.className = 'cap-chip-sfx' + (curSfx ? ' is-on' : '');
-      sfxBtn.textContent = curSfx ? (SFX_LABELS[curSfx] || '🔊 SFX') : '🔊 SFX';
-      sfxBtn.title = 'Tocar para alternar efeito sonoro (Auto / Pop / Whoosh / Impacto / Brilho / Clique)';
-      sfxBtn.addEventListener('click', () => {
-        const pos = SFX_CYCLE.indexOf(currentCaptions[idx].sfx || false);
-        currentCaptions[idx].sfx = SFX_CYCLE[(pos + 1) % SFX_CYCLE.length];
-        renderChips();
-        markDirtyAfterRender();
-      });
-      chipsBox.append(sfxBtn);
 
       if (selectedBrolls.length) {
         const curBid = currentCaptions[idx].broll_id || '';
@@ -783,6 +974,7 @@ function renderCaptionEditor(captions) {
           const nextIdx = bIdx + 1;
           currentCaptions[idx].broll_id = nextIdx < selectedBrolls.length ? selectedBrolls[nextIdx].id : '';
           renderChips();
+          if (currentCaptions[idx].broll_id) previewBrollInStage(nextIdx);
           markDirtyAfterRender();
         });
         chipsBox.append(bBtn);
@@ -800,7 +992,10 @@ function renderCaptionEditor(captions) {
           const cur = Array.isArray(currentCaptions[idx].card_ids) ? [...currentCaptions[idx].card_ids] : [];
           const i = cur.indexOf(crd.id);
           if (i >= 0) cur.splice(i, 1);
-          else cur.push(crd.id);
+          else {
+            cur.push(crd.id);
+            previewCardInStage(cIdx);
+          }
           currentCaptions[idx].card_ids = cur;
           renderChips();
           markDirtyAfterRender();
@@ -834,15 +1029,21 @@ function renderCaptionEditor(captions) {
 
 $('newVideoBtn')?.addEventListener('click', () => {
   selectedFile = null;
+  videoUnlocked = false;
   lastVideoUrl = '';
   cachedVideoBlob = null;
   currentJobId = '';
   currentCaptions = [];
-  window.EuEditoMotion?.reset();
+  selectedBrolls = [];
+  selectedCards = [];
+  renderBrollList();
+  renderCardList();
+  clearMediaPreview();
   flowStage = 'transcribe';
   $('videoFile').value = '';
   $('uploadTitle').textContent = 'Escolher vídeo do celular';
   $('uploadSub').textContent = 'Toque para abrir sua galeria (iPhone ou Android)';
+  if ($('step1Nav')) $('step1Nav').hidden = true;
   $('previewVideo').hidden = true;
   $('emptyStage').hidden = false;
   $('liveOverlay').hidden = false;
@@ -851,8 +1052,7 @@ $('newVideoBtn')?.addEventListener('click', () => {
   $('errorMsg').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
   $('generateBtn').disabled = true;
-  setStickyVisible(true);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  goToStep(1);
 });
 
 $('generateBtn').addEventListener('click', async () => {
@@ -898,13 +1098,13 @@ $('generateBtn').addEventListener('click', async () => {
           flowStage = 'render';
           $('generateBtn').textContent = '2. Gerar Vídeo Pronto →';
           $('generateBtn').disabled = false;
+          setStickyVisible(true);
           return;
         }
         if (st.status === 'error') throw new Error(st.message || 'Erro na transcrição.');
       }
     }
 
-    // Stage 2: Render video with edited captions (with transparent auto-recovery if server restarted)
     async function sendRenderRequest(jid) {
       const res = await fetch('/api/render', {
         method: 'POST',
@@ -916,25 +1116,22 @@ $('generateBtn').addEventListener('click', async () => {
           accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
           pos_y: Number($('posY').value),
           caption_scale: Number($('capScale')?.value || 100),
+          caption_bold: !!$('boldToggle')?.checked,
           main_font: $('fontSelect')?.value || '',
           small_font: $('smallFontSelect')?.value || '',
           caption_lines: selectedLines,
           zoom: $('zoomToggle').checked,
           studio_audio: $('studioAudioToggle').checked,
-          sfx: $('sfxToggle') ? $('sfxToggle').checked : true,
-          sfx_style: $('sfxStyleSelect')?.value || 'auto',
-          sfx_all_highlights: $('sfxAllToggle') ? $('sfxAllToggle').checked : true,
           color_grade: $('colorGradeToggle') ? $('colorGradeToggle').checked : false,
           brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout, start: b.start, end: b.end })),
           cards: selectedCards.map((c) => ({ id: c.id, anim: c.anim })),
-          motion_layers: window.EuEditoMotion ? window.EuEditoMotion.getLayers() : [],
           resolution: selectedResolution,
         }),
       });
       return { status: res.status, data: await safeJson(res) };
     }
 
-    $('progressText').textContent = 'Aplicando legendas revisadas…';
+    $('progressText').textContent = 'Aplicando legendas, cortes e mídias…';
     $('progressPct').textContent = '60%';
     $('progressFill').style.width = '60%';
 
@@ -967,6 +1164,7 @@ $('generateBtn').addEventListener('click', async () => {
       $('progressFill').style.width = (st.progress || 0) + '%';
 
       if (st.status === 'done') {
+        clearMediaPreview();
         lastVideoUrl = st.video_url;
         cachedVideoBlob = null;
         getVideoBlob().catch(() => {});
@@ -1001,3 +1199,6 @@ $('generateBtn').addEventListener('click', async () => {
     $('generateBtn').disabled = false;
   }
 });
+
+// Initialize Wizard on Step 1 (no preview shown until user picks a video)
+goToStep(1);

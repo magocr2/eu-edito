@@ -20,7 +20,7 @@
         <img src="/assets/icon.svg" alt="Eu Edito" width="36" height="36">
         <div>
           <strong>EU EDITO</strong>
-          <small>ESTÚDIO MOBILE · VÍDEO PRONTO</small>
+          <small>ESTÚDIO MOBILE · PASSO A PASSO</small>
         </div>
       </div>
       <button type="button" id="installBtn" class="install-pill" hidden>📲 Instalar</button>
@@ -31,32 +31,46 @@
       <button type="button" id="closeIosHint" aria-label="Fechar">✕</button>
     </div>
 
+    <nav id="wizardStepper" class="wizard-stepper" aria-label="Etapas de edição">
+      <button type="button" class="ws-pill is-active" data-step="1"><span>1</span>Vídeo</button>
+      <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Modelo</button>
+      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Cor/Negrito</button>
+      <button type="button" class="ws-pill" data-step="4" disabled><span>4</span>Fonte</button>
+      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Linhas</button>
+      <button type="button" class="ws-pill" data-step="6" disabled><span>6</span>Edição</button>
+      <button type="button" class="ws-pill" data-step="7" disabled><span>7</span>Mídia</button>
+    </nav>
+
     <main class="feed">
-      <section class="card hero-card">
-        <h1>Seu vídeo editado e legendado, <em>pronto para postar</em></h1>
-        <p>Cortes automáticos, zoom nos pontos-chave e exportação em alta qualidade direto no celular.</p>
-      </section>
-
-      <section class="card">
-        <div class="step-head"><span class="badge">1</span><h2>Vídeo &amp; Prévia ao Vivo</h2></div>
-        <label class="upload-box" id="uploadBox">
-          <input type="file" id="videoFile" accept="video/*" hidden>
-          <span class="upload-icon">🎬</span>
-          <strong id="uploadTitle">Escolher vídeo do celular</strong>
-          <small id="uploadSub">Toque para abrir sua galeria (iPhone ou Android)</small>
-        </label>
-
+      <!-- PREVIEW (Oculto na Etapa 1; visível a partir da Etapa 2 ao selecionar o vídeo) -->
+      <section id="previewCard" class="card preview-card" hidden>
+        <div class="pv-top-bar">
+          <span class="pv-title">Prévia ao Vivo</span>
+          <span id="pvStageHint" class="pv-stage-hint">Arraste a legenda ou use A-/A+</span>
+        </div>
         <div id="previewWrap" class="phone-frame">
           <video id="previewVideo" playsinline webkit-playsinline preload="auto" controls hidden></video>
           <div id="emptyStage" class="empty-stage">
-            <span>Prévia do modelo sobre o vídeo</span>
+            <span>Prévia do vídeo</span>
           </div>
+
+          <!-- B-roll ao vivo no preview com máscara suave de divisão -->
+          <div id="pvBrollLayer" class="pv-broll-layer" hidden>
+            <img id="pvBrollImg" alt="" hidden>
+            <video id="pvBrollVid" playsinline webkit-playsinline muted loop hidden></video>
+          </div>
+
+          <!-- Cards / imagens flutuantes ao vivo com animação de entrada -->
+          <div id="pvCardStage" class="pv-card-stage" hidden>
+            <img id="pvCardImg" alt="Card flutuante">
+          </div>
+
           <div id="safeZones" class="safe-zones" data-platform="reels" hidden>
             <div class="sz-top">Área topo</div>
             <div class="sz-right"><span>❤️</span><span>💬</span><span>↗️</span></div>
             <div class="sz-bottom">Legenda / Botões</div>
           </div>
-          <canvas id="motionPreviewCanvas" class="mg-preview-canvas" width="400" height="205" data-pos="bottom-card" hidden></canvas>
+
           <button type="button" id="safeZoneBtn" class="sz-btn">📱 Área segura</button>
           <span id="resTag" class="res-tag">1080p HD</span>
           <div id="previewQuickCtrl" class="pv-quick-ctrl" title="Arraste a legenda para altura ou use pinça / A- A+ para tamanho">
@@ -72,7 +86,26 @@
         </div>
       </section>
 
-      <section class="card">
+      <!-- ETAPA 1: Selecionar vídeo (SEM preview ainda) -->
+      <section class="card wizard-step" data-step="1">
+        <div class="hero-card" style="padding: 4px 0 14px">
+          <h1>Seu vídeo editado e legendado, <em>pronto para postar</em></h1>
+          <p>Escolha seu vídeo para iniciar o passo a passo de estilo, legendas e corte automático.</p>
+        </div>
+        <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeo</h2></div>
+        <label class="upload-box" id="uploadBox">
+          <input type="file" id="videoFile" accept="video/*" hidden>
+          <span class="upload-icon">🎬</span>
+          <strong id="uploadTitle">Escolher vídeo do celular</strong>
+          <small id="uploadSub">Toque para abrir sua galeria (iPhone ou Android)</small>
+        </label>
+        <div class="step-nav" id="step1Nav" hidden>
+          <button type="button" class="primary-btn" data-next="2">Avançar para Modelo →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 2: Modelo da legenda -->
+      <section class="card wizard-step" data-step="2" hidden>
         <div class="step-head"><span class="badge">2</span><h2>Modelo da Legenda (11 estilos)</h2></div>
         <div class="cat-tabs" id="catTabs">
           <button type="button" class="cat-tab is-active" data-cat="dynamic">⚡ Dinâmicas (5)</button>
@@ -129,6 +162,16 @@
           </button>
         </div>
 
+        <div class="step-nav">
+          <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
+          <button type="button" class="primary-btn" data-next="3">Próximo: Cor e Negrito →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 3: Cor personalizada, Negrito, Altura e Tamanho -->
+      <section class="card wizard-step" data-step="3" hidden>
+        <div class="step-head"><span class="badge">3</span><h2>Cor, Negrito, Altura &amp; Tamanho</h2></div>
+
         <div class="row-2">
           <div class="field">
             <span class="color-head"><label for="customColorToggle">Cor personalizada</label><input type="checkbox" id="customColorToggle" checked></span>
@@ -140,12 +183,32 @@
           </label>
         </div>
 
-        <label class="field" style="margin-top:10px">
+        <label class="toggle-row" style="margin-top:10px">
+          <div>
+            <strong>Legenda em Negrito</strong>
+            <small>Deixa todas as palavras com peso forte para leitura rápida</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="boldToggle">
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="field" style="margin-top:4px">
           <span>Tamanho da legenda (<b id="capScaleVal">100%</b>)</span>
           <input type="range" id="capScale" min="65" max="135" step="5" value="100">
         </label>
 
-        <div class="row-2" style="margin-top:10px">
+        <div class="step-nav">
+          <button type="button" class="secondary-btn" data-prev="2">← Modelo</button>
+          <button type="button" class="primary-btn" data-next="4">Próximo: Fontes →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 4: Fontes -->
+      <section class="card wizard-step" data-step="4" hidden>
+        <div class="step-head"><span class="badge">4</span><h2>Escolha das Fontes</h2></div>
+        <div class="row-2">
           <label class="field">
             <span>Fonte do destaque</span>
             <select id="fontSelect">
@@ -183,27 +246,40 @@
           </label>
         </div>
 
-        <div class="res-section">
-          <span class="res-label">Linhas da legenda</span>
-          <div class="res-grid" id="linesGrid">
-            <button type="button" class="res-pill" data-lines="1">
-              <strong>1 linha</strong>
-              <small>Compacta</small>
-            </button>
-            <button type="button" class="res-pill" data-lines="2">
-              <strong>2 linhas</strong>
-              <small>Duas fixas</small>
-            </button>
-            <button type="button" class="res-pill is-active" data-lines="3">
-              <strong>2 ou 3 linhas</strong>
-              <small>Editorial</small>
-            </button>
-          </div>
+        <div class="step-nav">
+          <button type="button" class="secondary-btn" data-prev="3">← Cor/Negrito</button>
+          <button type="button" class="primary-btn" data-next="5">Próximo: Linhas →</button>
         </div>
       </section>
 
-      <section class="card">
-        <div class="step-head"><span class="badge">3</span><h2>Decupagem, Zoom &amp; Resolução</h2></div>
+      <!-- ETAPA 5: Linhas da legenda (com anti-palavra solta) -->
+      <section class="card wizard-step" data-step="5" hidden>
+        <div class="step-head"><span class="badge">5</span><h2>Linhas da Legenda</h2></div>
+        <p class="review-hint">Escolha quantas linhas aparecem por vez. O aplicativo equilibra a divisão automaticamente para não deixar palavras soltas.</p>
+        <div class="res-grid" id="linesGrid">
+          <button type="button" class="res-pill" data-lines="1">
+            <strong>1 linha</strong>
+            <small>Compacta</small>
+          </button>
+          <button type="button" class="res-pill" data-lines="2">
+            <strong>2 linhas</strong>
+            <small>Equilibrada</small>
+          </button>
+          <button type="button" class="res-pill is-active" data-lines="3">
+            <strong>2 ou 3 linhas</strong>
+            <small>Editorial</small>
+          </button>
+        </div>
+
+        <div class="step-nav">
+          <button type="button" class="secondary-btn" data-prev="4">← Fontes</button>
+          <button type="button" class="primary-btn" data-next="6">Próximo: Edição →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 6: Decupagem, Zoom Automático, Áudio e Resolução (SEM efeitos sonoros) -->
+      <section class="card wizard-step" data-step="6" hidden>
+        <div class="step-head"><span class="badge">6</span><h2>Cortes, Zoom &amp; Áudio</h2></div>
 
         <label class="toggle-row">
           <div>
@@ -232,8 +308,8 @@
 
         <label class="toggle-row" style="margin-top:9px">
           <div>
-            <strong>Zoom dinâmico nos pontos-chave</strong>
-            <small>Destaca frases fortes do roteiro</small>
+            <strong>🔍 Zoom dinâmico (Automático)</strong>
+            <small>Aplicado automaticamente nos cortes certos, aproximando o rosto na tela</small>
           </div>
           <span class="switch">
             <input type="checkbox" id="zoomToggle" checked>
@@ -254,80 +330,14 @@
 
         <label class="toggle-row">
           <div>
-            <strong>🔊 Banco de efeitos sonoros (SFX)</strong>
-            <small>Destaques, transições e pausas (auto ou manual na Etapa 4)</small>
-          </div>
-          <span class="switch">
-            <input type="checkbox" id="sfxToggle" checked>
-            <span class="slider"></span>
-          </span>
-        </label>
-
-        <div id="sfxBankBox" style="margin-top:6px;display:flex;flex-direction:column;gap:8px">
-          <label class="field">
-            <span>Estilo dos efeitos sonoros</span>
-            <select id="sfxStyleSelect">
-              <option value="auto">Automático (Mix inteligente)</option>
-              <option value="pop">Pop suave (palavras)</option>
-              <option value="whoosh">Whoosh (transições)</option>
-              <option value="transition">Transição Motion (Sweep + Pop)</option>
-              <option value="impact">Impacto grave (frases fortes)</option>
-              <option value="chime">Brilho / Sininho (ênfase)</option>
-              <option value="click">Clique moderno (cortes rápidos)</option>
-            </select>
-          </label>
-          <label class="toggle-row" style="padding:7px 10px">
-            <div>
-              <strong>Em todas as palavras em destaque</strong>
-              <small>Desmarque para aplicar só nas marcadas na Etapa 4</small>
-            </div>
-            <span class="switch">
-              <input type="checkbox" id="sfxAllToggle" checked>
-              <span class="slider"></span>
-            </span>
-          </label>
-        </div>
-
-        <label class="toggle-row">
-          <div>
             <strong>✨ Filtro 4K + Bokeh (60–65%)</strong>
-            <small>Nitidez 4K, contraste vivo e desfoque suave nas bordas</small>
+            <small>Nitidez, contraste vivo e desfoque suave nas bordas</small>
           </div>
           <span class="switch">
             <input type="checkbox" id="colorGradeToggle">
             <span class="slider"></span>
           </span>
         </label>
-
-        <div class="res-section" style="margin-top:10px">
-          <span class="res-label">🎞️ B-rolls (vídeos ou imagens · tela dividida ou cheia)</span>
-          <label class="broll-upload-btn" id="brollUploadLbl">
-            <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
-            <span id="brollStatus">＋ Adicionar vídeo(s) ou imagem(ns) B-roll</span>
-          </label>
-          <div id="brollList" class="media-queue"></div>
-          <small class="broll-hint" id="brollHint" hidden>Defina início/fim (s), escolha na Etapa 4 ou deixe Automático.</small>
-        </div>
-
-        <div class="res-section" style="margin-top:10px">
-          <span class="res-label">🖼️ Cards &amp; Imagens Flutuantes (múltiplas camadas)</span>
-          <label class="toggle-row" style="margin-bottom:6px;padding:6px 10px">
-            <div>
-              <strong>Remover fundo automático</strong>
-              <small>Recorta fundo sólido de produtos</small>
-            </div>
-            <span class="switch">
-              <input type="checkbox" id="cardRemoveBgToggle" checked>
-              <span class="slider"></span>
-            </span>
-          </label>
-          <label class="broll-upload-btn" id="cardUploadLbl">
-            <input type="file" id="cardFile" accept="image/*" multiple hidden>
-            <span id="cardStatus">＋ Adicionar card(s) / imagens flutuantes</span>
-          </label>
-          <div id="cardList" class="media-queue"></div>
-          <small class="broll-hint" id="cardHint" hidden>Automático alterna posições ou marque vários Cards no mesmo momento na Etapa 4.</small>
-        </div>
 
         <div class="res-section">
           <span class="res-label">Resolução para baixar</span>
@@ -346,26 +356,57 @@
             </button>
           </div>
         </div>
+
+        <div class="step-nav">
+          <button type="button" class="secondary-btn" data-prev="5">← Linhas</button>
+          <button type="button" class="primary-btn" data-next="7">Próximo: B-rolls e Cards →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 7: B-rolls, Cards com preview ao vivo, Revisão & Exportação -->
+      <section class="card wizard-step" data-step="7" hidden>
+        <div class="step-head"><span class="badge">7</span><h2>B-rolls, Cards &amp; Exportação</h2></div>
+
+        <div class="res-section">
+          <span class="res-label">🎞️ B-rolls (vídeos ou imagens · divisão com máscara suave)</span>
+          <label class="broll-upload-btn" id="brollUploadLbl">
+            <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
+            <span id="brollStatus">＋ Adicionar vídeo(s) ou imagem(ns) B-roll</span>
+          </label>
+          <div id="brollList" class="media-queue"></div>
+          <small class="broll-hint" id="brollHint" hidden>Ao escolher Topo, Baixo ou Tela cheia, o preview acima mostra a divisão com máscara suave.</small>
+        </div>
+
+        <div class="res-section" style="margin-top:14px">
+          <span class="res-label">🖼️ Cards &amp; Imagens Flutuantes</span>
+          <label class="toggle-row" style="margin-bottom:6px;padding:6px 10px">
+            <div>
+              <strong>Remover fundo automático</strong>
+              <small>Recorta fundo sólido de produtos</small>
+            </div>
+            <span class="switch">
+              <input type="checkbox" id="cardRemoveBgToggle" checked>
+              <span class="slider"></span>
+            </span>
+          </label>
+          <label class="broll-upload-btn" id="cardUploadLbl">
+            <input type="file" id="cardFile" accept="image/*" multiple hidden>
+            <span id="cardStatus">＋ Adicionar card(s) / imagens flutuantes</span>
+          </label>
+          <div id="cardList" class="media-queue"></div>
+          <small class="broll-hint" id="cardHint" hidden>Troque a animação de entrada para ver o card deslizando ao vivo no preview.</small>
+        </div>
+
+        <div class="step-nav" style="margin-top:14px">
+          <button type="button" class="secondary-btn" data-prev="6">← Cortes &amp; Zoom</button>
+          <button type="button" id="clearPreviewMediaBtn" class="secondary-btn" hidden>Limpar prévia de mídia</button>
+        </div>
       </section>
 
       <section id="reviewCard" class="card" hidden>
-        <div class="step-head"><span class="badge">4</span><h2>Revisar &amp; Corrigir Legendas</h2></div>
-        <p class="review-hint">Confira as palavras abaixo. Toque no texto para corrigir ou toque em uma palavra para escolher o destaque:</p>
+        <div class="step-head"><span class="badge">✓</span><h2>Revisar Legendas &amp; Momentos</h2></div>
+        <p class="review-hint">Confira os textos, destaque a palavra principal e marque em qual fala entram seus B-rolls e Cards:</p>
         <div id="captionEditorList" class="caption-editor-list"></div>
-
-        <div class="mg-panel" id="motionStudioBox">
-          <div class="mg-head">
-            <h3>✨ Motion Graphics Inteligente</h3>
-            <button type="button" id="analyzeMotionBtn" class="primary-btn mg-analyze-btn">✨ Analisar vídeo e sugerir Motion Graphics</button>
-          </div>
-          <div class="mg-toolbar">
-            <select id="manualMotionTplSelect" class="media-sel"></select>
-            <button type="button" id="addManualMotionBtn" class="mg-btn">＋ Adicionar manual</button>
-            <button type="button" id="applyAllMotionBtn" class="mg-btn primary" hidden>✅ Aplicar todas</button>
-          </div>
-          <div id="motionSuggestionsList" class="mg-suggestions"></div>
-          <div id="motionTimelineList" class="mg-timeline-list"></div>
-        </div>
       </section>
 
       <section id="resultBox" class="card result-card" hidden>
@@ -391,16 +432,13 @@
       <p id="errorMsg" class="error-msg" hidden></p>
     </main>
 
-    <div class="sticky-cta">
+    <div class="sticky-cta" id="stickyCta" hidden>
       <button type="button" id="generateBtn" class="primary-btn" disabled>
         1. Transcrever &amp; Revisar Legendas →
       </button>
     </div>
   </div>
 
-  <script src="/assets/vendor/three.min.js"></script>
-  <script src="/assets/motion-engine.js"></script>
-  <script src="/assets/motion-ui.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

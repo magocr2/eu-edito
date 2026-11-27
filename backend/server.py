@@ -11,13 +11,6 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
-from motion_graphics import analyze_video_for_motion, build_motion_from_prompt, list_catalog
-from motion_worker import (
-    cancel_motion_task,
-    enqueue_motion_render,
-    ensure_motion_asset_local,
-    get_task_status,
-)
 from processor import (
     _prepare_card_png,
     apply_manual_caption_cuts,
@@ -27,14 +20,13 @@ from processor import (
     generate_ass,
     generate_srt,
     pick_impact_moments,
-    pick_sfx_moments,
     probe_video,
     render_video,
     resolve_export_size,
     sync_edited_captions,
     transcribe_video,
 )
-from storage import BROLLS_DIR, CARDS_DIR, STORAGE_ROOT, cleanup_stale_jobs, get_motion_asset_path
+from storage import BROLLS_DIR, CARDS_DIR, STORAGE_ROOT, cleanup_stale_jobs
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
@@ -232,47 +224,7 @@ def _run_render_pipeline(job_id, opts):
             res_choice = "720p"
         out_w, out_h = resolve_export_size(info["width"], info["height"], res_choice)
 
-        # Resolve approved Motion Graphics timeline layers FIRST so we know which captions they replace
-        raw_motions = list(opts.get("motion_layers") or [])
-        suppress_intervals = []
-        motion_items = []
-        if raw_motions:
-            _set_job(job_id, status="rendering", progress=68, message="Gerando Motion Graphics explicativos…")
-            for ml in raw_motions[:8]:
-                tid = str(ml.get("template_id") or "").strip()
-                if not tid:
-                    continue
-                ms = max(0.0, float(ml.get("start", 0.0)))
-                me = max(ms + 1.2, float(ml.get("end", ms + 3.2)))
-                dur = max(1.2, min(10.0, me - ms))
-                if ml.get("replace_captions", True):
-                    suppress_intervals.append((ms, me))
-                params = dict(ml.get("params") or {})
-                if ml.get("scene_plan") and "scene_plan" not in params:
-                    params["scene_plan"] = ml["scene_plan"]
-                if ml.get("position"):
-                    params["position"] = ml["position"]
-                if ml.get("prompt"):
-                    params["prompt"] = ml["prompt"]
-                low_ram = HW_PROFILE.get("ram_gb", 8.0) <= 1.2
-                m_pos = str(params.get("position", "")).lower()
-                if m_pos == "fullscreen":
-                    if out_w >= out_h:
-                        mw, mh = (768, 432) if low_ram else (960, 540)
-                    else:
-                        mw, mh = (432, 768) if low_ram else (540, 960)
-                else:
-                    mw = 680 if low_ram else 860
-                    mh = 360 if low_ram else 440
-                asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
-                motion_items.append({
-                    "path": asset_path,
-                    "start": ms,
-                    "dur": dur,
-                    "position": params.get("position", "bottom-card"),
-                    "scale": float(ml.get("scale", params.get("scale", 100))),
-                })
-
+        # Resolve optional bold, subtitles & media overlays (no Motion Graphics or SFX)
         generate_srt(captions, srt_path)
         generate_ass(
             captions,
@@ -286,15 +238,8 @@ def _run_render_pipeline(job_id, opts):
             caption_scale=float(opts.get("caption_scale", 100)),
             main_font_id=opts.get("main_font", ""),
             small_font_id=opts.get("small_font", ""),
-            suppress_intervals=suppress_intervals,
+            caption_bold=bool(opts.get("caption_bold", False)),
         )
-
-        sfx_times = pick_sfx_moments(
-            captions,
-            sfx_style=opts.get("sfx_style", "auto"),
-            sfx_all_highlights=bool(opts.get("sfx_all_highlights", True)),
-            motion_layers=raw_motions,
-        ) if bool(opts.get("sfx", True)) else []
 
         # Resolve multiple B-rolls with explicit start/end, per-caption timing, or automatic placement
         raw_brolls = list(opts.get("brolls") or [])
@@ -370,11 +315,9 @@ def _run_render_pipeline(job_id, opts):
             width=out_w,
             height=out_h,
             studio_audio=bool(opts.get("studio_audio", False)),
-            sfx_times=sfx_times,
             broll_items=broll_items,
             color_grade=bool(opts.get("color_grade", False)),
             card_items=card_items,
-            motion_items=motion_items,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)
@@ -449,86 +392,10 @@ def api_download_srt(job_id):
     return send_file(str(p), mimetype="application/x-subrip", as_attachment=True, download_name=f"eu-edito-{job_id}.srt")
 
 
-@app.route("/api/motion/catalog")
-def api_motion_catalog():
-    return jsonify(list_catalog())
-
-
-@app.route("/api/motion/analyze", methods=["POST"])
-def api_motion_analyze():
-    data = request.get_json(silent=True) or {}
-    job_id = data.get("job_id")
-    j = _get_job(job_id) if job_id else None
-    if not j:
-        return jsonify({"error": "Job não encontrado."}), 404
-    caps = data.get("captions") or j.get("captions") or []
-    src_path = Path(j.get("src_path", "")) if j.get("src_path") else None
-    suggestions = analyze_video_for_motion(caps, video_path=src_path)
-    _set_job(job_id, motion_suggestions=suggestions)
-    return jsonify({"ok": True, "suggestions": suggestions})
-
-
-@app.route("/api/motion/render_layer", methods=["POST"])
-def api_motion_render_layer():
-    data = request.get_json(silent=True) or {}
-    tid = data.get("template_id", "revenue_growth")
-    params = data.get("params") or {}
-    dur = float(data.get("duration", 3.2))
-    low_ram = HW_PROFILE.get("ram_gb", 8.0) <= 1.2
-    if str(params.get("position") or (params.get("scene_plan") or {}).get("position") or "").lower() == "fullscreen":
-        def_w, def_h = (432, 768) if low_ram else (540, 960)
-    else:
-        def_w = 680 if low_ram else 860
-        def_h = 360 if low_ram else 440
-    w = int(data.get("width", def_w))
-    h = int(data.get("height", def_h))
-    res = enqueue_motion_render(tid, params, duration=dur, width=w, height=h)
-    return jsonify(res)
-
-
-@app.route("/api/motion/from_prompt", methods=["POST"])
-def api_motion_from_prompt():
-    data = request.get_json(silent=True) or {}
-    prompt_txt = (data.get("prompt") or "").strip()
-    if not prompt_txt:
-        return jsonify({"error": "Informe um texto/prompt."}), 400
-    spec = build_motion_from_prompt(prompt_txt, preferred_template_id=data.get("template_id"))
-    return jsonify({"ok": True, **spec})
-
-
-@app.route("/api/motion/tasks/<task_id>")
-def api_motion_task_status(task_id):
-    st = get_task_status(task_id)
-    if not st:
-        return jsonify({"error": "Task não encontrada."}), 404
-    return jsonify(st)
-
-
-@app.route("/api/motion/tasks/<task_id>/cancel", methods=["POST"])
-def api_motion_task_cancel(task_id):
-    return jsonify({"ok": cancel_motion_task(task_id)})
-
-
-@app.route("/api/motion/assets/<asset_id>")
-def api_motion_asset(asset_id):
-    p = get_motion_asset_path(asset_id, ".mov")
-    if not p.exists():
-        return jsonify({"error": "Motion asset não encontrado."}), 404
-    return send_file(str(p), mimetype="video/quicktime")
-
-
 if __name__ == "__main__":
-    if os.environ.get("SERVICE_ROLE") == "worker":
-        from motion_worker import create_worker_app
-        from waitress import create_server
+    from waitress import create_server
 
-        port = int(os.environ.get("PORT", "8091"))
-        print(f"Eu Edito Motion Worker listening on 0.0.0.0:{port}")
-        create_server(create_worker_app(), host="0.0.0.0", port=port, threads=6).run()
-    else:
-        from waitress import create_server
-
-        port = int(os.environ.get("PORT", "8090"))
-        print(f"Hogus Studio Mobile Cloud Server listening on 0.0.0.0:{port} ({HW_PROFILE['accel_label']})")
-        srv = create_server(app, host="0.0.0.0", port=port, threads=8)
-        srv.run()
+    port = int(os.environ.get("PORT", "8090"))
+    print(f"Eu Edito Studio Server listening on 0.0.0.0:{port} ({HW_PROFILE['accel_label']})")
+    srv = create_server(app, host="0.0.0.0", port=port, threads=8)
+    srv.run()

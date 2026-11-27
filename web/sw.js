@@ -1,5 +1,5 @@
-const CACHE = 'hogus-studio-web-v10';
-const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/vendor/three.min.js', '/assets/motion-engine.js', '/assets/motion-ui.js', '/assets/icon.svg', '/manifest.json'];
+const CACHE = 'eu-edito-web-v11';
+const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));

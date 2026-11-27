@@ -429,7 +429,29 @@ def build_captions(words, keep_ranges, max_chars=26):
             "text": " ".join(x["w"] for x in cur),
             "words": cur,
         })
-    return captions
+
+    # Never strand a single trailing orphan word when it can join or steal a neighbor cleanly
+    merged = []
+    for cap in captions:
+        if merged and len(cap["words"]) == 1 and (cap["s"] - merged[-1]["e"]) <= 0.55:
+            prev = merged[-1]
+            if len(prev["words"]) <= 3 and len(prev["text"]) + 1 + len(cap["text"]) <= max_chars + 6:
+                prev["words"].extend(cap["words"])
+                prev["e"] = cap["e"]
+                prev["orig_e"] = cap["orig_e"]
+                prev["text"] = " ".join(x["w"] for x in prev["words"])
+                continue
+            elif len(prev["words"]) >= 3:
+                stolen = prev["words"].pop()
+                prev["e"] = prev["words"][-1]["e"]
+                prev["orig_e"] = prev["words"][-1]["orig_e"]
+                prev["text"] = " ".join(x["w"] for x in prev["words"])
+                cap["words"].insert(0, stolen)
+                cap["s"] = stolen["s"]
+                cap["orig_s"] = stolen["orig_s"]
+                cap["text"] = " ".join(x["w"] for x in cap["words"])
+        merged.append(cap)
+    return merged
 
 
 def apply_manual_caption_cuts(keep_ranges, edited_captions):
@@ -694,209 +716,41 @@ def _prepare_card_png(src_img_path, out_png_path, remove_bg=True, max_dim=560):
     return out_png_path
 
 
-def _ensure_sfx_wav(sfx_dir, kind="pop"):
-    """Synthesize broadcast-clean, balanced SFX WAVs (pop, whoosh, impact, chime, click, transition)."""
-    import math
-    import random
-    import struct
-    import wave
-
-    kind = (kind or "pop").lower().strip()
-    if kind not in ("pop", "whoosh", "impact", "chime", "click", "transition"):
-        kind = "pop"
-    Path(sfx_dir).mkdir(parents=True, exist_ok=True)
-    out_wav = Path(sfx_dir) / f"sfx_v2_{kind}.wav"
-    if out_wav.exists() and out_wav.stat().st_size > 1000:
-        return out_wav
-
-    sr = 44100
-    dur = 0.42 if kind in ("whoosh", "impact", "chime", "transition") else 0.14
-    n_samples = int(sr * dur)
-    frames = bytearray()
-    rng = random.Random(42)
-    lp1 = 0.0
-    lp2 = 0.0
-    for i in range(n_samples):
-        t = i / sr
-        if kind == "whoosh":
-            # Silky low-passed air sweep peaking around 0.14s
-            u = t / dur
-            env = (math.sin(math.pi * u) ** 1.6) * (0.4 + 0.6 * u)
-            noise = rng.uniform(-1.0, 1.0)
-            lp1 = lp1 * 0.88 + noise * 0.12
-            lp2 = lp2 * 0.82 + lp1 * 0.18
-            val = 0.52 * env * (lp2 * 2.2)
-        elif kind == "transition":
-            # Smooth swoosh + soft warm wooden accent right at 0.14s
-            u = t / dur
-            env = math.sin(math.pi * u) ** 1.4
-            noise = rng.uniform(-1.0, 1.0)
-            lp1 = lp1 * 0.86 + noise * 0.14
-            pulse_t = max(0.0, t - 0.11)
-            tick = 0.36 * math.exp(-pulse_t * 26.0) * math.sin(2.0 * math.pi * (140.0 * math.exp(-pulse_t * 14.0) + 90.0) * pulse_t) if t >= 0.11 else 0.0
-            val = 0.38 * env * (lp1 * 1.9) + tick
-        elif kind == "impact":
-            # Warm cinematic sub-punch (octave 48Hz + 96Hz + soft felt attack)
-            env = math.exp(-t * 7.8) * min(1.0, t / 0.008)
-            freq = 48.0 + 72.0 * math.exp(-t * 18.0)
-            val = 0.58 * env * (0.75 * math.sin(2.0 * math.pi * freq * t) + 0.25 * math.sin(2.0 * math.pi * (freq * 2.0) * t))
-        elif kind == "chime":
-            # Soft warm triad sparkle (no harsh high harmonics)
-            env = math.exp(-t * 7.0) * min(1.0, t / 0.006)
-            val = 0.36 * env * (
-                0.5 * math.sin(2.0 * math.pi * 523.25 * t)
-                + 0.35 * math.sin(2.0 * math.pi * 659.25 * t)
-                + 0.25 * math.sin(2.0 * math.pi * 783.99 * t)
-            )
-        elif kind == "click":
-            # Soft tactile UI tap (muted 16ms)
-            env = math.exp(-t * 48.0) * min(1.0, t / 0.002)
-            val = 0.42 * env * math.sin(2.0 * math.pi * (520.0 + 360.0 * math.exp(-t * 75.0)) * t)
-        else:
-            # Soft muted bubble pop peaking fast (~6ms)
-            env = math.exp(-t * 24.0) * min(1.0, t / 0.005)
-            freq = 82.0 + 130.0 * math.exp(-t * 32.0)
-            val = 0.48 * env * math.sin(2.0 * math.pi * freq * t)
-        sample = max(-32767, min(32767, int(max(-0.92, min(0.92, val)) * 32767)))
-        frames.extend(struct.pack("<h", sample))
-
-    with wave.open(str(out_wav), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(bytes(frames))
-    return out_wav
-
-
-def pick_sfx_moments(captions, sfx_style="auto", sfx_all_highlights=True, motion_layers=None, max_sfx=40, min_gap_s=0.45):
-    """Return acoustically aligned (time_s, kind) pairs matched to spoken highlights & visual events."""
-    if not captions and not motion_layers:
-        return []
-    style = (sfx_style or "auto").lower().strip()
-    explicit = []
-    all_hl = []
-    auto_candidates = []
-
-    def _align_t(t_ref, k):
-        # Compensate attack ramp so the acoustic peak locks right onto the spoken word or entrance
-        if k in ("whoosh", "transition"):
-            return round(max(0.0, t_ref - 0.12), 3)
-        return round(max(0.0, t_ref - 0.01), 3)
-
-    # Always add aligned transition SFX on Motion Graphic entrances when style is auto/whoosh/transition
-    for ml in (motion_layers or []):
-        ms = max(0.0, float(ml.get("start", 0.0)))
-        mk = "transition" if style in ("auto", "whoosh", "transition") else style
-        explicit.append((_align_t(ms, mk), mk))
-
-    for idx, c in enumerate(captions or []):
-        words = c.get("words") or []
-        if not words:
-            continue
-        custom_main = c.get("main_idx")
-        if custom_main is not None and 0 <= int(custom_main) < len(words):
-            mi = int(custom_main)
-        else:
-            mi = max(range(len(words)), key=lambda i: len(re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", words[i]["w"])))
-        t_word = max(0.0, float(words[mi]["s"]))
-        t_start = max(0.0, float(c.get("s", t_word)))
-
-        sfx_val = c.get("sfx")
-        if sfx_val is False:
-            continue
-        if isinstance(sfx_val, str) and sfx_val in ("pop", "whoosh", "impact", "chime", "click", "transition", "auto"):
-            chosen_k = "pop" if sfx_val == "auto" else sfx_val
-            ref = t_start if chosen_k in ("whoosh", "transition") else t_word
-            explicit.append((_align_t(ref, chosen_k), chosen_k))
-            continue
-        if sfx_val is True:
-            chosen_k = "pop" if style == "auto" else style
-            explicit.append((_align_t(t_word, chosen_k), chosen_k))
-            continue
-
-        txt = c.get("text") or ""
-        low = txt.lower()
-        prev_e = float(captions[idx - 1]["e"]) if idx > 0 else 0.0
-        has_media = bool(c.get("broll_id") or c.get("broll") or c.get("card_ids") or c.get("card"))
-        pref_kind = style if style != "auto" else "pop"
-        t_ref = t_word
-        if style == "auto":
-            if has_media or (idx > 0 and t_start - prev_e >= 0.45):
-                pref_kind = "transition"
-                t_ref = t_start
-            elif re.search(r"triplic|dobr|cresc|resultado|aten[çc]|nunca|segredo|erro|impact", low):
-                pref_kind = "impact"
-            elif re.search(r"\d+|%|r\$|reais|\?|!", txt):
-                pref_kind = "chime"
-            else:
-                pref_kind = "pop" if idx % 2 == 0 else "click"
-
-        if sfx_all_highlights:
-            all_hl.append((_align_t(t_ref, pref_kind), pref_kind))
-        else:
-            sc = 2.2 if has_media else 0.0
-            if float(c.get("s", 0.0)) <= 3.5:
-                sc += 2.2
-            if "?" in txt or "!" in txt or re.search(r"\d+|%|r\$", txt):
-                sc += 2.0
-            for wd in re.findall(r"[a-zà-ú]+", low):
-                if wd in _IMPACT_WORDS:
-                    sc += 1.8
-            if sc >= 1.5:
-                auto_candidates.append((sc, _align_t(t_ref, pref_kind), pref_kind))
-
-    if sfx_all_highlights:
-        merged = sorted(explicit + all_hl, key=lambda x: x[0])
-        out = []
-        for t, k in merged:
-            if all(abs(t - st) >= min_gap_s for st, _ in out):
-                out.append((t, k))
-        return out[:max_sfx]
-
-    if explicit and not auto_candidates:
-        out = []
-        for t, k in sorted(explicit, key=lambda x: x[0]):
-            if all(abs(t - st) >= min_gap_s for st, _ in out):
-                out.append((t, k))
-        return out[:max_sfx]
-
-    auto_candidates.sort(key=lambda x: (-x[0], x[1]))
-    chosen = list(explicit)
-    for _, t, k in auto_candidates:
-        if all(abs(t - ct) >= max(1.6, min_gap_s) for ct, _ in chosen):
-            chosen.append((t, k))
-        if len(chosen) >= min(14, max_sfx):
-            break
-    return sorted(chosen, key=lambda x: x[0])[:max_sfx]
-
-
-def pick_impact_moments(captions, min_gap_s=6.0, max_ratio=0.30):
+def pick_impact_moments(captions, min_gap_s=5.0, max_ratio=0.35):
+    """Select key narrative cuts/phrases where an automatic close-up zoom punch-in fits best."""
     if not captions:
         return []
     scored = []
-    for c in captions:
+    for idx, c in enumerate(captions):
         txt = c["text"]
         sc = 0.0
         if c["s"] <= 3.5:
             sc += 3.0
         if "?" in txt or "!" in txt:
-            sc += 2.2
+            sc += 2.4
+        if idx > 0 and (float(c["s"]) - float(captions[idx - 1]["e"])) >= 0.35:
+            sc += 1.6  # Clean natural cut boundary
         if re.search(r"\d+|%|reais|mil\b|milh", txt, re.I):
-            sc += 2.5
+            sc += 2.6
         for wd in re.findall(r"[a-zà-ú]+", txt.lower()):
             if wd in _IMPACT_WORDS:
                 sc += 2.0
             elif len(wd) >= 8:
                 sc += 0.5
         if sc > 0:
-            scored.append((sc, c["s"], c["e"]))
+            s = max(0.0, float(c["s"]))
+            raw_e = float(c["e"])
+            # Extend zoom hold cleanly through the phrase cut (1.8s–3.8s, clamped before next gap)
+            next_s = float(captions[idx + 1]["s"]) if idx + 1 < len(captions) else (raw_e + 1.5)
+            e = min(next_s, max(s + 1.8, min(s + 3.8, raw_e + 0.35)))
+            scored.append((sc, round(s, 3), round(e, 3)))
     scored.sort(key=lambda x: (-x[0], x[1]))
     chosen = []
     limit = max(1, int(len(captions) * max_ratio))
     for sc, s, e in scored:
         if len(chosen) >= limit:
             break
-        if all(abs(s - cs) >= min_gap_s for cs, _ in chosen):
+        if all(abs(s - cs) >= min_gap_s and (e <= cs or s >= ce + 0.5) for cs, ce in chosen):
             chosen.append((s, e))
     chosen.sort(key=lambda x: x[0])
     return chosen
@@ -941,15 +795,12 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", suppress_intervals=None):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", caption_bold=False):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
-    - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
-    - Soft neon/bloom glow layer behind accent highlight words
-    - Mode 1 (1 linha): single unified libass Dialogue line (perfect spacing & dead-center alignment)
-    - Mode 2 (2 linhas): strictly <= 2 balanced rows without orphan words
-    - Mode 3 (2 ou 3 linhas): smart adaptive 2-or-3 staggered editorial rows (before top-left, MAIN center, after bottom-right)
-      with visually equal top/bottom spacing around uppercase MAIN words
+    - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow)
+    - Optional bold override (`caption_bold=True`) forcing strong readable weights
+    - Anti-orphan-word line balancing for 1, 2, or 3 lines
     """
     styles_cfg = {
         "classic": {
@@ -1041,6 +892,9 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
         cfg["small_file"] = sfile
         cfg["small_bold"] = sb
         cfg["small_italic"] = si
+    if caption_bold:
+        cfg["small_bold"] = -1
+        cfg["main_bold"] = -1
     scale_f = min(width, height) / 1080.0
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
@@ -1255,6 +1109,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an5{motion}{blur_base}}}{fg_text}"
         )
 
+    def _split_two_balanced(tokens, main_i):
+        """Split tokens into 2 balanced rows without leaving a lone orphan normal word."""
+        n = len(tokens)
+        best_k = max(1, min(n - 1, (main_i + 1) if main_i < n - 1 else n - 1))
+        best_cost = 1e9
+        for k in range(1, n):
+            r1, r2 = tokens[:k], tokens[k:]
+            w1 = sum(len(t["w"]) for t in r1)
+            w2 = sum(len(t["w"]) for t in r2)
+            cost = abs(w1 - w2)
+            # Heavily penalize leaving 1 stray word alone unless it is the hero MAIN word itself
+            if len(r1) == 1 and main_i != 0:
+                cost += 25
+            if len(r2) == 1 and main_i != k:
+                cost += 25
+            # Slight preference for breaking right after or before MAIN for editorial rhythm
+            if k == main_i or k == main_i + 1:
+                cost -= 2
+            if cost < best_cost:
+                best_cost = cost
+                best_k = k
+        return tokens[:best_k], tokens[best_k:]
+
     for c in captions:
         words = c.get("words") or []
         text = (c.get("text") or "").strip() or " ".join(w.get("w", "") for w in words).strip()
@@ -1262,11 +1139,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         cap_s = float(c["s"])
         cap_e = float(c["e"])
-        # Skip captions during explanatory Motion Graphics that replace subtitles cleanly
-        if suppress_intervals:
-            mid_t = (cap_s + cap_e) * 0.5
-            if any(float(ss) - 0.12 <= mid_t <= float(se) + 0.12 for ss, se in suppress_intervals):
-                continue
         if not words:
             toks = text.split()
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
@@ -1298,30 +1170,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         bot_2_after = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
 
         if req_lines >= 3 and before and after:
-            # Strictly 3 centered rows: MAIN is NEVER mixed with stray words on the same row
-            _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-        elif before and after:
-            # Strict 2-line mode: NEVER put loose words beside MAIN on the same line.
-            # Phase 1: before (top) + MAIN (bottom); Phase 2: preserve MAIN (top) + after (bottom).
-            if (cap_e - cap_s) >= 0.42:
-                split_t = min(cap_e - 0.18, max(cap_s + 0.18, float(after[0]["s"])))
-                tsplit = _fmt_ass_time(split_t)
-                _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, split_t, t0s, tsplit, main_local_idx=None, instant_out=True)
-                _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, split_t, t0s, tsplit, main_local_idx=0, inline_main_scale=1.0, instant_out=True)
-                _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, split_t, cap_e, tsplit, t1s, main_local_idx=0, inline_main_scale=1.0, instant_in=True)
-                _emit_mixed_line(after, pos_x, pos_y + bot_2_after, split_t, cap_e, tsplit, t1s, main_local_idx=None)
+            # Never strand a single short orphan normal word (< 5 chars) when 2 rows look cleaner!
+            orphan_before = (len(before) == 1 and len(before[0]["w"]) <= 4 and len(after) >= 2)
+            orphan_after = (len(after) == 1 and len(after[0]["w"]) <= 4 and len(before) >= 2)
+            if orphan_before or orphan_after:
+                r1, r2 = _split_two_balanced(words, main_idx)
+                m1 = main_idx if main_idx < len(r1) else None
+                m2 = (main_idx - len(r1)) if main_idx >= len(r1) else None
+                _emit_mixed_line(r1, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_idx=m1, inline_main_scale=0.92 if m1 is not None else 1.0)
+                _emit_mixed_line(r2, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=m2, inline_main_scale=0.92 if m2 is not None else 1.0)
             else:
                 _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
                 _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
                 _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+        elif req_lines == 2:
+            # Balanced 2 fixed lines without leaving a stray orphan word
+            r1, r2 = _split_two_balanced(words, main_idx)
+            m1 = main_idx if main_idx < len(r1) else None
+            m2 = (main_idx - len(r1)) if main_idx >= len(r1) else None
+            y1 = pos_y - (top_2_main if m1 == 0 and len(r1) == 1 else top_2_above)
+            y2 = pos_y + (bot_2_below if m2 == 0 and len(r2) == 1 else bot_2_after)
+            _emit_mixed_line(r1, pos_x, y1, cap_s, cap_e, t0s, t1s, main_local_idx=m1, inline_main_scale=0.94 if m1 is not None else 1.0)
+            _emit_mixed_line(r2, pos_x, y2, cap_s, cap_e, t0s, t1s, main_local_idx=m2, inline_main_scale=0.94 if m2 is not None else 1.0)
         elif before:
-            # 2 lines cleanly centered: small before on top, MAIN below
             _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_idx=None)
             _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
         else:
-            # 2 lines cleanly centered: MAIN on top, small after below
             _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
             _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=None)
 
@@ -1356,7 +1230,6 @@ def render_video(
     width=1080,
     height=1920,
     studio_audio=False,
-    sfx_times=None,
     broll_path=None,
     broll_layout="top",
     broll_start=None,
@@ -1368,7 +1241,6 @@ def render_video(
     card_start=None,
     card_dur=3.2,
     card_items=None,
-    motion_items=None,
 ):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
@@ -1390,8 +1262,6 @@ def render_video(
     if not cards and card_path and Path(card_path).exists() and card_start is not None:
         cards.append({"path": card_path, "anim": card_anim, "start": card_start, "dur": card_dur})
     cards = [c for c in cards if c.get("path") and Path(c["path"]).exists() and c.get("start") is not None][:6]
-
-    motions = [m for m in (motion_items or []) if m.get("path") and Path(m["path"]).exists() and m.get("start") is not None][:8]
 
     # Build trim + concat filter if decupagem cut segments
     n_segs = len(keep_ranges)
@@ -1432,30 +1302,24 @@ def render_video(
     scale_flags = "bilinear" if low_ram else "lanczos"
     scale_base = f"scale={w_even}:{h_even}:force_original_aspect_ratio=decrease:flags={scale_flags},pad={w_even}:{h_even}:(ow-iw)/2:(oh-ih)/2:black"
 
-    # Smooth ease-in-out zoom pulse on key impact moments (skipped on <=1.2GB RAM to avoid OOM)
+    # Instant jump-cut punch-in close-up focused near the speaker's upper/face framing (no bouncy keyframe drift!)
     zoom_filter = ""
-    if zoom_enabled and impact_times and not low_ram:
+    if zoom_enabled and impact_times:
         terms = []
-        for idx, (imp_s, imp_e) in enumerate(impact_times[:8]):
-            dur = max(0.9, min(2.4, (imp_e - imp_s) + 0.7))
-            terms.append(f"between(t,{imp_s:.2f},{(imp_s+dur):.2f})*0.12*0.5*(1-cos(2*PI*(t-{imp_s:.2f})/{dur:.2f}))")
+        for imp_s, imp_e in impact_times[:10]:
+            s_t = max(0.0, float(imp_s))
+            e_t = max(s_t + 1.2, float(imp_e))
+            terms.append(f"between(t,{s_t:.2f},{e_t:.2f})*0.24")
         if terms:
             z_expr = "1+" + "+".join(terms)
-            zoom_filter = f",scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':eval=frame,crop=w={w_even}:h={h_even}"
+            zoom_filter = (
+                f",scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':flags={scale_flags}:eval=frame,"
+                f"crop=w={w_even}:h={h_even}:x='(iw-ow)/2':y='max(0,(ih-oh)*0.22)'"
+            )
 
     extra_inputs = []
     next_in_idx = 1
     has_bokeh = bool(color_grade and not low_ram)
-
-    # Normalize sfx_times into list of (t_s, kind)
-    sfx_events = []
-    for item in (sfx_times or [])[:40]:
-        if isinstance(item, (tuple, list)) and len(item) >= 2:
-            t_s, sk = float(item[0]), str(item[1])
-        else:
-            t_s, sk = float(item), "pop"
-        if t_s >= 0.0:
-            sfx_events.append((t_s, sk))
 
     broll_inputs = []
     img_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
@@ -1474,12 +1338,6 @@ def render_video(
         card_inputs.append((next_in_idx, c))
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(c["path"])]
-
-    motion_inputs = []
-    for m in motions:
-        motion_inputs.append((next_in_idx, m))
-        next_in_idx += 1
-        extra_inputs += ["-i", str(m["path"])]
 
     mask_idx = None
     if has_bokeh:
@@ -1504,15 +1362,7 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(bmask_png)]
 
-    sfx_kind_to_idx = {}
-    for _, sk in sfx_events:
-        if sk not in sfx_kind_to_idx:
-            sfx_wav = _ensure_sfx_wav(Path(out_path).parent, sk)
-            sfx_kind_to_idx[sk] = next_in_idx
-            next_in_idx += 1
-            extra_inputs += ["-i", str(sfx_wav)]
-
-    use_fc = bool(fc_parts or broll_inputs or card_inputs or motion_inputs or color_grade or sfx_events)
+    use_fc = bool(fc_parts or broll_inputs or card_inputs or color_grade)
     af_chain = "highpass=f=65,acompressor=threshold=-22dB:ratio=1.7:attack=12:release=140:makeup=1.2,alimiter=limit=0.95" if (studio_audio and has_src_audio) else ""
 
     if use_fc:
@@ -1622,67 +1472,15 @@ def render_video(
             fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vc{ci}]")
             cur_v = f"[vc{ci}]"
 
-        for mi, (m_idx, m) in enumerate(motion_inputs):
-            ms = max(0.0, float(m["start"]))
-            md = max(1.0, float(m.get("dur") or 3.2))
-            me = ms + md
-            mscale = max(0.55, min(1.40, float(m.get("scale", 100)) / 100.0))
-            mpos = (m.get("position") or "bottom-card").lower()
-            if mpos == "fullscreen":
-                fc_parts.append(
-                    f"[{m_idx}:v]scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},"
-                    f"crop={w_even}:{h_even},format=rgba,"
-                    f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
-                )
-                mx, my = "0", "0"
-            else:
-                w_frac = 0.58 if mpos in ("top-left", "top-right") else 0.94
-                mw_target = max(240, int(w_even * w_frac * mscale))
-                mw_target -= mw_target % 2
-                pad_m = max(14, int(w_even * 0.03))
-                if mpos == "top-left":
-                    mx, my = f"{pad_m}", f"{int(h_even * 0.13)}"
-                elif mpos == "top-right":
-                    mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.13)}"
-                elif mpos == "bottom-card":
-                    mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
-                elif mpos == "top-center":
-                    mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
-                else:
-                    mx, my = f"(W-w)/2", f"(H-h)/2"
-                fc_parts.append(
-                    f"[{m_idx}:v]scale={mw_target}:-2:flags={scale_flags},format=rgba,"
-                    f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
-                )
-            fc_parts.append(f"{cur_v}[vmg{mi}]overlay=x='{mx}':y='{my}':enable='between(t,{ms:.3f},{me:.3f})':eof_action=pass[vmo{mi}]")
-            cur_v = f"[vmo{mi}]"
-
         fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
 
-        # Audio pipeline + clearly audible multi-SFX mixing
         if not has_src_audio:
-            if sfx_events:
-                fc_parts.append(f"anullsrc=r=44100:cl=stereo:d={total_keep_dur:.3f}[asil]")
-                cur_a = "[asil]"
-            else:
-                cur_a = None
+            cur_a = None
         elif af_chain:
             fc_parts.append(f"{a_chain}{af_chain}[aclean]")
             cur_a = "[aclean]"
         else:
-            cur_a = a_chain
-
-        if sfx_events and cur_a is not None:
-            sfx_tags = []
-            for k, (t_s, sk) in enumerate(sfx_events):
-                ms = max(0, int(round(t_s * 1000)))
-                s_idx = sfx_kind_to_idx[sk]
-                fc_parts.append(f"[{s_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume=1.35,adelay={ms}|{ms}[sfx{k}]")
-                sfx_tags.append(f"[sfx{k}]")
-            fc_parts.append(f"{cur_a}{''.join(sfx_tags)}amix=inputs={len(sfx_tags)+1}:duration=first:normalize=0[aout]")
-            cur_a = "[aout]"
-        elif cur_a == "[0:a]":
-            cur_a = "0:a?"
+            cur_a = "0:a?" if a_chain == "[0:a]" else a_chain
 
         fc = ";".join(fc_parts)
         map_args = ["-filter_complex", fc, "-map", "[vout]"] + (["-map", cur_a] if cur_a else [])
