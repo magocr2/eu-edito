@@ -9,6 +9,11 @@
 @font-face { font-family: 'DMSans'; src: url('/fonts/DMSans.ttf') format('truetype'); }
 @font-face { font-family: 'Geist'; src: url('/fonts/Geist.ttf') format('truetype'); }
 @font-face { font-family: 'Lavish'; src: url('/fonts/lavish.otf') format('opentype'); }
+@font-face { font-family: 'BebasNeue'; src: url('/fonts/BebasNeue-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Coolvetica'; src: url('/fonts/Coolvetica-Regular.otf') format('opentype'); }
+@font-face { font-family: 'Lucette'; src: url('/fonts/Lucette-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'CreatoBoldItalic'; src: url('/fonts/CreatoDisplay-BoldItalic.otf') format('opentype'); font-style: italic; font-weight: 700; }
+@font-face { font-family: 'CreatoExtraBoldItalic'; src: url('/fonts/CreatoDisplay-ExtraBoldItalic.otf') format('opentype'); font-style: italic; font-weight: 800; }
 
 :root {
   --bg: #060b08;
@@ -134,6 +139,17 @@ body {
 .live-overlay.style-clean-lavish strong { font-size: 23px; letter-spacing: -0.02em; text-transform: uppercase; color: var(--accent, #ffffff); }
 .live-overlay.style-clean small { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; }
 .live-overlay.style-clean strong { font-family: 'CreatoMedium', 'CreatoDisplay', sans-serif; color: var(--accent, #ffffff); font-weight: 500; }
+.live-overlay.has-custom-font strong,
+.live-overlay.has-custom-font em {
+  font-family: var(--main-font) !important;
+  font-style: var(--main-style, normal) !important;
+  font-weight: var(--main-weight, 700) !important;
+}
+.field select {
+  width: 100%; padding: 9px 10px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12); background: #08120d;
+  color: var(--text); font-size: 13px; font-weight: 600; outline: none;
+}
 
 .cat-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
 .cat-tab {

@@ -122,6 +122,31 @@ function syncOverlay(animate = false) {
   const sc = Number($('capScale')?.value || 100);
   ov.style.setProperty('--cap-scale', (sc / 100).toFixed(2));
   if ($('capScaleVal')) $('capScaleVal').textContent = sc + '%';
+  const fontChoice = $('fontSelect')?.value || '';
+  const FONT_CSS_MAP = {
+    'bebas': ["'BebasNeue', sans-serif", 'normal', '400'],
+    'coolvetica': ["'Coolvetica', sans-serif", 'normal', '400'],
+    'lucette': ["'Lucette', Georgia, serif", 'normal', '400'],
+    'creato-bold-italic': ["'CreatoBoldItalic', 'CreatoDisplay', sans-serif", 'italic', '700'],
+    'creato-extrabold-italic': ["'CreatoExtraBoldItalic', 'CreatoDisplay', sans-serif", 'italic', '800'],
+    'creato-extrabold': ["'CreatoExtraBold', 'CreatoDisplay', sans-serif", 'normal', '800'],
+    'apple-garamond': ["'AppleGaramondBold', 'AppleGaramond', Georgia, serif", 'italic', '700'],
+    'lavish': ["'Lavish', Georgia, serif", 'normal', '400'],
+    'geist': ["'Geist', sans-serif", 'normal', '700'],
+    'dm-sans': ["'DMSans', sans-serif", 'normal', '800'],
+  };
+  if (fontChoice && FONT_CSS_MAP[fontChoice]) {
+    const [ff, fst, fwt] = FONT_CSS_MAP[fontChoice];
+    ov.classList.add('has-custom-font');
+    ov.style.setProperty('--main-font', ff);
+    ov.style.setProperty('--main-style', fst);
+    ov.style.setProperty('--main-weight', fwt);
+  } else {
+    ov.classList.remove('has-custom-font');
+    ov.style.removeProperty('--main-font');
+    ov.style.removeProperty('--main-style');
+    ov.style.removeProperty('--main-weight');
+  }
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
     $('hookOverlay')?.style.setProperty('--accent', $('accentColor').value);
@@ -231,6 +256,7 @@ $('resGrid').querySelectorAll('.res-pill').forEach((btn) => {
 $('accentColor').addEventListener('input', () => syncOverlay(false));
 $('posY').addEventListener('input', () => syncOverlay(false));
 $('capScale')?.addEventListener('input', () => syncOverlay(false));
+$('fontSelect')?.addEventListener('change', () => syncOverlay(true));
 
 // Initialize accent color input state on load (customColorToggle starts checked)
 (function initColorToggle() {
@@ -478,6 +504,7 @@ $('generateBtn').addEventListener('click', async () => {
         accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
         pos_y: Number($('posY').value),
         caption_scale: Number($('capScale')?.value || 100),
+        main_font: $('fontSelect')?.value || '',
         caption_lines: selectedLines,
         zoom: $('zoomToggle').checked,
         studio_audio: $('studioAudioToggle').checked,

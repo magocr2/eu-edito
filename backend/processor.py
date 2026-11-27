@@ -582,7 +582,7 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, hook_title="", hook_style="pill-white", hook_y_pct=16):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", hook_title="", hook_style="pill-white", hook_y_pct=16):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
     - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
@@ -649,7 +649,25 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
             "upper": False, "default_accent": "#FFFFFF", "anim": "slide",
         },
     }
-    cfg = styles_cfg.get(style_id, styles_cfg["classic"])
+    cfg = dict(styles_cfg.get(style_id, styles_cfg["classic"]))
+    font_overrides = {
+        "bebas": ("Bebas Neue", "BebasNeue-Regular.ttf", 0, 0),
+        "coolvetica": ("Coolvetica", "Coolvetica-Regular.otf", 0, 0),
+        "lucette": ("Lucette", "Lucette-Regular.ttf", 0, 0),
+        "creato-bold-italic": ("Creato Display", "CreatoDisplay-BoldItalic.otf", -1, -1),
+        "creato-extrabold-italic": ("Creato Display", "CreatoDisplay-ExtraBoldItalic.otf", -1, -1),
+        "creato-extrabold": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
+        "apple-garamond": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
+        "lavish": ("Lavish", "lavish.otf", 0, 0),
+        "geist": ("Geist", "Geist.ttf", -1, 0),
+        "dm-sans": ("DM Sans 9pt", "DMSans.ttf", -1, 0),
+    }
+    if main_font_id and main_font_id in font_overrides:
+        mf, mfile, mb, mi = font_overrides[main_font_id]
+        cfg["main_font"] = mf
+        cfg["main_file"] = mfile
+        cfg["main_bold"] = mb
+        cfg["main_italic"] = mi
     scale_f = min(width, height) / 1080.0
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
