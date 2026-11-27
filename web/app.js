@@ -130,16 +130,28 @@ fetch('/api/hardware').then((r) => r.json()).then((hw) => {
 const EXAMPLES = {
   'classic': '<small>só que eu</small><strong>FARIA DIFERENTE</strong><small>neste vídeo</small>',
   'model-07': '<small>disputar a</small><strong>ATENÇÃO</strong><small>do público</small>',
+  'clean-9': '<small>leitura limpa e</small><strong>FLUIDA</strong><small>no vídeo</small>',
+  'clean-10': '<small>se eu fosse</small><strong>COMEÇAR</strong><small>agora mesmo</small>',
   'clean-12': '<small>ritmo dinâmico</small><strong>EM MOVIMENTO</strong><small>na tela</small>',
-  'clean-13': '<small>deslize lateral</small><strong>POR CURIOSIDADE</strong>',
-  'clean-14': '<small>Você</small><em>comemorou</em>',
-  'clean-9': '<small>leitura limpa e</small><strong>fluida</strong><small>no vídeo</small>',
-  'clean-10': '<small>se eu fosse</small><strong>começar</strong><small>agora mesmo</small>',
-  'clean-11': '<small>elegância e</small><strong>sofisticação</strong><small>em cada fala</small>',
-  'clean-15': '<small>uma nova forma de</small><strong>imaginar</strong>',
   'clean-lavish': '<small>Essa</small><strong>CAMPANHA</strong><small>tem força</small>',
-  'clean': '<small>composição pura</small><strong>seguidores</strong><small>bem ativos</small>'
+  'kinetic-tracking': '<small>isso o que eu mostro</small><strong>EXATAMENTE</strong><small>no treino</small>',
+  'kinetic-clip': '<small>mas a</small><strong>VERDADE</strong><small>não é essa</small>',
+  'kinetic-blurgrid': '<small>era sobre encaixar</small><strong>CORTES</strong><small>sem perder ritmo</small>',
+  'drawn-circle': '<small>se eles tiverem</small><strong>localização</strong><small>estratégica</small>',
+  'drawn-strike': '<small>isso fica dentro</small><strong>da comunidade</strong><small>todos os dias</small>',
+  'drawn-bar': '<small>um treino bem</small><strong>direcionado</strong><small>para você</small>',
 };
+
+const STYLE_DEFAULT_FX = {
+  'drawn-circle': 'circle',
+  'drawn-strike': 'strike',
+  'drawn-bar': 'bar',
+};
+
+function resolveHighlightFx() {
+  const manual = $('highlightFxSelect')?.value || 'auto';
+  return manual === 'auto' ? (STYLE_DEFAULT_FX[selectedStyle] || 'none') : manual;
+}
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -171,18 +183,25 @@ function animateOverlay(style) {
     const delay = idx * 55;
     let frames = [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }];
     let dur = 240;
-    if (style === 'clean-14' || style === 'clean-12' || style === 'model-07') {
+    if (style === 'kinetic-tracking' && isMain) {
+      frames = [{ opacity: 0, letterSpacing: '0.38em' }, { opacity: 1, letterSpacing: '0.01em' }];
+      dur = 430;
+    } else if ((style === 'kinetic-clip' || style === 'drawn-strike') && isMain) {
+      frames = [{ clipPath: 'inset(0 100% 0 0)', opacity: 0.4 }, { clipPath: 'inset(0 0% 0 0)', opacity: 1 }];
+      dur = 400;
+    } else if (style === 'kinetic-blurgrid' || style === 'drawn-circle' || style === 'clean-9') {
+      frames = [{ opacity: 0, transform: 'scale(.88)', filter: 'blur(6px)' }, { opacity: 1, transform: 'scale(1)', filter: 'blur(0)' }];
+      dur = 300;
+    } else if (style === 'drawn-bar' && isMain) {
+      frames = [{ opacity: 0, transform: 'translateX(-26px)' }, { opacity: 1, transform: 'translateX(0)' }];
+      dur = 260;
+    } else if (style === 'clean-12' || style === 'model-07') {
       frames = isMain
         ? [{ opacity: 0, transform: 'scale(.76)' }, { opacity: 1, transform: 'scale(1.05)', offset: 0.72 }, { opacity: 1, transform: 'scale(1)' }]
         : [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'translateY(0)' }];
       dur = 360;
-    } else if (style === 'clean-13' || style === 'clean' || style === 'clean-lavish') {
+    } else if (style === 'clean-lavish') {
       frames = [{ opacity: 0, transform: 'translateX(16px)' }, { opacity: 1, transform: 'translateX(0)' }];
-    } else if (style === 'clean-9') {
-      frames = [{ opacity: 0, transform: 'translateY(-8px)', filter: 'blur(3px)' }, { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' }];
-    } else if (style === 'clean-11') {
-      frames = [{ opacity: 0 }, { opacity: 1 }];
-      dur = 170;
     }
     try { node.animate(frames, { duration: dur, delay, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }); } catch {}
   });
@@ -199,9 +218,34 @@ function syncOverlay(animate = false) {
     b.classList.toggle('is-active', l === lineMode);
   });
   const isBold = !!$('boldToggle')?.checked;
-  const modeCls = (lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '')) + (isBold ? ' is-bold' : '');
+  const activeFx = resolveHighlightFx();
+  const fxCls = activeFx !== 'none' ? ` has-fx-${activeFx}` : '';
+  const modeCls = (lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : '')) + (isBold ? ' is-bold' : '') + fxCls;
   ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
+
+  // Inject synced drawn highlight graphics (circle / strike / bar) onto the highlighted word
+  const mainNode = ov.querySelector('strong, em');
+  if (mainNode && activeFx === 'circle') {
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'hl-svg-circle');
+    svg.setAttribute('viewBox', '0 0 120 56');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const el = document.createElementNS(svgNS, 'ellipse');
+    el.setAttribute('cx', '60'); el.setAttribute('cy', '28');
+    el.setAttribute('rx', '56'); el.setAttribute('ry', '24');
+    svg.appendChild(el);
+    mainNode.appendChild(svg);
+  } else if (mainNode && activeFx === 'strike') {
+    const ln = document.createElement('span');
+    ln.className = 'hl-strike-line';
+    mainNode.appendChild(ln);
+  } else if (mainNode && activeFx === 'bar') {
+    const bg = document.createElement('span');
+    bg.className = 'hl-bar-bg';
+    mainNode.appendChild(bg);
+  }
   // Rule: in 2-line mode, avoid leaving an orphan short tail word on row 3 by combining or balancing cleanly
   if (lineMode === 2 && ov.children.length === 3) {
     const thirdTxt = ov.children[2].textContent.trim();
@@ -251,7 +295,7 @@ function syncOverlay(animate = false) {
     ov.classList.add('has-custom-font');
     ov.style.setProperty('--main-font', ff);
     ov.style.setProperty('--main-style', fst);
-    ov.style.setProperty('--main-weight', isBold ? '800' : fwt);
+    ov.style.setProperty('--main-weight', '800'); // Highlighted words are ALWAYS bold
   } else {
     ov.classList.remove('has-custom-font');
     ov.style.removeProperty('--main-font');
@@ -311,7 +355,7 @@ function previewBrollInStage(idx) {
   activePreviewBrollIdx = idx;
   let lay = (b.layout || 'auto').toLowerCase();
   if (lay === 'auto') {
-    const cycle = ['top', 'bottom', 'full'];
+    const cycle = ['top', 'pip-rounded', 'bottom', 'center-frame', 'full'];
     lay = cycle[idx % cycle.length];
   }
   wrap.classList.remove('split-top', 'split-bottom');
@@ -333,7 +377,10 @@ function previewBrollInStage(idx) {
     bv.play().catch(() => {});
   }
   try {
-    bl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out', fill: 'both' });
+    const kf = lay === 'triptych-strips'
+      ? [{ transform: 'translateX(90px)', opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }]
+      : [{ opacity: 0, transform: 'scale(.95)' }, { opacity: 1, transform: 'scale(1)' }];
+    bl.animate(kf, { duration: 300, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' });
   } catch {}
   if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
 }
@@ -513,6 +560,10 @@ $('boldToggle')?.addEventListener('change', () => {
   syncOverlay(false);
   markDirtyAfterRender();
 });
+$('highlightFxSelect')?.addEventListener('change', () => {
+  syncOverlay(true);
+  markDirtyAfterRender();
+});
 
 $('catTabs')?.querySelectorAll('.cat-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -566,7 +617,15 @@ function renderBrollList() {
 
     const sel = document.createElement('select');
     sel.className = 'media-sel';
-    [['auto', 'Automático'], ['top', 'Topo (dividida)'], ['bottom', 'Baixo (dividida)'], ['full', 'Tela cheia']].forEach(([val, txt]) => {
+    [
+      ['auto', 'Automático'],
+      ['top', 'Topo (dividida c/ máscara)'],
+      ['bottom', 'Baixo (dividida c/ máscara)'],
+      ['pip-rounded', 'Janela Arredondada (Canto)'],
+      ['center-frame', 'Quadro Central Estúdio'],
+      ['triptych-strips', 'Faixa Horizontal Deslizante'],
+      ['full', 'Tela cheia'],
+    ].forEach(([val, txt]) => {
       const o = document.createElement('option');
       o.value = val; o.textContent = txt;
       if (b.layout === val) o.selected = true;
@@ -1113,6 +1172,7 @@ $('generateBtn').addEventListener('click', async () => {
           pos_y: Number($('posY').value),
           caption_scale: Number($('capScale')?.value || 100),
           caption_bold: !!$('boldToggle')?.checked,
+          highlight_fx: $('highlightFxSelect')?.value || 'auto',
           main_font: $('fontSelect')?.value || '',
           small_font: $('smallFontSelect')?.value || '',
           caption_lines: selectedLines,

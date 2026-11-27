@@ -239,6 +239,7 @@ def _run_render_pipeline(job_id, opts):
             main_font_id=opts.get("main_font", ""),
             small_font_id=opts.get("small_font", ""),
             caption_bold=bool(opts.get("caption_bold", False)),
+            highlight_fx=str(opts.get("highlight_fx", "auto")),
         )
 
         # Resolve multiple B-rolls with explicit start/end, per-caption timing, or automatic placement

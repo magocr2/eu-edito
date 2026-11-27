@@ -620,9 +620,22 @@ def _ensure_split_mask(mask_path, w, full_h, feather, side="top"):
         else:
             cpx[0, y] = s
     alpha = col.resize((w, full_h), Image.Resampling.NEAREST)
-    rgba = Image.new("RGBA", (w, full_h), (255, 255, 255, 255))
-    rgba.putalpha(alpha)
-    rgba.save(str(p), "PNG")
+    # FFmpeg alphamerge reads LUMINANCE (Y) of the mask stream — set RGB luminance = alpha!
+    alpha.convert("RGB").save(str(p), "PNG")
+    return p
+
+
+def _ensure_rounded_mask(mask_path, w, h, radius=28):
+    """Generate crisp anti-aliased rounded-rectangle mask PNG (luminance=alpha for FFmpeg alphamerge)."""
+    from PIL import Image, ImageDraw
+
+    p = Path(mask_path)
+    if p.exists() and p.stat().st_size > 200:
+        return p
+    mask = Image.new("L", (w * 2, h * 2), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w * 2 - 1, h * 2 - 1], radius=radius * 2, fill=255)
+    mask = mask.resize((w, h), Image.Resampling.LANCZOS)
+    mask.convert("RGB").save(str(p), "PNG")
     return p
 
 
@@ -806,96 +819,139 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", caption_bold=False):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", caption_bold=False, highlight_fx="auto"):
     """
-    Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
-    - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow)
-    - Optional bold override (`caption_bold=True`) forcing strong readable weights
-    - Anti-orphan-word line balancing for 1, 2, or 3 lines
+    Generate CapCut-grade ASS subtitles including reference-engineered styles & vector ASS graphics:
+    - Mandatory REAL bold variant on highlighted words (`_BOLD_VARIANT_MAP` + `\\b-1`)
+    - Dynamic Captions (`classic`, `model-07`, `clean-9`, `clean-10`)
+    - Kinetic Typography (`kinetic-tracking`, `kinetic-clip`, `kinetic-blurgrid`)
+    - Drawn Highlights (`drawn-circle`, `drawn-strike`, `drawn-bar`) + selectable `highlight_fx`
     """
     styles_cfg = {
+        # --- Dynamic Captions ---
         "classic": {
             "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 58, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 100, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "rise",
+            "upper": True, "default_accent": "#FFFFFF", "anim": "rise", "fx": "none",
         },
         "model-07": {
             "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
             "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 108, "main_bold": -1, "main_italic": -1,
-            "upper": True, "default_accent": "#FFD66C", "anim": "pop",
-        },
-        "clean-12": {
-            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 96, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "pop",
-        },
-        "clean-13": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
-        },
-        "clean-14": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 110, "main_bold": 0, "main_italic": -1,
-            "upper": False, "default_accent": "#FFDFC4", "anim": "pop",
+            "upper": True, "default_accent": "#FFD66C", "anim": "pop", "fx": "none",
         },
         "clean-9": {
             "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Regular.otf", "main_size": 92, "main_bold": 0, "main_italic": 0,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "blur",
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 94, "main_bold": -1, "main_italic": 0,
+            "upper": False, "default_accent": "#FFFFFF", "anim": "blur", "fx": "none",
         },
         "clean-10": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 60, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#A375FA", "anim": "rise",
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 62, "main_bold": -1, "main_italic": 0,
+            "upper": False, "default_accent": "#A375FA", "anim": "rise", "fx": "none",
         },
-        "clean-11": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 108, "main_bold": 0, "main_italic": -1,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "cut",
+        "clean-12": {
+            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 98, "main_bold": -1, "main_italic": 0,
+            "upper": True, "default_accent": "#FFFFFF", "anim": "pop", "fx": "none",
         },
-        "clean-15": {
+        "clean-13": {
+            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 96, "main_bold": -1, "main_italic": 0,
+            "upper": True, "default_accent": "#FFFFFF", "anim": "slide", "fx": "none",
+        },
+        "clean-14": {
             "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 94, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "rise",
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 110, "main_bold": -1, "main_italic": -1,
+            "upper": False, "default_accent": "#FFDFC4", "anim": "pop", "fx": "none",
         },
         "clean-lavish": {
             "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 102, "main_bold": 0, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
+            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 102, "main_bold": -1, "main_italic": 0,
+            "upper": True, "default_accent": "#FFFFFF", "anim": "slide", "fx": "none",
         },
-        "clean": {
+        # --- Kinetic Typography (Reference Videos 1 & 2) ---
+        "kinetic-tracking": {
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 114, "main_bold": -1, "main_italic": -1,
+            "upper": False, "default_accent": "#FFFFFF", "anim": "tracking", "fx": "none",
+        },
+        "kinetic-clip": {
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 112, "main_bold": -1, "main_italic": -1,
+            "upper": False, "default_accent": "#F472B6", "anim": "clip_reveal", "fx": "none",
+        },
+        "kinetic-blurgrid": {
             "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "slide",
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 106, "main_bold": -1, "main_italic": 0,
+            "upper": True, "default_accent": "#FFFFFF", "anim": "blur_grid", "fx": "none",
+        },
+        # --- Drawn Highlights (Reference Videos 1, 2 & 3) ---
+        "drawn-circle": {
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 86, "main_bold": -1, "main_italic": 0,
+            "upper": False, "default_accent": "#FACC15", "anim": "blur", "fx": "circle",
+        },
+        "drawn-strike": {
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 90, "main_bold": -1, "main_italic": 0,
+            "upper": False, "default_accent": "#EF4444", "anim": "clip_reveal", "fx": "strike",
+        },
+        "drawn-bar": {
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 90, "main_bold": -1, "main_italic": 0,
+            "upper": False, "default_accent": "#F472B6", "anim": "slide", "fx": "bar",
         },
     }
+    # Legacy aliases cleanly mapped to upgraded models
+    styles_cfg["clean-11"] = dict(styles_cfg["kinetic-tracking"])
+    styles_cfg["clean-15"] = dict(styles_cfg["drawn-bar"])
+    styles_cfg["clean"] = dict(styles_cfg["drawn-strike"])
+
     cfg = dict(styles_cfg.get(style_id, styles_cfg["classic"]))
     font_overrides = {
-        "bebas": ("Bebas Neue", "BebasNeue-Regular.ttf", 0, 0),
-        "coolvetica": ("Coolvetica", "Coolvetica-Regular.otf", 0, 0),
-        "lucette": ("Lucette", "Lucette-Regular.ttf", 0, 0),
+        "bebas": ("Bebas Neue", "BebasNeue-Regular.ttf", -1, 0),
+        "coolvetica": ("Coolvetica", "Coolvetica-Regular.otf", -1, 0),
+        "lucette": ("Lucette", "Lucette-Regular.ttf", -1, 0),
         "creato-bold-italic": ("Creato Display", "CreatoDisplay-BoldItalic.otf", -1, -1),
         "creato-extrabold-italic": ("Creato Display", "CreatoDisplay-ExtraBoldItalic.otf", -1, -1),
         "creato-extrabold": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
-        "apple-garamond": ("Apple Garamond", "AppleGaramond-Italic.ttf", 0, -1),
+        "apple-garamond": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
         "apple-garamond-bold": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
-        "apple-garamond-light": ("Apple Garamond Light", "AppleGaramond-LightItalic.ttf", 0, -1),
-        "lavish": ("Lavish", "lavish.otf", 0, 0),
+        "apple-garamond-light": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
+        "lavish": ("Lavish", "lavish.otf", -1, 0),
         "geist": ("Geist", "Geist.ttf", -1, 0),
         "dm-sans": ("DM Sans 9pt", "DMSans.ttf", -1, 0),
+    }
+    # Real bold file mapping so highlighted tokens NEVER fall back to thin/light weights
+    _BOLD_REAL_MAP = {
+        "CreatoDisplay-Light.otf": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
+        "CreatoDisplay-Regular.otf": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
+        "CreatoDisplay-Medium.otf": ("Creato Display", "CreatoDisplay-Bold.otf", -1, 0),
+        "AppleGaramond-LightItalic.ttf": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
+        "AppleGaramond-Italic.ttf": ("Apple Garamond", "AppleGaramond-BoldItalic.ttf", -1, -1),
     }
     if main_font_id and main_font_id in font_overrides:
         mf, mfile, mb, mi = font_overrides[main_font_id]
         cfg["main_font"] = mf
         cfg["main_file"] = mfile
-        cfg["main_bold"] = mb
+        cfg["main_bold"] = -1  # Mandatory bold on highlighted words
         cfg["main_italic"] = mi
+    if cfg["main_file"] in _BOLD_REAL_MAP:
+        bmf, bmfile, bmb, bmi = _BOLD_REAL_MAP[cfg["main_file"]]
+        cfg["main_font"] = bmf
+        cfg["main_file"] = bmfile
+        cfg["main_bold"] = bmb
+        if cfg["main_italic"]:
+            cfg["main_italic"] = bmi
+    cfg["main_bold"] = -1
+
     small_font_overrides = {
         **font_overrides,
         "creato-regular": ("Creato Display", "CreatoDisplay-Regular.otf", 0, 0),
         "creato-light": ("Creato Display Light", "CreatoDisplay-Light.otf", 0, 0),
         "creato-medium": ("Creato Display Medium", "CreatoDisplay-Medium.otf", 0, 0),
+        "apple-garamond": ("Apple Garamond", "AppleGaramond-Italic.ttf", 0, -1),
+        "apple-garamond-light": ("Apple Garamond Light", "AppleGaramond-LightItalic.ttf", 0, -1),
     }
     if small_font_id and small_font_id in small_font_overrides:
         sf, sfile, sb, si = small_font_overrides[small_font_id]
@@ -905,7 +961,12 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
         cfg["small_italic"] = si
     if caption_bold:
         cfg["small_bold"] = -1
-        cfg["main_bold"] = -1
+        if cfg["small_file"] in _BOLD_REAL_MAP:
+            bsf, bsfile, _, _ = _BOLD_REAL_MAP[cfg["small_file"]]
+            cfg["small_font"] = bsf
+            cfg["small_file"] = bsfile
+    cfg["main_bold"] = -1  # Ensure mandatory bold even after small/global logic
+    active_fx = cfg.get("fx", "none") if (not highlight_fx or highlight_fx == "auto") else highlight_fx
     scale_f = min(width, height) / 1080.0
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
@@ -988,19 +1049,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
         return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
 
-    def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, is_glow=False):
+    def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, is_glow=False, est_w_px=300.0, row_h_px=90.0):
         d = int(26 * scale_f)
         exit_dur = min(130, max(70, int(dur_ms * 0.16)))
         exit_s = max(260, dur_ms - exit_dur)
         s_exit = max(60, int(target_scale * 0.94))
         exit_scale = f"\\t({exit_s},{dur_ms},2.3,\\fscx{s_exit}\\fscy{s_exit})" if dur_ms > 340 else ""
 
+        if anim == "tracking" and is_main:
+            # Video 2 (37.7s): wide letter-spacing collapsing crisply to tight focus
+            sp0 = max(14, int(34 * scale_f))
+            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}\\fsp{sp0}\\t(0,420,0.28,\\fsp0){exit_scale}"
+        if anim == "clip_reveal" and is_main:
+            # Video 1 (5.2s) & Video 2 (39.7s): left-to-right clip reveal across highlight text
+            half_rw = int((est_w_px * (target_scale / 100.0)) / 2.0) + int(24 * scale_f)
+            half_rh = int((row_h_px * (target_scale / 100.0)) * 0.72) + int(18 * scale_f)
+            cx0, cy0, cx1, cy1 = max(0, x - half_rw), max(0, y - half_rh), min(width, x + half_rw), min(height, y + half_rh)
+            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}\\clip({cx0},{cy0},{cx0 + 4},{cy1})\\t(0,380,0.35,\\clip({cx0},{cy0},{cx1},{cy1})){exit_scale}"
+        if anim == "blur_grid":
+            end_blur = glow_blur if is_glow else 0.9
+            s_lo = max(55, int(target_scale * 0.88))
+            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,260,0.35,\\fscx{target_scale}\\fscy{target_scale})\\blur{round(end_blur + 7.5, 1)}\\t(0,300,0.35,\\blur{end_blur}){exit_scale}"
         if anim == "rise":
             s_lo = max(55, int(target_scale * 0.92))
             return f"\\move({x},{y + d},{x},{y},0,230)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
         if anim == "slide":
             s_lo = max(55, int(target_scale * 0.93))
-            return f"\\move({x + int(d * 1.1)},{y},{x},{y},0,230)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
+            shift_x = int(d * (1.8 if active_fx == "bar" and is_main else 1.1))
+            t_in = f"\\move({x - shift_x if (active_fx == 'bar' and is_main) else (x + shift_x)},{y},{x},{y},0,240)"
+            return f"{t_in}\\fscx{s_lo}\\fscy{s_lo}\\t(0,240,0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
         if anim == "blur":
             end_blur = glow_blur if is_glow else 0.9
             s_lo = max(55, int(target_scale * 0.93))
@@ -1009,9 +1086,71 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             s_lo = max(50, int(target_scale * (0.80 if is_main else 0.90)))
             s_hi = int(target_scale * (1.05 if is_main else 1.02))
             return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,145,0.34,\\fscx{s_hi}\\fscy{s_hi})\\t(145,245,0.5,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
-        # cut: snappy cubic micro-scale entrance + smooth exit
+        # cut / tracking-sub: snappy cubic micro-scale entrance
         s_lo = max(60, int(target_scale * 0.94))
         return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,130,0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
+
+    def _emit_drawn_fx(fx_kind, cx, cy, box_w, box_h, t0s, t1s, dur_ms):
+        """Emit native libass \\p1 vector highlights (circle / strike / bar) synced to highlighted text."""
+        if fx_kind not in ("circle", "strike", "bar"):
+            return
+        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
+        ex_t = f"\\t({max(220, dur_ms - exit_dur)},{dur_ms},2.2,\\alpha&HFF&)" if dur_ms > 320 else ""
+
+        if fx_kind == "bar":
+            bw = max(80, int(box_w + 34 * scale_f))
+            bh = max(36, int(box_h * 1.12))
+            rx = max(8, min(22, int(bh * 0.24)))
+            x0, y0 = int(cx - bw // 2), int(cy - bh // 2)
+            path = (
+                f"m {rx} 0 l {bw - rx} 0 b {bw} 0 {bw} {rx} {bw} {rx} "
+                f"l {bw} {bh - rx} b {bw} {bh} {bw - rx} {bh} {bw - rx} {bh} "
+                f"l {rx} {bh} b 0 {bh} 0 {bh - rx} 0 {bh - rx} "
+                f"l 0 {rx} b 0 0 {rx} 0 {rx} 0"
+            )
+            events.append(
+                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos({x0},{y0})\\p1\\1c{accent_ass}\\1a&H14&\\bord0\\shad0"
+                f"\\clip({x0},{y0},{x0 + 6},{y0 + bh})\\t(0,220,0.32,\\clip({x0},{y0},{x0 + bw},{y0 + bh})){ex_t}}}{path}{{\\p0}}"
+            )
+        elif fx_kind == "strike":
+            bw = max(80, int(box_w + 30 * scale_f))
+            lh = max(4, int(6 * scale_f))
+            x0, y0 = int(cx - bw // 2), int(cy + box_h * 0.22)
+            path = f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}"
+            events.append(
+                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos({x0},{y0})\\p1\\1c{accent_ass}\\1a&H00&\\bord0\\shad0\\blur1.5"
+                f"\\clip({x0},{y0 - 4},{x0 + 4},{y0 + lh + 4})\\t(50,360,0.35,\\clip({x0},{y0 - 4},{x0 + bw},{y0 + lh + 4})){ex_t}}}{path}{{\\p0}}"
+            )
+        elif fx_kind == "circle":
+            # Organic 360-degree oval loop drawn progressively around the highlighted word (Video 3 10.2s)
+            bw = max(90, int(box_w + 46 * scale_f))
+            bh = max(44, int(box_h * 1.28))
+            rx, ry = bw / 2.0, bh / 2.0
+            k = 0.5523
+            kx, ky = rx * k, ry * k
+            x0, y0 = int(cx - rx), int(cy - ry)
+            stroke = round(max(2.6, 4.2 * scale_f), 1)
+            oval_path = (
+                f"m {int(rx)} 0 "
+                f"b {int(rx + kx)} 0 {bw} {int(ry - ky)} {bw} {int(ry)} "
+                f"b {bw} {int(ry + ky)} {int(rx + kx)} {bh} {int(rx)} {bh} "
+                f"b {int(rx - kx)} {bh} 0 {int(ry + ky)} 0 {int(ry)} "
+                f"b 0 {int(ry - ky)} {int(rx - kx)} 0 {int(rx)} 0"
+            )
+            pad = int(stroke + 8)
+            # Top arc draws left->right (0..210ms); Bottom arc draws right->left (170..390ms) = smooth 360 loop!
+            events.append(
+                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{accent_ass}\\3a&H0A&\\bord{stroke}\\shad0\\blur1.0"
+                f"\\clip({x0 - pad},{y0 - pad},{x0},{y0 + int(ry) + 2})\\t(30,220,0.45,\\clip({x0 - pad},{y0 - pad},{x0 + bw + pad},{y0 + int(ry) + 2})){ex_t}}}{oval_path}{{\\p0}}"
+            )
+            events.append(
+                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{accent_ass}\\3a&H0A&\\bord{stroke}\\shad0\\blur1.0"
+                f"\\clip({x0 + bw + pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})\\t(190,390,0.45,\\clip({x0 - pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})){ex_t}}}{oval_path}{{\\p0}}"
+            )
 
     def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None):
         """Return inline ASS override tag for switching between Small and Main styles inside one line."""
@@ -1025,9 +1164,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
         if is_main_tok:
             msz = main_sz_override or m_size
+            # When drawn behind a solid highlight bar, crisp white bold reads cleaner than accent-on-accent!
+            fg_c = "&H00FFFFFF&" if active_fx == "bar" else accent_ass
             return (
-                f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}"
-                f"\\1c{accent_ass}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.8"
+                f"\\fn{cfg['main_font']}\\fs{msz}\\b-1\\i{cfg['main_italic']}"
+                f"\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.8"
             )
         return (
             f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}"
@@ -1075,8 +1216,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Layer 1: Soft Glow halo behind any Main highlight token on this line
         if has_main:
             solo_main_glow = (len(tokens) == 1)
-            glow_motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
-            glow_blur_tag = f"\\blur{glow_blur}" if anim != "blur" else ""
+            if active_fx in ("circle", "strike", "bar"):
+                mtok = tokens[main_local_idx]
+                mtxt = mtok["w"].upper() if cfg["upper"] else mtok["w"]
+                mw_px = _measure(mtxt, is_main=True, custom_sz=inline_m_sz) * (fit_pct / 100.0)
+                offset_to_m = 0.0
+                if not solo_main_glow:
+                    left_w = sum(_measure(t["w"], is_main=False) for t in tokens[:main_local_idx]) + _measure(" ", is_main=False) * main_local_idx
+                    left_w *= (fit_pct / 100.0)
+                    offset_to_m = -half_w + left_w + mw_px * 0.5
+                # Start the drawn highlight right when the highlighted word itself speaks (sync!)
+                m_start_s = cap_s if instant_in else max(cap_s, float(mtok.get("s", cap_s)))
+                mt0s = _fmt_ass_time(m_start_s)
+                m_dur_ms = max(240, int((cap_e + (0.0 if instant_out else 0.12) - m_start_s) * 1000))
+                _emit_drawn_fx(active_fx, int(safe_x + offset_to_m), y_row, mw_px, inline_m_sz * (fit_pct / 100.0), mt0s, t1s, m_dur_ms)
+
+            glow_motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True, est_w_px=est_w, row_h_px=inline_m_sz)
+            glow_blur_tag = f"\\blur{glow_blur}" if anim not in ("blur", "blur_grid") else ""
             g_chunks = []
             for idx, w in enumerate(tokens):
                 is_m = (idx == main_local_idx)
@@ -1090,21 +1246,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     g_chunks.append(f"{{{sw}}}{txt}")
             glow_base_style = "MainGlow" if solo_main_glow else "Small"
             glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
-            events.append(
-                f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_blur_tag}}}{glow_text}"
-            )
+            if active_fx != "bar":
+                events.append(
+                    f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_blur_tag}}}{glow_text}"
+                )
 
         # Layer 2 (Main) or Layer 0 (Small): Crisp centered foreground text
         solo_main = (has_main and len(tokens) == 1)
-        motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False)
-        blur_base = "\\blur0.8" if anim != "blur" else ""
+        motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False, est_w_px=est_w, row_h_px=(inline_m_sz if has_main else s_size))
+        blur_base = "\\blur0.8" if anim not in ("blur", "blur_grid") else ""
         fg_chunks = []
         for idx, w in enumerate(tokens):
             is_m = (has_main and idx == main_local_idx)
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
             rev = _rev_tag(rel_ms, is_g=False, is_m=is_m)
-            if has_main and not solo_main:
+            if (has_main and not solo_main) or (is_m and active_fx == "bar"):
                 sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
                 fg_chunks.append(f"{{{sw}{rev}}}{txt}")
             else:
@@ -1173,12 +1330,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         after = words[main_idx + 1:]
 
         upper_main = cfg["upper"]
-        top_offset = int(m_size * 0.39 + s_size * 0.30)
-        bot_offset = int(m_size * (0.38 if upper_main else 0.42) + s_size * 0.34)
-        top_2_above = int(m_size * 0.28 + s_size * 0.32)
-        bot_2_below = int(m_size * 0.16)
-        top_2_main = int(m_size * 0.16)
-        bot_2_after = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36)
+        fx_pad = int(m_size * 0.16) if active_fx in ("circle", "bar") else 0
+        top_offset = int(m_size * 0.39 + s_size * 0.30) + fx_pad
+        bot_offset = int(m_size * (0.38 if upper_main else 0.42) + s_size * 0.34) + fx_pad
+        top_2_above = int(m_size * 0.28 + s_size * 0.32) + fx_pad
+        bot_2_below = int(m_size * 0.16) + fx_pad
+        top_2_main = int(m_size * 0.16) + fx_pad
+        bot_2_after = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36) + fx_pad
 
         if req_lines >= 3 and before and after:
             # Never strand a single short orphan normal word (< 5 chars) when 2 rows look cleaner!
@@ -1406,8 +1564,10 @@ def render_video(
             )
             cur_v = "[vgraded]"
 
-        auto_b_cycle = ["top", "bottom", "full"]
+        auto_b_cycle = ["top", "pip-rounded", "bottom", "center-frame", "full"]
         split_brolls = []
+        framed_brolls = []
+        strip_i = 0
         for bi, (b_idx, b, is_img) in enumerate(broll_inputs):
             b_dur_req = float(b.get("dur") or 3.5)
             if not is_img:
@@ -1428,8 +1588,45 @@ def render_video(
                 )
                 fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbf{bi}]")
                 cur_v = f"[vbf{bi}]"
+            elif layout in ("pip-rounded", "center-frame", "triptych-strips"):
+                framed_brolls.append((bi, b_idx, layout, bs, be, b_dur, strip_i))
+                if layout == "triptych-strips":
+                    strip_i += 1
             else:
                 split_brolls.append((bi, b_idx, layout, bs, be, b_dur))
+
+        for bi, b_idx, lay, bs, be, b_dur, s_ord in framed_brolls:
+            if lay == "pip-rounded":
+                bw, bh, rad = max(160, int(w_even * 0.38)), max(160, int(h_even * 0.22)), 26
+                ox, oy = f"{int(w_even * 0.05)}", f"{int(h_even * 0.07)}"
+            elif lay == "center-frame":
+                bw, bh, rad = max(240, int(w_even * 0.78)), max(220, int(h_even * 0.42)), 34
+                ox, oy = "(W-w)/2", f"{int(h_even * 0.22)}"
+            else:  # triptych-strips: Video 1 sliding horizontal strip!
+                bw, bh, rad = max(260, int(w_even * 0.78)), max(96, int(h_even * 0.14)), 20
+                target_x = int((w_even - bw) * 0.5)
+                tin = f"min(1,max(0,(t-{bs:.3f})/0.32))"
+                e_in = f"(1-(1-{tin})*(1-{tin})*(1-{tin}))"
+                ox = f"{w_even}-({w_even}-{target_x})*{e_in}"
+                oy = f"{int(h_even * (0.09 + (s_ord % 3) * 0.17))}"
+            bw -= bw % 2
+            bh -= bh % 2
+            rmask = _ensure_rounded_mask(Path(out_path).parent / f"rmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+            rmask_idx = next_in_idx
+            next_in_idx += 1
+            extra_inputs += ["-loop", "1", "-i", str(rmask)]
+            fc_parts.append(f"[{rmask_idx}:v]trim=duration={b_dur:.3f},setpts=PTS-STARTPTS[rm{bi}]")
+            fc_parts.append(
+                f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS,"
+                f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={bw}:{bh},format=rgba[vbr_{bi}]"
+            )
+            fc_parts.append(
+                f"[vbr_{bi}][rm{bi}]alphamerge=shortest=1,"
+                f"fade=t=in:st=0:d=0.22:alpha=1,fade=t=out:st={max(0.1, b_dur-0.22):.3f}:d=0.22:alpha=1,"
+                f"setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vbfrm{bi}]"
+            )
+            fc_parts.append(f"{cur_v}[vbfrm{bi}]overlay=x='{ox}':y='{oy}':enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbf_{bi}]")
+            cur_v = f"[vbf_{bi}]"
 
         if split_brolls:
             # Frame speaker cleanly into the visible half (biased toward top-center face so head is NEVER cropped!)

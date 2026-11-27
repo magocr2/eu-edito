@@ -104,73 +104,80 @@
         </div>
       </section>
 
-      <!-- ETAPA 2: Modelo da legenda -->
+      <!-- ETAPA 2: Modelo da legenda (3 categorias das referências) -->
       <section class="card wizard-step" data-step="2" hidden>
-        <div class="step-head"><span class="badge">2</span><h2>Modelo da Legenda (11 estilos)</h2></div>
-        <div class="cat-tabs" id="catTabs">
-          <button type="button" class="cat-tab is-active" data-cat="dynamic">⚡ Dinâmicas (5)</button>
-          <button type="button" class="cat-tab" data-cat="clean">✨ Clean (6)</button>
+        <div class="step-head"><span class="badge">2</span><h2>Modelo da Legenda (12 estilos)</h2></div>
+        <div class="cat-tabs cat-tabs-3" id="catTabs">
+          <button type="button" class="cat-tab is-active" data-cat="dynamic">⚡ Dinâmicas</button>
+          <button type="button" class="cat-tab" data-cat="kinetic">✨ Cinéticas</button>
+          <button type="button" class="cat-tab" data-cat="drawn">✏️ Traços &amp; Faixas</button>
         </div>
 
         <div class="style-grid" id="styleGrid">
-          <!-- Dinâmicas -->
+          <!-- Dynamic Captions -->
           <button type="button" class="style-pill is-active" data-cat="dynamic" data-style="classic">
             <span class="mini-sample s-classic">só que eu <b>FARIA DIFERENTE</b></span>
             <strong>Dinâmica 01 · Impacto Bold</strong>
           </button>
           <button type="button" class="style-pill" data-cat="dynamic" data-style="model-07">
             <span class="mini-sample s-m07">disputar a <b>ATENÇÃO</b></span>
-            <strong>Dinâmica 02 · Foco Neon</strong>
+            <strong>Dinâmica 02 · Foco Neon Serif</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-9">
+            <span class="mini-sample s-c9">leitura limpa e <b>FLUIDA</b></span>
+            <strong>Dinâmica 03 · Blur Cinemático</strong>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-10">
+            <span class="mini-sample s-c10">se eu fosse <b>COMEÇAR</b></span>
+            <strong>Dinâmica 04 · Linha Direta</strong>
           </button>
           <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-12">
             <span class="mini-sample s-c12">ritmo <b>EM MOVIMENTO</b></span>
-            <strong>Dinâmica 03 · Keyframe Motion</strong>
+            <strong>Dinâmica 05 · Pop DM Sans</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-13">
-            <span class="mini-sample s-c13">deslize <b>POR CURIOSIDADE</b></span>
-            <strong>Dinâmica 04 · Entrada Lateral</strong>
-          </button>
-          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-14">
-            <span class="mini-sample s-c14">Você <i>comemorou</i></span>
-            <strong>Dinâmica 05 · Editorial Destaque</strong>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-lavish">
+            <span class="mini-sample s-lavish">Essa <b>CAMPANHA</b></span>
+            <strong>Dinâmica 06 · Lavish Bold</strong>
           </button>
 
-          <!-- Clean -->
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean-9" hidden>
-            <span class="mini-sample s-c9">leitura limpa e <b>fluida</b></span>
-            <strong>Clean 01 · Minimalista Suave</strong>
+          <!-- Kinetic Typography (Ref 1 & 2) -->
+          <button type="button" class="style-pill" data-cat="kinetic" data-style="kinetic-tracking" hidden>
+            <span class="mini-sample s-ktrk">mostro <b style="letter-spacing:.14em">EXATAMENTE</b></span>
+            <strong>Cinética 01 · Tracking Topo</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean-10" hidden>
-            <span class="mini-sample s-c10">se eu fosse <b>começar</b></span>
-            <strong>Clean 02 · Apoio e Destaque</strong>
+          <button type="button" class="style-pill" data-cat="kinetic" data-style="kinetic-clip" hidden>
+            <span class="mini-sample s-kclip">mas a <b style="color:#f472b6">VERDADE</b></span>
+            <strong>Cinética 02 · Máscara &amp; Glow</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean-11" hidden>
-            <span class="mini-sample s-c11">elegância e <i>sofisticação</i></span>
-            <strong>Clean 03 · Editorial Garamond</strong>
+          <button type="button" class="style-pill" data-cat="kinetic" data-style="kinetic-blurgrid" hidden>
+            <span class="mini-sample s-kblur">encaixar <b>CORTES</b></span>
+            <strong>Cinética 03 · Blur Dramático</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean-15" hidden>
-            <span class="mini-sample s-c15">uma forma de <b>imaginar</b></span>
-            <strong>Clean 04 · Entrada e Pausa</strong>
+
+          <!-- Drawn Highlights (Ref 1, 2 & 3) -->
+          <button type="button" class="style-pill" data-cat="drawn" data-style="drawn-circle" hidden>
+            <span class="mini-sample s-dcirc">tiverem <b class="ms-circle">LOCALIZAÇÃO</b></span>
+            <strong>Traço 01 · Círculo 360°</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean-lavish" hidden>
-            <span class="mini-sample s-lavish">Essa <b>CAMPANHA</b></span>
-            <strong>Clean 05 · Lavish Elegance</strong>
+          <button type="button" class="style-pill" data-cat="drawn" data-style="drawn-strike" hidden>
+            <span class="mini-sample s-dstrk">dentro da <b class="ms-strike">COMUNIDADE</b></span>
+            <strong>Traço 02 · Linha Progressiva</strong>
           </button>
-          <button type="button" class="style-pill" data-cat="clean" data-style="clean" hidden>
-            <span class="mini-sample s-clean">composição <b>seguidores</b></span>
-            <strong>Clean 06 · Composições Brancas</strong>
+          <button type="button" class="style-pill" data-cat="drawn" data-style="drawn-bar" hidden>
+            <span class="mini-sample s-dbar">treino <b class="ms-bar">DIRECIONADO</b></span>
+            <strong>Traço 03 · Faixa Highlight</strong>
           </button>
         </div>
 
         <div class="step-nav">
           <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
-          <button type="button" class="primary-btn" data-next="3">Próximo: Cor e Negrito →</button>
+          <button type="button" class="primary-btn" data-next="3">Próximo: Cor, Traço &amp; Negrito →</button>
         </div>
       </section>
 
-      <!-- ETAPA 3: Cor personalizada, Negrito, Altura e Tamanho -->
+      <!-- ETAPA 3: Cor personalizada, Realce Gráfico, Negrito, Altura e Tamanho -->
       <section class="card wizard-step" data-step="3" hidden>
-        <div class="step-head"><span class="badge">3</span><h2>Cor, Negrito, Altura &amp; Tamanho</h2></div>
+        <div class="step-head"><span class="badge">3</span><h2>Cor, Traço, Negrito &amp; Tamanho</h2></div>
 
         <div class="row-2">
           <div class="field">
@@ -183,10 +190,21 @@
           </label>
         </div>
 
+        <label class="field" style="margin-top:10px">
+          <span>Traço / Destaque gráfico na palavra-chave</span>
+          <select id="highlightFxSelect">
+            <option value="auto">Automático do modelo</option>
+            <option value="circle">⭕ Círculo desenhado (360°)</option>
+            <option value="strike">➖ Linha desenhada progressiva</option>
+            <option value="bar">▬ Faixa highlight atrás do texto</option>
+            <option value="none">Somente texto em negrito + cor</option>
+          </select>
+        </label>
+
         <label class="toggle-row" style="margin-top:10px">
           <div>
-            <strong>Legenda em Negrito</strong>
-            <small>Deixa todas as palavras com peso forte para leitura rápida</small>
+            <strong>Toda a legenda em Negrito</strong>
+            <small>As palavras de destaque já ficam em negrito automaticamente; ative para fortalecer o texto normal também</small>
           </div>
           <span class="switch">
             <input type="checkbox" id="boldToggle">
