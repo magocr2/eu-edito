@@ -120,6 +120,34 @@ MOTION_TEMPLATES = {
         "description": "Composição tipográfica mista sem ruído gráfico desnecessário.",
         "default_params": {"title": "Conceito Central", "accent_text": "em destaque", "position": "bottom-card", "scale": 100},
     },
+    "bento_macro": {
+        "id": "bento_macro",
+        "category": "editorial",
+        "name": "Bento Hardware Tátil (Tela Cheia)",
+        "description": "Grade Bento estilo Apple com relógio analógico, blocos táteis, barras de progresso e câmera macro.",
+        "default_params": {"title": "Escala e Sistema", "accent_text": "bento UI", "labels": ["Etapa 1", "Etapa 2", "Meta"], "position": "fullscreen", "scale": 100},
+    },
+    "stacked_ribbons": {
+        "id": "stacked_ribbons",
+        "category": "kinetic_type",
+        "name": "Faixas Empilhadas Dinâmicas",
+        "description": "Tiras inclinadas em alto contraste com entrada em cascata e bokeh editorial.",
+        "default_params": {"title": "Posicionamento", "accent_text": "Estratégia", "labels": ["Posicionamento", "Estratégia", "Execução"], "position": "fullscreen", "scale": 100},
+    },
+    "year_roulette": {
+        "id": "year_roulette",
+        "category": "narrative_doc",
+        "name": "Roleta Temporal & Seta Editorial",
+        "description": "Seletor rolante de marcos/anos com balão saltado e seta manuscrita até a ideia central.",
+        "default_params": {"title": "Nova Fase", "accent_text": "EM EVOLUÇÃO", "labels": ["2024", "2025", "2026"], "metric": "2026", "position": "fullscreen", "scale": 100},
+    },
+    "spotlight_emblem": {
+        "id": "spotlight_emblem",
+        "category": "editorial",
+        "name": "Emblema Bokeh & Holofote",
+        "description": "Aro circular com emblema satélite e profundidade de campo óptica atrás da manchete.",
+        "default_params": {"title": "Virada de Chave", "accent_text": "em crescimento", "position": "fullscreen", "scale": 100},
+    },
 }
 
 _LEGACY_HERO_ALIAS = {
@@ -183,7 +211,27 @@ def build_motion_from_prompt(prompt_text: str, preferred_template_id: str = None
         forced_hero = COMPONENT_REGISTRY.get(preferred_template_id) and preferred_template_id or _LEGACY_HERO_ALIAS.get(preferred_template_id)
 
     interp = interpret_segment(prompt_text, frame_info=frame_info)
-    art = direct_art(interp, frame_info=frame_info, used_styles=used_styles)
+    # Honor manual cutaway templates cleanly when requested directly
+    allow_cutaway = preferred_template_id in (None, "auto_narrative", "bento_macro", "stacked_ribbons", "year_roulette", "spotlight_emblem")
+    forced_style = None
+    forced_pos = None
+    if preferred_template_id == "bento_macro":
+        forced_style, forced_pos = "bento_studio", "fullscreen"
+    elif preferred_template_id == "stacked_ribbons":
+        forced_style, forced_pos = "paper_cutaway", "fullscreen"
+    elif preferred_template_id in ("year_roulette", "spotlight_emblem"):
+        forced_style, forced_pos = "editorial_cutaway", "fullscreen"
+
+    art = direct_art(
+        interp,
+        frame_info=frame_info,
+        used_styles=used_styles,
+        forced_style_id=forced_style,
+        forced_position=forced_pos,
+        allow_cutaway=allow_cutaway,
+    )
+    if preferred_template_id == "bento_macro":
+        art["camera"] = {"motion": "zoom_pan_reveal", "dolly_scale": 0.08, "pan_px": 24}
     plan = compose_scene_plan(interp, art, duration=duration, forced_hero=forced_hero)
     plan = validate_and_refine_plan(plan, interp, frame_info=frame_info, used_signatures=used_signatures)
 
@@ -207,7 +255,7 @@ def analyze_video_for_motion(captions, video_path=None):
     if not captions:
         return []
 
-    # Group captions into coherent thought segments
+    # Group captions into coherent thought segments — never merge pure filler greetings onto real content!
     windows = []
     i = 0
     while i < len(captions):
@@ -215,6 +263,9 @@ def analyze_video_for_motion(captions, video_path=None):
         text = c1.get("text", "").strip()
         s = float(c1["s"] if c1.get("s") is not None else c1.get("start", 0.0))
         e = float(c1["e"] if c1.get("e") is not None else c1.get("end", s + 2.0))
+        if not interpret_segment(text).get("should_render", True):
+            i += 1
+            continue
         while i + 1 < len(captions):
             c_next = captions[i + 1]
             ns = float(c_next["s"] if c_next.get("s") is not None else c_next.get("start", 0.0))
@@ -248,7 +299,10 @@ def analyze_video_for_motion(captions, video_path=None):
             continue
 
         dur = round(min(5.8, max(2.4, w["e"] - w["s"])), 2)
-        art = direct_art(interp, frame_info=frame_info, used_styles=used_styles)
+        # Alternate cinema full-bleed cutaways with presenter-visible overlays cleanly (~1 in 3 or non-consecutive)
+        last_was_fs = bool(suggestions and suggestions[-1].get("position") == "fullscreen")
+        allow_cutaway = (not last_was_fs) and (len(suggestions) % 2 == 0 or bool(interp.get("extracted_numbers")))
+        art = direct_art(interp, frame_info=frame_info, used_styles=used_styles, allow_cutaway=allow_cutaway)
         plan = compose_scene_plan(interp, art, duration=dur)
         plan = validate_and_refine_plan(plan, interp, frame_info=frame_info, used_signatures=used_signatures)
 
@@ -303,6 +357,10 @@ def _apply_user_edits_to_plan(plan: dict, params: dict) -> dict:
             if params.get("subtitle"):
                 lyr["props"]["subtitle"] = str(params["subtitle"])
         else:
+            if params.get("title"):
+                lyr["props"]["title"] = str(params["title"])
+            if "accent_text" in params:
+                lyr["props"]["accent"] = str(params["accent_text"] or "")
             if isinstance(params.get("labels"), list) and params["labels"]:
                 lyr["props"]["labels"] = params["labels"]
             if isinstance(params.get("values"), list) and params["values"]:
@@ -333,10 +391,14 @@ def render_motion_clip(
         plan = built["scene_plan"]
     plan = _apply_user_edits_to_plan(plan, p_dict)
 
+    # Fullscreen studio cutaways default to vertical 9:16 canvas if caller used default overlay box dims
+    if plan.get("position") == "fullscreen" and width > height and (width, height) in ((860, 440), (680, 360)):
+        width, height = (432, 768) if width <= 680 else (540, 960)
+
     # Post-render quality audit check on mid-frame before streaming full clip
     mid_frame = render_scene_frame(plan, 0.55, float(duration) * 0.55, width=width, height=height)
-    audit = audit_rendered_frame(mid_frame)
-    if not audit["ok"]:
+    audit = audit_rendered_frame(mid_frame, scene_plan=plan)
+    if not audit["ok"] and plan.get("position") != "fullscreen":
         plan["surface_mode"] = "pure_halo"
 
     return render_scene_clip(

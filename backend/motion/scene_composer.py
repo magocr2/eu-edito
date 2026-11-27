@@ -8,6 +8,7 @@ from .assets_library import (
     comp_3d_coins_growth,
     comp_3d_pillars_scale,
     comp_ai_neural_architecture,
+    comp_bento_macro,
     comp_calligraphy_sheet,
     comp_chronology_archive,
     comp_editorial_comparison,
@@ -16,10 +17,17 @@ from .assets_library import (
     comp_machine_cutaway,
     comp_process_transformation,
     comp_science_orbital,
+    comp_spotlight_emblem,
+    comp_stacked_ribbons,
     comp_tactical_radar,
+    comp_year_roulette,
 )
 
 COMPONENT_REGISTRY = {
+    "bento_macro": comp_bento_macro,
+    "stacked_ribbons": comp_stacked_ribbons,
+    "year_roulette": comp_year_roulette,
+    "spotlight_emblem": comp_spotlight_emblem,
     "3d_coins_growth": comp_3d_coins_growth,
     "3d_pillars_scale": comp_3d_pillars_scale,
     "tactical_radar": comp_tactical_radar,
@@ -41,19 +49,35 @@ _INTENT_HERO_MAP = {
     "geo_journey": "geo_route_map",
     "value_comparison": "editorial_comparison",
     "machine_mechanics": "machine_cutaway",
-    "business_scale": "3d_pillars_scale",
-    "historical_chronology": "chronology_archive",
+    "business_scale": "bento_macro",
+    "historical_chronology": "year_roulette",
     "scientific_principle": "science_orbital",
     "process_transformation": "process_transformation",
     "educational_craft": "calligraphy_sheet",
-    "conceptual_focus": "kinetic_headline",
+    "conceptual_focus": "spotlight_emblem",
 }
 
 
 def compose_scene_plan(interpretation: dict, art_direction: dict, duration: float = 3.2, forced_hero: str = None) -> dict:
-    """Compile Visual Interpretation + Art Direction into a varied spatial composition."""
+    """Compile Visual Interpretation + Art Direction into a varied spatial + optical DOF composition."""
     intent = interpretation.get("narrative_intent", "conceptual_focus")
-    hero_kind = forced_hero if forced_hero in COMPONENT_REGISTRY else _INTENT_HERO_MAP.get(intent, "kinetic_headline")
+    pattern = art_direction.get("layout_mode", "wide_scrim")
+
+    if forced_hero in COMPONENT_REGISTRY:
+        hero_kind = forced_hero
+    elif pattern == "ribbons_cutaway":
+        hero_kind = "stacked_ribbons"
+    elif pattern == "roulette_cutaway":
+        hero_kind = "year_roulette"
+    elif pattern == "bento_cutaway":
+        hero_kind = "bento_macro"
+    elif pattern == "spotlight_dof":
+        hero_kind = "spotlight_emblem"
+    else:
+        hero_kind = _INTENT_HERO_MAP.get(intent, "kinetic_headline")
+        # If cutaways are suppressed on this segment, fallback cleanly to presenter-safe heroes
+        if art_direction.get("position") != "fullscreen" and hero_kind in ("bento_macro", "year_roulette", "stacked_ribbons", "spotlight_emblem"):
+            hero_kind = "3d_pillars_scale" if intent == "business_scale" else ("chronology_archive" if intent == "historical_chronology" else "kinetic_headline")
 
     nums = interpretation.get("extracted_numbers") or []
     places = interpretation.get("places") or []
@@ -71,16 +95,78 @@ def compose_scene_plan(interpretation: dict, art_direction: dict, duration: floa
         "size": 52 if art_direction["art_style_id"] != "tactical_hud" else 58,
     }
     hero_props = {
+        "title": headline_props["title"],
+        "accent": headline_props["accent"],
+        "subtitle": headline_props["subtitle"],
         "labels": labels[:4],
         "numbers": nums[:4],
         "threshold_label": thresh_lbl,
         "values": _parse_values(nums),
     }
 
-    pattern = art_direction.get("layout_mode", "wide_scrim")
     layers = []
-
-    if hero_kind == "kinetic_headline" or pattern == "compact_callout":
+    if hero_kind == "bento_macro":
+        layers.append({
+            "component": "bento_macro",
+            "z_depth": 1.0,
+            "t_in": 0.0,
+            "t_out": 1.0,
+            "box": [0.05, 0.08, 0.95, 0.92],
+            "props": hero_props,
+        })
+    elif hero_kind == "stacked_ribbons":
+        # Optical bokeh headline silhouette behind crisp foreground ribbons!
+        layers.append({
+            "component": "kinetic_headline",
+            "z_depth": 0.25,
+            "blur": 14.0,
+            "opacity": 0.24,
+            "t_in": 0.0,
+            "t_out": 1.0,
+            "box": [0.06, 0.06, 0.94, 0.30],
+            "props": {**headline_props, "size": 52, "centered": True},
+        })
+        layers.append({
+            "component": "stacked_ribbons",
+            "z_depth": 1.0,
+            "t_in": 0.02,
+            "t_out": 1.0,
+            "box": [0.06, 0.24, 0.94, 0.86],
+            "props": hero_props,
+        })
+    elif hero_kind == "year_roulette":
+        layers.append({
+            "component": "year_roulette",
+            "z_depth": 1.0,
+            "t_in": 0.0,
+            "t_out": 1.0,
+            "box": [0.05, 0.08, 0.95, 0.92],
+            "props": hero_props,
+        })
+    elif hero_kind == "spotlight_emblem":
+        # Optical depth-of-field bokeh emblem in background behind sharp centered typography!
+        layers.append({
+            "component": "spotlight_emblem",
+            "z_depth": 0.35,
+            "blur": 10.0 if art_direction.get("position") == "fullscreen" else 0.0,
+            "opacity": 0.65 if art_direction.get("position") == "fullscreen" else 0.90,
+            "t_in": 0.0,
+            "t_out": 1.0,
+            "box": [0.10, 0.08, 0.90, 0.62],
+            "props": hero_props,
+        })
+        sub_tag = headline_props.get("subtitle") or ""
+        full_hdr = f"{headline_props.get('title', '')} {headline_props.get('accent', '')}".strip().lower()
+        clean_sub = "" if sub_tag.strip().lower() in full_hdr else sub_tag
+        layers.append({
+            "component": "kinetic_headline",
+            "z_depth": 1.0,
+            "t_in": 0.06,
+            "t_out": 1.0,
+            "box": [0.06, 0.56, 0.94, 0.92],
+            "props": {**headline_props, "subtitle": clean_sub, "size": 58, "centered": True},
+        })
+    elif hero_kind == "kinetic_headline" or pattern == "compact_callout":
         # Pure kinetic editorial typography without decorative graphic bloat
         layers.append({
             "component": "kinetic_headline",
@@ -91,7 +177,7 @@ def compose_scene_plan(interpretation: dict, art_direction: dict, duration: floa
             "props": {**headline_props, "size": 64},
         })
     elif pattern == "split_asymmetric" and hero_kind in ("tactical_radar", "3d_pillars_scale", "science_orbital", "calligraphy_sheet"):
-        # Left Visual Focus + Right Balanced Editorial Lockup (breaks top-down monotony!)
+        # Left Visual Focus + Right Balanced Editorial Lockup
         layers.append({
             "component": hero_kind,
             "z_depth": 0.75,

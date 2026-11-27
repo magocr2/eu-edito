@@ -1,4 +1,4 @@
-const CACHE = 'hogus-studio-web-v9';
+const CACHE = 'hogus-studio-web-v10';
 const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/vendor/three.min.js', '/assets/motion-engine.js', '/assets/motion-ui.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

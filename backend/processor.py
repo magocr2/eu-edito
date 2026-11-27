@@ -1628,24 +1628,32 @@ def render_video(
             me = ms + md
             mscale = max(0.55, min(1.40, float(m.get("scale", 100)) / 100.0))
             mpos = (m.get("position") or "bottom-card").lower()
-            w_frac = 0.58 if mpos in ("top-left", "top-right") else 0.94
-            mw_target = max(240, int(w_even * w_frac * mscale))
-            mw_target -= mw_target % 2
-            pad_m = max(14, int(w_even * 0.03))
-            if mpos == "top-left":
-                mx, my = f"{pad_m}", f"{int(h_even * 0.13)}"
-            elif mpos == "top-right":
-                mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.13)}"
-            elif mpos == "bottom-card":
-                mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
-            elif mpos == "top-center":
-                mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
+            if mpos == "fullscreen":
+                fc_parts.append(
+                    f"[{m_idx}:v]scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},"
+                    f"crop={w_even}:{h_even},format=rgba,"
+                    f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
+                )
+                mx, my = "0", "0"
             else:
-                mx, my = f"(W-w)/2", f"(H-h)/2"
-            fc_parts.append(
-                f"[{m_idx}:v]scale={mw_target}:-2:flags={scale_flags},format=rgba,"
-                f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
-            )
+                w_frac = 0.58 if mpos in ("top-left", "top-right") else 0.94
+                mw_target = max(240, int(w_even * w_frac * mscale))
+                mw_target -= mw_target % 2
+                pad_m = max(14, int(w_even * 0.03))
+                if mpos == "top-left":
+                    mx, my = f"{pad_m}", f"{int(h_even * 0.13)}"
+                elif mpos == "top-right":
+                    mx, my = f"{w_even}-w-{pad_m}", f"{int(h_even * 0.13)}"
+                elif mpos == "bottom-card":
+                    mx, my = f"(W-w)/2", f"{int(h_even * 0.56)}"
+                elif mpos == "top-center":
+                    mx, my = f"(W-w)/2", f"{int(h_even * 0.12)}"
+                else:
+                    mx, my = f"(W-w)/2", f"(H-h)/2"
+                fc_parts.append(
+                    f"[{m_idx}:v]scale={mw_target}:-2:flags={scale_flags},format=rgba,"
+                    f"setpts=PTS-STARTPTS+{ms:.3f}/TB,setsar=1[vmg{mi}]"
+                )
             fc_parts.append(f"{cur_v}[vmg{mi}]overlay=x='{mx}':y='{my}':enable='between(t,{ms:.3f},{me:.3f})':eof_action=pass[vmo{mi}]")
             cur_v = f"[vmo{mi}]"
 

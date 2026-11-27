@@ -99,6 +99,22 @@
     const prim = pal.primary || [34, 197, 94];
     const bg = pal.bg || [10, 14, 22];
     const smode = plan.surface_mode || 'pure_halo';
+    const isFs = plan.position === 'fullscreen';
+    if (isFs) {
+      let baseRgb = bg;
+      let leakA = 0.45 * alphaEnv;
+      if (smode === 'paper_cutaway') { baseRgb = [242, 240, 235]; leakA = 0.18 * alphaEnv; }
+      else if (smode === 'bento_studio') { baseRgb = [210, 214, 219]; leakA = 0.25 * alphaEnv; }
+      ctx.fillStyle = rgbStr(baseRgb, 0.98 * alphaEnv);
+      ctx.fillRect(0, 0, w, h);
+      const rgTop = ctx.createRadialGradient(w * 0.85, h * 0.12, 4, w * 0.85, h * 0.12, w * 0.55);
+      rgTop.addColorStop(0, rgbStr(prim, leakA));
+      rgTop.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rgTop;
+      ctx.fillRect(0, 0, w, h);
+      return 0;
+    }
+
     const dy = (1 - enterP) * 14;
     const x0 = w * 0.03, y0 = h * 0.03 + dy, x1 = w * 0.97, y1 = h * 0.97 + dy;
 
@@ -158,28 +174,92 @@
       const pr = lyr.props || {};
       const anim = ease(Math.min(1, prog / 0.72), 'spring');
 
+      ctx.save();
+      if (lyr.opacity !== undefined) ctx.globalAlpha = alphaEnv * Number(lyr.opacity);
+      if (lyr.blur && Number(lyr.blur) > 0) ctx.filter = `blur(${Math.round(Number(lyr.blur) * 0.45)}px)`;
+
       if (comp === 'kinetic_headline') {
         const fMain = `800 ${Math.max(10, Math.round(17 * sc))}px 'CreatoDisplay', sans-serif`;
         const fItal = `italic 700 ${Math.max(10, Math.round(17 * sc))}px 'AppleGaramond', Georgia, serif`;
+        const isCentered = !!pr.centered;
+        ctx.textAlign = isCentered ? 'center' : 'left';
+        const tx = isCentered ? (bx0 + bx1) / 2 : bx0;
         ctx.font = fMain;
         ctx.fillStyle = rgbStr(textCol, 0.98);
         const tStr = String(pr.title || '').slice(0, 26);
-        ctx.fillText(tStr, bx0, by0 + 18 * sc);
+        ctx.fillText(tStr, tx, by0 + 18 * sc);
         if (pr.accent) {
-          const tw = ctx.measureText(tStr).width;
           ctx.font = fItal;
           ctx.fillStyle = rgbStr(prim, 0.98);
-          if (bx0 + tw + 8 * sc < w * 0.78) {
-            ctx.fillText(String(pr.accent).slice(0, 20), bx0 + tw + 8 * sc, by0 + 18 * sc);
+          if (isCentered) {
+            ctx.fillText(String(pr.accent).slice(0, 24), tx, by0 + 38 * sc);
           } else {
-            ctx.fillText(String(pr.accent).slice(0, 24), bx0, by0 + 34 * sc);
+            const tw = ctx.measureText(tStr).width;
+            if (bx0 + tw + 8 * sc < w * 0.78) {
+              ctx.fillText(String(pr.accent).slice(0, 20), bx0 + tw + 8 * sc, by0 + 18 * sc);
+            } else {
+              ctx.fillText(String(pr.accent).slice(0, 24), bx0, by0 + 34 * sc);
+            }
           }
         }
         if (pr.subtitle) {
           ctx.font = `500 ${Math.max(8, Math.round(9.5 * sc))}px sans-serif`;
           ctx.fillStyle = rgbStr(mutedCol, 0.92);
-          ctx.fillText(String(pr.subtitle).slice(0, 46), bx0, by0 + (pr.accent && tStr.length > 14 ? 46 : 33) * sc);
+          ctx.fillText(String(pr.subtitle).slice(0, 46), tx, by0 + (isCentered ? 56 : (pr.accent && tStr.length > 14 ? 46 : 33)) * sc);
         }
+        ctx.textAlign = 'left';
+      } else if (comp === 'bento_macro') {
+        const pad = 8 * sc, topH = bh * 0.34, midH = bh * 0.28, midY = by0 + topH + pad, botY = midY + midH + pad, botH = by1 - botY;
+        const rr = (rx, ry, rw, rh, rad, bgC, rim) => {
+          ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, rad); ctx.fillStyle = bgC; ctx.fill();
+          ctx.strokeStyle = rim; ctx.lineWidth = 1; ctx.stroke();
+        };
+        rr(bx0, by0, bw * 0.43, topH, 14 * sc, 'rgba(246,247,250,0.96)', 'rgba(255,255,255,0.6)');
+        rr(bx0 + bw * 0.45, by0, bw * 0.55, topH, 14 * sc, 'rgba(15,16,20,0.96)', 'rgba(90,95,105,0.5)');
+        const ckX = bx0 + bw * 0.215, ckY = by0 + topH / 2, ckR = Math.min(bw * 0.18, topH * 0.38);
+        ctx.beginPath(); ctx.arc(ckX, ckY, ckR, 0, Math.PI * 2); ctx.fillStyle = '#e5e7eb'; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(ckX, ckY); ctx.lineTo(ckX + ckR * 0.7 * Math.cos(tSec * 2.8), ckY + ckR * 0.7 * Math.sin(tSec * 2.8));
+        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; ctx.stroke();
+        rr(bx0, midY, bw, midH, 14 * sc, 'rgba(14,24,18,0.96)', rgbStr(prim, 0.7));
+        ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(14 * sc)}px sans-serif`;
+        ctx.fillText(String(pr.title || 'Sistema').slice(0, 20), bx0 + 12 * sc, midY + 24 * sc);
+        rr(bx0 + 12 * sc, midY + midH - 18 * sc, Math.max(12, (bw - 24 * sc) * anim), 9 * sc, 5 * sc, rgbStr(prim, 1), rgbStr(prim, 1));
+        rr(bx0, botY, bw * 0.41, botH, 14 * sc, 'rgba(246,247,250,0.96)', 'rgba(255,255,255,0.6)');
+        rr(bx0 + bw * 0.43, botY, bw * 0.57, botH, 14 * sc, 'rgba(15,16,20,0.96)', 'rgba(90,95,105,0.5)');
+      } else if (comp === 'stacked_ribbons') {
+        const items = (pr.labels && pr.labels.length >= 2) ? pr.labels.slice(0, 3) : [pr.title || 'Estratégia', pr.accent || 'Execução', 'Resultado'];
+        const angs = [-0.06, 0.04, -0.03];
+        items.forEach((it, idx) => {
+          const sp = ease(Math.max(0, Math.min(1, (prog - idx * 0.16) / 0.24)), 'spring');
+          const ry = (by0 + by1) / 2 - 34 * sc + idx * 34 * sc + (1 - sp) * 20;
+          ctx.save(); ctx.translate((bx0 + bx1) / 2, ry); ctx.rotate(angs[idx % 3]);
+          ctx.fillStyle = idx % 2 === 1 ? '#0f1014' : rgbStr(prim, 1);
+          ctx.fillRect(-bw * 0.42, -13 * sc, bw * 0.84, 26 * sc);
+          ctx.fillStyle = idx % 2 === 1 ? rgbStr(prim, 1) : '#0c0e12';
+          ctx.font = `800 ${Math.round(13 * sc)}px sans-serif`; ctx.textAlign = 'center';
+          ctx.fillText(String(it).slice(0, 22), 0, 5 * sc);
+          ctx.restore();
+        });
+      } else if (comp === 'year_roulette') {
+        const nums = pr.numbers && pr.numbers.length >= 3 ? pr.numbers : ['2024', '2025', '2026'];
+        const cy = (by0 + by1) / 2 - 24 * sc, cx = (bx0 + bx1) / 2 - 20 * sc;
+        ctx.textAlign = 'center';
+        nums.slice(0, 3).forEach((v, idx) => {
+          ctx.fillStyle = idx === 1 ? rgbStr(prim, 1) : rgbStr(mutedCol, 0.35);
+          ctx.font = `800 ${Math.round((idx === 1 ? 26 : 20) * sc)}px sans-serif`;
+          ctx.fillText(String(v).slice(0, 10), cx, cy + (idx - 1) * 28 * sc + (1 - anim) * 28 * sc);
+        });
+        ctx.fillStyle = rgbStr(textCol, 0.96); ctx.font = `800 ${Math.round(16 * sc)}px sans-serif`;
+        ctx.fillText(String(pr.accent || pr.title || '').slice(0, 22), (bx0 + bx1) / 2, by1 - 24 * sc);
+        ctx.textAlign = 'left';
+      } else if (comp === 'spotlight_emblem') {
+        const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, rad = Math.min(bw, bh) * 0.42;
+        ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        ctx.strokeStyle = rgbStr(textCol, 0.55); ctx.lineWidth = 1.5; ctx.stroke();
+        [0, 1, 2, 3].forEach((bi) => {
+          const bbh = (14 + bi * 10) * sc * anim, bx = cx - 28 * sc + bi * 15 * sc;
+          ctx.fillStyle = rgbStr(prim, 0.95); ctx.fillRect(bx, cy + 20 * sc - bbh, 10 * sc, bbh);
+        });
       } else if (comp === '3d_coins_growth' || comp === '3d_pillars_scale' || comp === 'ai_neural_architecture') {
         const glCanv = renderThreeOffscreen(comp, Math.max(120, Math.round(bw)), Math.max(80, Math.round(bh)), pal, prog, tSec, pr.values);
         if (glCanv) {
@@ -292,6 +372,7 @@
         ctx.beginPath(); ctx.arc(rx, cy, 18 * sc, 0, Math.PI * 2); ctx.fillStyle = rgbStr(prim, 0.35); ctx.fill(); ctx.strokeStyle = rgbStr(prim, 1); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(lx + 24 * sc, cy); ctx.lineTo(lx + 24 * sc + (rx - lx - 48 * sc) * anim, cy); ctx.stroke();
       }
+      ctx.restore();
     });
     ctx.restore();
   }

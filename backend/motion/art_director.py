@@ -135,6 +135,48 @@ ART_STYLES = {
         "surface_mode": "swiss_pillar",
         "material": "matte_vector",
     },
+    "bento_studio": {
+        "id": "bento_studio",
+        "name": "Bento Hardware Tátil",
+        "bg": (22, 24, 30),
+        "primary": (34, 197, 94),       # Tactile Emerald
+        "secondary": (249, 115, 22),    # Hardware Amber
+        "text": (255, 255, 255),
+        "muted": (182, 190, 204),
+        "headline_font": "CreatoDisplay-ExtraBold.otf",
+        "accent_font": "AppleGaramond-BoldItalic.ttf",
+        "body_font": "DMSans.ttf",
+        "surface_mode": "bento_studio",
+        "material": "tactile_bento",
+    },
+    "editorial_cutaway": {
+        "id": "editorial_cutaway",
+        "name": "Cutaway Atmosférico Noturno",
+        "bg": (11, 13, 20),
+        "primary": (239, 68, 68),       # Cinema Scarlet Light-Leak
+        "secondary": (248, 250, 252),
+        "text": (255, 255, 255),
+        "muted": (203, 213, 225),
+        "headline_font": "CreatoDisplay-ExtraBold.otf",
+        "accent_font": "AppleGaramond-BoldItalic.ttf",
+        "body_font": "DMSans.ttf",
+        "surface_mode": "pure_halo",
+        "material": "cinema_leak",
+    },
+    "paper_cutaway": {
+        "id": "paper_cutaway",
+        "name": "Editorial Papel Studio",
+        "bg": (242, 240, 235),
+        "primary": (244, 63, 94),       # Vivid Rose Ribbon
+        "secondary": (17, 24, 39),
+        "text": (18, 20, 26),
+        "muted": (78, 84, 96),
+        "headline_font": "CreatoDisplay-ExtraBold.otf",
+        "accent_font": "AppleGaramond-BoldItalic.ttf",
+        "body_font": "DMSans.ttf",
+        "surface_mode": "paper_cutaway",
+        "material": "editorial_paper",
+    },
 }
 
 _INTENT_ROUTING = {
@@ -144,15 +186,18 @@ _INTENT_ROUTING = {
     "geo_journey": ("geographic", "narrative_doc", "cartographic_atlas", "pan_sweep", "wide_scrim"),
     "value_comparison": ("editorial", "kinetic_type", "editorial_ink", "tilt_reveal", "dual_wings"),
     "machine_mechanics": ("process_flow", "motion_3d", "industrial_blueprint", "dolly_in", "split_asymmetric"),
-    "business_scale": ("motion_3d", "editorial", "swiss_electric", "orbit_3d", "split_asymmetric"),
-    "historical_chronology": ("narrative_doc", "editorial", "archival_chronicle", "pan_sweep", "wide_ribbon"),
+    "business_scale": ("motion_3d", "editorial", "bento_studio", "zoom_pan_reveal", "bento_cutaway"),
+    "historical_chronology": ("narrative_doc", "editorial", "editorial_cutaway", "dolly_in", "roulette_cutaway"),
     "scientific_principle": ("scientific_edu", "motion_3d", "bioluminescent_lab", "orbit_3d", "split_asymmetric"),
     "process_transformation": ("process_flow", "illustrative", "industrial_blueprint", "pan_sweep", "wide_scrim"),
     "educational_craft": ("illustrative", "kinetic_type", "editorial_ink", "tilt_reveal", "split_asymmetric"),
-    "conceptual_focus": ("kinetic_type", "editorial", "swiss_electric", "dolly_in", "compact_callout"),
+    "conceptual_focus": ("kinetic_type", "editorial", "editorial_cutaway", "dolly_in", "spotlight_dof"),
 }
 
 _DIVERSITY_ROTATION = [
+    "bento_studio",
+    "editorial_cutaway",
+    "paper_cutaway",
     "editorial_ink",
     "bioluminescent_lab",
     "cartographic_atlas",
@@ -165,17 +210,19 @@ _DIVERSITY_ROTATION = [
 ]
 
 
-def _pick_spatial_slot(frame_info: dict, intent: str, forced_position: str = None) -> tuple:
-    """Place composition using actual analyzed video pockets (shoulders/wall or compact lower third)."""
-    if forced_position in ("top-center", "top-left", "top-right", "bottom-card", "center"):
-        fp = "compact" if forced_position in ("top-left", "top-right") else "wide"
+def _pick_spatial_slot(frame_info: dict, intent: str, comp_pattern: str = "", forced_position: str = None, allow_cutaway: bool = True) -> tuple:
+    """Place composition using actual analyzed video pockets or cinema cutaways when appropriate."""
+    if forced_position in ("fullscreen", "top-center", "top-left", "top-right", "bottom-card", "center"):
+        fp = "full" if forced_position == "fullscreen" else ("compact" if forced_position in ("top-left", "top-right") else "wide")
         return forced_position, fp
+
+    if allow_cutaway and comp_pattern in ("bento_cutaway", "roulette_cutaway", "ribbons_cutaway", "spotlight_dof"):
+        return "fullscreen", "full"
 
     aspect = (frame_info or {}).get("aspect", "portrait")
     pockets = (frame_info or {}).get("free_pockets", ["bottom_compact"])
     best = pockets[0] if pockets else "bottom_compact"
 
-    # Compact conceptual or numeric callouts look super natural in free upper shoulder wall pocket!
     if intent in ("conceptual_focus",) and best in ("top_left_wall", "top_right_wall"):
         return ("top-left" if best == "top_left_wall" else "top-right"), "compact"
 
@@ -188,18 +235,35 @@ def _pick_spatial_slot(frame_info: dict, intent: str, forced_position: str = Non
     return "bottom-card", "wide"
 
 
-def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list = None, forced_style_id: str = None, forced_position: str = None, custom_accent_hex: str = None) -> dict:
+def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list = None, forced_style_id: str = None, forced_position: str = None, custom_accent_hex: str = None, allow_cutaway: bool = True) -> dict:
     """Design a complete visual identity + layout + camera + narrative gaze plan."""
     intent = interpretation.get("narrative_intent", "conceptual_focus")
     lang_main, lang_sec, default_style, cam_motion, comp_pattern = _INTENT_ROUTING.get(
         intent, ("kinetic_type", "editorial", "editorial_ink", "dolly_in", "compact_callout")
     )
 
+    # Alternate cutaways cleanly so presenter remains visible in most segments
+    if not allow_cutaway and comp_pattern in ("bento_cutaway", "roulette_cutaway", "ribbons_cutaway", "spotlight_dof"):
+        if default_style == "bento_studio":
+            default_style = "swiss_electric"
+        elif default_style in ("editorial_cutaway", "paper_cutaway"):
+            default_style = "editorial_ink"
+        comp_pattern = "split_asymmetric" if intent == "business_scale" else "compact_callout"
+        if cam_motion == "zoom_pan_reveal":
+            cam_motion = "orbit_3d"
+
+    # Multi-item conceptual beats shine with slanted stacked ribbons when cutaway is allowed
+    entities = interpretation.get("concrete_entities") or []
+    concepts = interpretation.get("abstract_concepts") or []
+    if allow_cutaway and intent in ("conceptual_focus", "value_comparison") and (len(concepts) + len(entities) >= 3) and comp_pattern != "ribbons_cutaway":
+        comp_pattern = "ribbons_cutaway"
+        default_style = "paper_cutaway" if "paper_cutaway" not in (used_styles or []) else "editorial_cutaway"
+
     style_id = forced_style_id if forced_style_id in ART_STYLES else default_style
     used = list(used_styles or [])
     if not forced_style_id and style_id in used:
         for alt in _DIVERSITY_ROTATION:
-            if alt not in used:
+            if alt not in used and not (not allow_cutaway and alt in ("bento_studio", "paper_cutaway")):
                 style_id = alt
                 break
 
@@ -208,7 +272,9 @@ def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list 
         hx = custom_accent_hex.lstrip("#")
         style["primary"] = (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
 
-    position, footprint = _pick_spatial_slot(frame_info, intent, forced_position=forced_position)
+    position, footprint = _pick_spatial_slot(
+        frame_info, intent, comp_pattern=comp_pattern, forced_position=forced_position, allow_cutaway=allow_cutaway
+    )
     subj = interpretation.get("central_subject", "Conceito")
     metaphor = interpretation.get("visual_metaphor", "")
 
@@ -250,8 +316,8 @@ def direct_art(interpretation: dict, frame_info: dict = None, used_styles: list 
         "position": position,
         "camera": {
             "motion": cam_motion,
-            "dolly_scale": 0.08 if cam_motion in ("dolly_in", "orbit_3d") else 0.03,
-            "pan_px": 24 if cam_motion == "pan_sweep" else 10,
+            "dolly_scale": 0.08 if cam_motion in ("dolly_in", "orbit_3d", "zoom_pan_reveal") else 0.03,
+            "pan_px": 24 if cam_motion in ("pan_sweep", "zoom_pan_reveal") else 10,
         },
         "composition_brief": composition_brief,
         "description": textwrap.shorten(desc, width=210, placeholder="…"),

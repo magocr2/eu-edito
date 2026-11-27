@@ -30,21 +30,28 @@ def validate_and_refine_plan(scene_plan: dict, interpretation: dict, frame_info:
     palette = dict(plan.get("palette") or {})
     bg = tuple(palette.get("bg", (8, 12, 18)))
 
-    # Ban high-luminance full-stage slide surfaces
-    if _rel_luminance(bg) > 0.30:
+    is_fullscreen = plan.get("position") == "fullscreen"
+
+    # Ban high-luminance full-stage slide surfaces unless intentional cinema paper/studio cutaway
+    if _rel_luminance(bg) > 0.30 and not (is_fullscreen and plan.get("surface_mode") == "paper_cutaway"):
         palette["bg"] = (10, 14, 20)
         palette["text"] = (248, 250, 252)
         palette["muted"] = (203, 213, 225)
 
     txt = tuple(palette.get("text", (248, 250, 252)))
     if contrast_ratio(txt, tuple(palette["bg"])) < 4.5:
-        palette["text"] = (248, 250, 252)
-        palette["muted"] = (203, 213, 225)
+        palette["text"] = (18, 20, 26) if _rel_luminance(bg) > 0.45 else (248, 250, 252)
+        palette["muted"] = (82, 88, 102) if _rel_luminance(bg) > 0.45 else (203, 213, 225)
     plan["palette"] = palette
 
-    # Ensure surface_mode stays frameless/non-boxy
-    if plan.get("surface_mode") not in ("pure_halo", "scrim_brackets", "swiss_pillar", "hairline_floating", "chronicle_rule", "tech_crosshairs", "meridian_halo", "circuit_halo"):
-        plan["surface_mode"] = "pure_halo"
+    # Ensure surface_mode stays frameless on overlays or studio cutaway on fullscreen
+    allowed_surfaces = (
+        "pure_halo", "scrim_brackets", "swiss_pillar", "hairline_floating",
+        "chronicle_rule", "tech_crosshairs", "meridian_halo", "circuit_halo",
+        "bento_studio", "paper_cutaway",
+    )
+    if plan.get("surface_mode") not in allowed_surfaces:
+        plan["surface_mode"] = "bento_studio" if is_fullscreen else "pure_halo"
 
     # Guard against generic titles or truncated subtitle leftovers
     bad_titles = {"MOTION", "TEMPLATE", "EXPLICACAO", "CENA", "GRAFICO", "CARDS", ""}
@@ -67,10 +74,11 @@ def validate_and_refine_plan(scene_plan: dict, interpretation: dict, frame_info:
     return plan
 
 
-def audit_rendered_frame(pil_img) -> dict:
+def audit_rendered_frame(pil_img, scene_plan: dict = None) -> dict:
     """
     Verify actual rendered RGBA frame maintains open breathing space over the video
-    (alpha_coverage between 0.04 and 0.66 — rejects both empty renders and opaque slide bricks!).
+    (alpha_coverage between 0.04 and 0.72 for presenter overlays, or full studio canvas
+    when position == 'fullscreen').
     """
     w, h = pil_img.size
     alpha = pil_img.getchannel("A")
@@ -80,10 +88,12 @@ def audit_rendered_frame(pil_img) -> dict:
     solid_opaque = sum(1 for v in small_a if v > 220)
     coverage = opaque_or_mid / float(total)
     solid_ratio = solid_opaque / float(total)
+    is_fs = (scene_plan or {}).get("position") == "fullscreen"
+    ok = (coverage >= 0.45 and solid_ratio <= 0.995) if is_fs else ((0.04 <= coverage <= 0.72) and (solid_ratio <= 0.45))
     return {
         "width": w,
         "height": h,
         "alpha_coverage": round(coverage, 3),
         "solid_ratio": round(solid_ratio, 3),
-        "ok": (0.04 <= coverage <= 0.72) and (solid_ratio <= 0.45),
+        "ok": ok,
     }

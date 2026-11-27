@@ -350,12 +350,18 @@
         const pos = active.position || (active.params && active.params.position) || 'bottom-card';
         cv.dataset.pos = pos;
         const sc = Math.max(0.55, Math.min(1.35, Number(active.scale || 100) / 100));
-        if (pos === 'center') {
-          cv.style.transform = `translate(-50%, -50%) scale(${sc})`;
-        } else if (pos === 'top-center' || pos === 'bottom-card') {
-          cv.style.transform = `translateX(-50%) scale(${sc})`;
+        if (pos === 'fullscreen') {
+          cv.style.transform = 'none';
+          if (cv.width !== 360 || cv.height !== 640) { cv.width = 360; cv.height = 640; }
         } else {
-          cv.style.transform = `scale(${sc})`;
+          if (cv.width !== 540 || cv.height !== 276) { cv.width = 540; cv.height = 276; }
+          if (pos === 'center') {
+            cv.style.transform = `translate(-50%, -50%) scale(${sc})`;
+          } else if (pos === 'top-center' || pos === 'bottom-card') {
+            cv.style.transform = `translateX(-50%) scale(${sc})`;
+          } else {
+            cv.style.transform = `scale(${sc})`;
+          }
         }
         const dur = Math.max(1.2, (active.end - active.start) || 3.2);
         const prog = (vidLoaded && !vid.paused)
@@ -653,6 +659,7 @@
       posSel.className = 'media-sel';
       [
         ['bottom-card', 'Inferior (Sem cobrir rosto)'],
+        ['fullscreen', 'Cutaway Tela Cheia (Cinema)'],
         ['top-center', 'Topo Flutuante'],
         ['top-right', 'Topo Direita'],
         ['top-left', 'Topo Esquerda'],

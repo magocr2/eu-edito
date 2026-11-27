@@ -254,8 +254,16 @@ def _run_render_pipeline(job_id, opts):
                     params["position"] = ml["position"]
                 if ml.get("prompt"):
                     params["prompt"] = ml["prompt"]
-                mw = 680 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 860
-                mh = 360 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 440
+                low_ram = HW_PROFILE.get("ram_gb", 8.0) <= 1.2
+                m_pos = str(params.get("position", "")).lower()
+                if m_pos == "fullscreen":
+                    if out_w >= out_h:
+                        mw, mh = (768, 432) if low_ram else (960, 540)
+                    else:
+                        mw, mh = (432, 768) if low_ram else (540, 960)
+                else:
+                    mw = 680 if low_ram else 860
+                    mh = 360 if low_ram else 440
                 asset_path = ensure_motion_asset_local(tid, params, duration=dur, width=mw, height=mh)
                 motion_items.append({
                     "path": asset_path,
@@ -466,8 +474,12 @@ def api_motion_render_layer():
     tid = data.get("template_id", "revenue_growth")
     params = data.get("params") or {}
     dur = float(data.get("duration", 3.2))
-    def_w = 680 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 860
-    def_h = 360 if HW_PROFILE.get("ram_gb", 8.0) <= 1.2 else 440
+    low_ram = HW_PROFILE.get("ram_gb", 8.0) <= 1.2
+    if str(params.get("position") or (params.get("scene_plan") or {}).get("position") or "").lower() == "fullscreen":
+        def_w, def_h = (432, 768) if low_ram else (540, 960)
+    else:
+        def_w = 680 if low_ram else 860
+        def_h = 360 if low_ram else 440
     w = int(data.get("width", def_w))
     h = int(data.get("height", def_h))
     res = enqueue_motion_render(tid, params, duration=dur, width=w, height=h)
