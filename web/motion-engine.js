@@ -273,13 +273,18 @@
           ctx.fillRect(bx0 + 6, ry + 15 * sc, Math.max(16, (bw - 48) * (vals[i] / vmax) * anim), 14 * sc);
         });
       } else if (comp === 'calligraphy_sheet') {
-        ctx.fillStyle = 'rgba(252,249,242,0.95)'; ctx.fillRect(bx0 + 8, by0 + 4, bw - 16, bh - 8);
+        const cy = (by0 + by1) / 2;
+        [-1, 0, 1].forEach((ln) => {
+          const ly = cy + ln * 18 * sc;
+          ctx.strokeStyle = rgbStr(sec, 0.35); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(bx0 + 10, ly); ctx.lineTo(bx1 - 10, ly); ctx.stroke();
+        });
         ctx.beginPath();
         for (let i = 0; i < Math.max(2, Math.floor(28 * anim)); i++) {
-          const u = i / 27, px = bx0 + 20 + (bw - 40) * u, py = by0 + bh * 0.55 - Math.sin(u * Math.PI * 3) * bh * 0.25;
+          const u = i / 27, px = bx0 + 14 + (bw - 28) * u, py = cy - Math.sin(u * Math.PI * 3) * bh * 0.28;
           i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
-        ctx.strokeStyle = rgbStr(prim, 1); ctx.lineWidth = 2.6 * sc; ctx.stroke();
+        ctx.strokeStyle = rgbStr(prim, 1); ctx.lineWidth = 2.8 * sc; ctx.stroke();
       } else {
         // process_transformation
         const cy = (by0 + by1) / 2, lx = bx0 + bw * 0.22, rx = bx0 + bw * 0.78;

@@ -533,23 +533,27 @@ def comp_process_transformation(draw: ImageDraw.ImageDraw, box: tuple, p: dict, 
 
 
 def comp_calligraphy_sheet(draw: ImageDraw.ImageDraw, box: tuple, p: dict, prog: float, t_sec: float, palette: dict, alpha_env: float):
-    """Floating cream calligraphy sheet with live fountain pen drawing luminous cursive strokes."""
+    """Frameless floating ruled ink guide + animated fountain pen drawing a luminous calligraphic flourish."""
     x0, y0, x1, y1 = [int(v) for v in box]
-    prim = palette["primary"]
+    prim, sec = palette["primary"], palette["secondary"]
     anim = ease(min(1.0, prog / 0.78), "smooth")
-    draw.rounded_rectangle([x0 + 14, y0 + 10, x1 - 14, y1 - 10], radius=18, fill=(252, 249, 242, int(242 * alpha_env)), outline=(*prim, int(215 * alpha_env)), width=3)
-    for ln in range(3):
-        ly = y0 + 54 + ln * 56
-        draw.line([(x0 + 40, ly), (x1 - 40, ly)], fill=(148, 163, 184, int(150 * alpha_env)), width=2)
+    cy = (y0 + y1) // 2
+    # Translucent horizontal guide hairlines in open space (ZERO solid white card!)
+    for ln in (-1, 0, 1):
+        ly = cy + ln * 46
+        draw.line([(x0 + 24, ly), (x1 - 24, ly)], fill=(*sec, int(90 * alpha_env)), width=1)
     pts = []
-    for si in range(max(2, int(40 * anim))):
-        u = si / 39.0
-        pts.append((x0 + 48 + int((x1 - x0 - 96) * u), y0 + 130 - int(46 * math.sin(u * math.pi * 3.0) * math.exp(-0.2 * u))))
+    for si in range(max(2, int(44 * anim))):
+        u = si / 43.0
+        px = x0 + 30 + int((x1 - x0 - 60) * u)
+        py = cy - int(62 * math.sin(u * math.pi * 3.0) * math.exp(-0.18 * u) + 14 * math.cos(u * math.pi * 5.0))
+        pts.append((px, py))
     if len(pts) >= 2:
-        draw.line(pts, fill=(*prim, int(250 * alpha_env)), width=8, joint="curve")
+        # Soft luminous calligraphy stroke ribbon + angled fountain pen nib at active tip
+        draw.line(pts, fill=(*prim, int(252 * alpha_env)), width=10, joint="curve")
         tx, ty = pts[-1]
-        draw.polygon([(tx, ty), (tx + 16, ty - 38), (tx + 58, ty - 84), (tx + 72, ty - 70), (tx + 30, ty - 20)], fill=(15, 23, 42, int(245 * alpha_env)))
-        draw.ellipse([tx - 6, ty - 6, tx + 6, ty + 6], fill=(*prim, int(255 * alpha_env)))
+        draw.polygon([(tx, ty), (tx + 18, ty - 44), (tx + 68, ty - 98), (tx + 86, ty - 80), (tx + 34, ty - 24)], fill=(*sec, int(248 * alpha_env)), outline=(*prim, int(252 * alpha_env)))
+        draw.ellipse([tx - 7, ty - 7, tx + 7, ty + 7], fill=(255, 255, 255, int(255 * alpha_env)))
 
 
 def comp_kinetic_headline(draw: ImageDraw.ImageDraw, box: tuple, p: dict, prog: float, t_sec: float, palette: dict, alpha_env: float):
