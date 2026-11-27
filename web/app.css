@@ -100,11 +100,18 @@ body {
 .live-overlay {
   position: absolute; left: 50%; top: 74%; transform: translate(-50%, -50%);
   text-align: center; width: 88%; pointer-events: none;
-  text-shadow: 0 3px 12px rgba(0,0,0,0.92);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.9);
+  display: flex; flex-direction: column; align-items: center; gap: 0;
 }
-.live-overlay small { display: block; font-size: 13px; color: #fff; }
-.live-overlay strong, .live-overlay em { display: block; font-size: 21px; color: var(--accent, #22C55E); line-height: 1.1; }
+.live-overlay small { display: block; font-size: 13px; color: #fff; line-height: 1.1; }
+.live-overlay strong, .live-overlay em {
+  display: block; font-size: 21px; color: var(--accent, #ffffff); line-height: 1.02;
+  text-shadow: 0 0 14px var(--accent, rgba(255,255,255,0.45)), 0 2px 10px rgba(0,0,0,0.92);
+}
+.live-overlay.is-staggered { width: 82%; }
+.live-overlay.is-staggered > small:first-child { align-self: flex-start; margin-left: 8%; margin-bottom: -2px; }
+.live-overlay.is-staggered > small:last-child { align-self: flex-end; margin-right: 8%; margin-top: -1px; }
+.live-overlay.is-two-line .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 5px; }
 
 /* Authentic 11 caption model styles in preview (matched 1-to-1 with ASS output) */
 .live-overlay.style-classic small { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; }
@@ -251,5 +258,12 @@ body {
 .hook-overlay.hook-glass-dark { background: rgba(10,18,13,0.82) !important; color: #ffffff !important; border: 1px solid rgba(255,255,255,0.22) !important; backdrop-filter: blur(8px); }
 .hook-overlay.hook-clean-shadow { background: transparent !important; color: #ffffff !important; border: 0 !important; text-shadow: 0 2px 10px rgba(0,0,0,0.95) !important; }
 .hook-style-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.live-overlay.is-one-line { display: block !important; }
-.live-overlay.is-one-line small, .live-overlay.is-one-line strong, .live-overlay.is-one-line em { display: inline !important; font-size: 16px !important; margin: 0 3px; }
+.live-overlay.is-one-line {
+  display: flex !important; flex-direction: row !important; flex-wrap: nowrap;
+  justify-content: center; align-items: baseline; gap: 6px; width: 92% !important; white-space: nowrap;
+}
+.live-overlay.is-one-line small, .live-overlay.is-one-line strong, .live-overlay.is-one-line em {
+  display: inline !important; margin: 0 !important;
+}
+.live-overlay.is-one-line small { font-size: 14px !important; }
+.live-overlay.is-one-line strong, .live-overlay.is-one-line em { font-size: 19px !important; }

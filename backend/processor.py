@@ -582,82 +582,87 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=2, hook_title="", hook_style="pill-white", hook_y_pct=16):
+def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, hook_title="", hook_style="pill-white", hook_y_pct=16):
     """
     Generate CapCut-grade ASS subtitles matching the 11 web preview models 1-to-1:
     - True ASS alpha (&HC4000000& subtle anti-alias edge, &H5C000000& soft shadow — zero black box or heavy stroke)
-    - Uniform-style vertical editorial stacking (before / MAIN / after) using native libass row kerning
-    - Highlight word NEVER dropped even when it is the first word of the caption (main_idx == 0)
-    - 1-line mode measures exact proportional glyph widths with Pillow ImageFont
-    - Auto width-fit scale clamp so long highlight words never clip horizontally
+    - Soft neon/bloom glow layer behind accent highlight words
+    - Mode 1 (1 linha): single unified libass Dialogue line (perfect spacing & dead-center alignment)
+    - Mode 2 (2 linhas): strictly <= 2 balanced rows without orphan words
+    - Mode 3 (2 ou 3 linhas): smart adaptive 2-or-3 staggered editorial rows (before top-left, MAIN center, after bottom-right)
+      with visually equal top/bottom spacing around uppercase MAIN words
     """
     styles_cfg = {
         "classic": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 106, "main_bold": -1, "main_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 102, "main_bold": -1, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "model-07": {
-            "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 114, "main_bold": -1, "main_italic": -1,
+            "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 110, "main_bold": -1, "main_italic": -1,
             "upper": True, "default_accent": "#FFD66C", "anim": "pop",
         },
         "clean-12": {
-            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 102, "main_bold": -1, "main_italic": 0,
+            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 98, "main_bold": -1, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "pop",
         },
         "clean-13": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 54, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 98, "main_bold": 0, "main_italic": 0,
+            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 52, "small_bold": 0, "small_italic": -1,
+            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 96, "main_bold": 0, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean-14": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 116, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 112, "main_bold": 0, "main_italic": -1,
             "upper": False, "default_accent": "#FFDFC4", "anim": "pop",
         },
         "clean-9": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Regular.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
+            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-Regular.otf", "main_size": 92, "main_bold": 0, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "blur",
         },
         "clean-10": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 62, "small_bold": 0, "small_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 60, "small_bold": 0, "small_italic": 0,
             "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 70, "main_bold": -1, "main_italic": 0,
             "upper": False, "default_accent": "#A375FA", "anim": "rise",
         },
         "clean-11": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 114, "main_bold": 0, "main_italic": -1,
+            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 48, "small_bold": 0, "small_italic": 0,
+            "main_font": "Apple Garamond", "main_file": "AppleGaramond-Italic.ttf", "main_size": 110, "main_bold": 0, "main_italic": -1,
             "upper": False, "default_accent": "#FFFFFF", "anim": "cut",
         },
         "clean-15": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 96, "main_bold": -1, "main_italic": 0,
+            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
+            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 94, "main_bold": -1, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "rise",
         },
         "clean-lavish": {
-            "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 108, "main_bold": 0, "main_italic": 0,
+            "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
+            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 104, "main_bold": 0, "main_italic": 0,
             "upper": True, "default_accent": "#FFFFFF", "anim": "slide",
         },
         "clean": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 52, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 96, "main_bold": 0, "main_italic": 0,
+            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 50, "small_bold": 0, "small_italic": -1,
+            "main_font": "Creato Display Medium", "main_file": "CreatoDisplay-Medium.otf", "main_size": 94, "main_bold": 0, "main_italic": 0,
             "upper": False, "default_accent": "#FFFFFF", "anim": "slide",
         },
     }
     cfg = styles_cfg.get(style_id, styles_cfg["classic"])
     scale_f = min(width, height) / 1080.0
-    s_size = max(24, int(cfg["small_size"] * scale_f))
-    m_size = max(36, int(cfg["main_size"] * scale_f))
-    outline = round(max(0.8, 1.1 * scale_f), 1)
-    shadow = round(max(2.5, 4.0 * scale_f), 1)
+    s_size = max(22, int(cfg["small_size"] * scale_f))
+    m_size = max(34, int(cfg["main_size"] * scale_f))
+    outline = round(max(0.7, 1.0 * scale_f), 1)
+    shadow = round(max(2.2, 3.6 * scale_f), 1)
     pos_x = int(width * 0.5)
     pos_y = int(height * max(16, min(84, float(pos_y_pct))) / 100.0)
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
+    glow_blur = round(max(6.0, 12.0 * scale_f), 1)
+    glow_bord = round(max(2.0, 3.5 * scale_f), 1)
+    has_color_accent = chosen_hex.upper() not in ("#FFFFFF", "FFFFFF")
+    glow_alpha = "&H92&" if has_color_accent else "&HB6&"
 
     # True ASS alpha: FF=transparent, 00=opaque! &HC4000000& = subtle edge, &H5C000000& = soft diffused drop shadow
     header = f"""[Script Info]
@@ -670,7 +675,8 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&HC4000000,&H5C000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,36,36,36,1
-Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HC4000000,&H5C000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{round(shadow * 1.2, 1)},5,36,36,36,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HC4000000,&H5C000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{outline},{round(shadow * 1.15, 1)},5,36,36,36,1
+Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_ass},&HFF000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{glow_bord},0,5,36,36,36,1
 Style: HookBox,Creato Display,{max(26, int(44 * scale_f))},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFFF,&HCC0A120D,&HCC0A120D,-1,0,0,0,100,100,0,0,3,{max(10, int(16 * scale_f))},0,5,40,40,40,1
 
@@ -678,10 +684,12 @@ Style: HookDark,Creato Display,{max(26, int(44 * scale_f))},&H00FFFFFF,&H00FFFFF
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
-    one_line = (int(caption_lines or 2) == 1) or (style_id == "clean-10")
+    req_lines = int(caption_lines or 3)
+    if style_id == "clean-10":
+        req_lines = 1
     anim = cfg["anim"]
 
-    # Load Pillow ImageFont if available for exact pixel width measurement
+    # Load Pillow ImageFont if available for exact pixel width measurement & cap clamping
     s_pil = m_pil = None
     try:
         from PIL import ImageFont
@@ -694,12 +702,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     except Exception:
         s_pil = m_pil = None
 
-    def _measure(txt, is_main=False):
+    def _measure(txt, is_main=False, custom_sz=None):
         font_obj = m_pil if is_main else s_pil
-        sz = m_size if is_main else s_size
+        sz = custom_sz or (m_size if is_main else s_size)
         if font_obj is not None:
             try:
-                return float(font_obj.getlength(txt))
+                base_sz = m_size if is_main else s_size
+                return float(font_obj.getlength(txt)) * (sz / max(base_sz, 1))
             except Exception:
                 pass
         return len(txt) * sz * 0.50
@@ -711,53 +720,121 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             sc += 12
         return sc
 
-    def _word_reveal(rel_ms):
+    def _word_reveal(rel_ms, is_glow=False):
         t0 = max(0, int(rel_ms))
-        dur = 20 if anim == "cut" else (180 if anim == "blur" else 130)
+        dur = 25 if anim == "cut" else (190 if anim == "blur" else 135)
+        if is_glow:
+            return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a{glow_alpha}\\3a&HCE&\\4a&HFF&)"
         return f"\\alpha&HFF&\\t({t0},{t0 + dur},\\1a&H00&\\3a&HC4&\\4a&H5C&)"
 
-    def _entry_motion(x, y, is_main=False, target_scale=100):
-        d = int(20 * scale_f)
+    def _entry_motion(x, y, is_main=False, target_scale=100, is_glow=False):
+        d = int(14 * scale_f)
         if anim == "rise":
-            return f"\\move({x},{y + d},{x},{y},0,200)"
+            return f"\\move({x},{y + d},{x},{y},0,220)"
         if anim == "slide":
-            return f"\\move({x + d},{y},{x},{y},0,200)"
+            return f"\\move({x + int(d * 1.2)},{y},{x},{y},0,220)"
         if anim == "blur":
-            return f"\\move({x},{y - int(d * 0.7)},{x},{y},0,190)\\blur5\\t(0,210,\\blur1.4)"
+            end_blur = glow_blur if is_glow else 1.1
+            return f"\\move({x},{y - int(d * 0.6)},{x},{y},0,210)\\blur{round(end_blur + 3.5, 1)}\\t(0,220,\\blur{end_blur})"
         if anim == "pop" and is_main:
-            s_lo = max(45, int(target_scale * 0.72))
-            s_hi = int(target_scale * 1.06)
+            s_lo = max(50, int(target_scale * 0.78))
+            s_hi = int(target_scale * 1.05)
             return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,150,\\fscx{s_hi}\\fscy{s_hi})\\t(150,240,\\fscx{target_scale}\\fscy{target_scale})"
         return f"\\pos({x},{y})"
 
-    def _emit_uniform_row(w_list, y_row, cap_s, t0s, t1s, is_main_row=False):
-        if not w_list:
+    def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None):
+        """Return inline ASS override tag for switching between Small and Main styles inside one line."""
+        if is_glow:
+            if not is_main_tok:
+                return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\alpha&HFF&"
+            msz = main_sz_override or m_size
+            return (
+                f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}"
+                f"\\1c{accent_ass}\\3c{accent_ass}\\4c&HFF000000&\\bord{glow_bord}\\shad0\\blur{glow_blur}"
+            )
+        if is_main_tok:
+            msz = main_sz_override or m_size
+            return (
+                f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}"
+                f"\\1c{accent_ass}\\3c&HC4000000&\\4c&H5C000000&\\bord{outline}\\shad{round(shadow * 1.15, 1)}\\blur1.0"
+            )
+        return (
+            f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}"
+            f"\\1c&H00FFFFFF&\\3c&HC4000000&\\4c&H5C000000&\\bord{outline}\\shad{shadow}\\blur1.0"
+        )
+
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, t0s, t1s, main_local_idx=None, inline_main_scale=1.0):
+        """Render a single horizontal ASS line (Small or mixed Small+Main) centered natively by libass."""
+        if not tokens:
             return
-        max_w = width * 0.84
-        if is_main_row:
-            w = w_list[0]
-            txt = w["w"].upper() if cfg["upper"] else w["w"]
-            tw = _measure(txt, is_main=True)
-            fit_pct = min(100, max(52, int((max_w / max(tw, 1.0)) * 100)))
-            scale_tag = f"\\fscx{fit_pct}\\fscy{fit_pct}" if (fit_pct < 100 and anim != "pop") else ""
-            motion = _entry_motion(pos_x, y_row, is_main=True, target_scale=fit_pct)
-            blur_base = "\\blur1.4" if anim != "blur" else ""
+        max_w = width * 0.86
+        inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if main_local_idx is not None else m_size
+        est_w = 0.0
+        for idx, w in enumerate(tokens):
+            is_m = (main_local_idx is not None and idx == main_local_idx)
+            txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
+            est_w += _measure(txt, is_main=is_m, custom_sz=(inline_m_sz if is_m else s_size))
+        est_w += _measure(" ", is_main=False) * max(0, len(tokens) - 1)
+        fit_pct = min(100, max(54, int((max_w / max(est_w, 1.0)) * 100)))
+        half_w = (est_w * (fit_pct / 100.0)) / 2.0
+        safe_x = int(max(width * 0.07 + half_w, min(width * 0.93 - half_w, x_center)))
+        if half_w * 2 > width * 0.82:
+            safe_x = pos_x
+
+        scale_tag = f"\\fscx{fit_pct}\\fscy{fit_pct}" if fit_pct < 100 else ""
+        has_main = (main_local_idx is not None and 0 <= main_local_idx < len(tokens))
+
+        # Layer 1: Soft Glow halo behind any Main highlight token on this line
+        if has_main:
+            solo_main_glow = (len(tokens) == 1)
+            glow_motion = _entry_motion(safe_x, y_row, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True)
+            glow_scale = "" if (solo_main_glow and anim == "pop") else scale_tag
+            glow_blur_tag = f"\\blur{glow_blur}" if anim != "blur" else ""
+            g_chunks = []
+            for idx, w in enumerate(tokens):
+                is_m = (idx == main_local_idx)
+                txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
+                if is_m:
+                    rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
+                    sw = _inline_switch(True, is_glow=True, main_sz_override=inline_m_sz)
+                    g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, is_glow=True)}}}{txt}")
+                else:
+                    sw = _inline_switch(False, is_glow=True, main_sz_override=inline_m_sz)
+                    g_chunks.append(f"{{{sw}}}{txt}")
+            # IMPORTANT: use Small as base style when mixed so space glyphs match foreground 100% identically
+            glow_base_style = "MainGlow" if solo_main_glow else "Small"
+            # Separate trailing words back into Small before spacing so inter-word spaces never use Main metrics
+            glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
+            events.append(
+                f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_scale}{glow_blur_tag}}}{glow_text}"
+            )
+
+        # Layer 2 (Main) or Layer 0 (Small): Crisp centered foreground text
+        solo_main = (has_main and len(tokens) == 1)
+        motion = _entry_motion(safe_x, y_row, is_main=solo_main, target_scale=fit_pct, is_glow=False)
+        fg_scale = "" if (solo_main and anim == "pop") else scale_tag
+        blur_base = "\\blur1.0" if anim != "blur" else ""
+        fg_chunks = []
+        for idx, w in enumerate(tokens):
+            is_m = (has_main and idx == main_local_idx)
+            txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-            rev = _word_reveal(rel_ms)
-            events.append(f"Dialogue: 1,{t0s},{t1s},Main,,0,0,0,,{{\\an5{motion}{scale_tag}{blur_base}{rev}}}{txt}")
+            rev = _word_reveal(rel_ms, is_glow=False)
+            if has_main and not solo_main:
+                sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
+                fg_chunks.append(f"{{{sw}{rev}}}{txt}")
+            else:
+                fg_chunks.append(f"{{{rev}}}{txt}")
+
+        style_name = "Main" if solo_main else "Small"
+        layer_id = 2 if has_main else 0
+        if has_main and not solo_main:
+            fg_text = f" {{{_inline_switch(False, is_glow=False)}}}".join(fg_chunks)
         else:
-            raw_line = " ".join(w["w"] for w in w_list)
-            tw = _measure(raw_line, is_main=False)
-            fit_pct = min(100, max(60, int((max_w / max(tw, 1.0)) * 100)))
-            scale_tag = f"\\fscx{fit_pct}\\fscy{fit_pct}" if fit_pct < 100 else ""
-            motion = _entry_motion(pos_x, y_row, is_main=False, target_scale=fit_pct)
-            blur_base = "\\blur1.4" if anim != "blur" else ""
-            chunks = []
-            for w in w_list:
-                rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-                chunks.append(f"{{{_word_reveal(rel_ms)}}}{w['w']}")
-            joined = " ".join(chunks)
-            events.append(f"Dialogue: 0,{t0s},{t1s},Small,,0,0,0,,{{\\an5{motion}{scale_tag}{blur_base}}}{joined}")
+            fg_text = " ".join(fg_chunks)
+        events.append(
+            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an5{motion}{fg_scale}{blur_base}}}{fg_text}"
+        )
 
     for c in captions:
         words = c.get("words") or []
@@ -766,7 +843,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         cap_s = float(c["s"])
         cap_e = float(c["e"])
-        words = c.get("words") or []
         if not words:
             toks = text.split()
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
@@ -776,45 +852,61 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         t1s = _fmt_ass_time(cap_e + 0.12)
         main_idx = max(range(len(words)), key=lambda i: _word_score(words[i]))
 
-        if one_line or len(words) == 1:
-            widths = []
-            for i, w in enumerate(words):
-                is_m = (i == main_idx)
-                txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
-                widths.append(_measure(txt, is_main=is_m))
-            sp_w = _measure(" ", is_main=False) * 1.15
-            total_w = sum(widths) + sp_w * max(0, len(words) - 1)
-            fit_ratio = min(1.0, (width * 0.86) / max(total_w, 1.0))
-            fit_pct = max(55, int(fit_ratio * 100))
-            x = pos_x - (total_w * fit_ratio) / 2.0
-            for i, w in enumerate(words):
-                is_m = (i == main_idx)
-                ww = widths[i] * fit_ratio
-                wx = int(x + ww / 2.0)
-                rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-                txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
-                motion = _entry_motion(wx, pos_y, is_main=is_m, target_scale=fit_pct)
-                scale_tag = f"\\fscx{fit_pct}\\fscy{fit_pct}" if (fit_pct < 100 and not (anim == "pop" and is_m)) else ""
-                blur_base = "\\blur1.4" if anim != "blur" else ""
-                rev = _word_reveal(rel_ms)
-                st = "Main" if is_m else "Small"
-                events.append(f"Dialogue: {1 if is_m else 0},{t0s},{t1s},{st},,0,0,0,,{{\\an5{motion}{scale_tag}{blur_base}{rev}}}{txt}")
-                x += ww + sp_w * fit_ratio
-        else:
-            before = words[:main_idx]
-            main_w = [words[main_idx]]
-            after = words[main_idx + 1:]
-            if before and after:
-                gap = int(m_size * 0.70)
-                _emit_uniform_row(before, pos_y - gap, cap_s, t0s, t1s, False)
-                _emit_uniform_row(main_w, pos_y, cap_s, t0s, t1s, True)
-                _emit_uniform_row(after, pos_y + gap, cap_s, t0s, t1s, False)
-            elif before:
-                _emit_uniform_row(before, pos_y - int(m_size * 0.60), cap_s, t0s, t1s, False)
-                _emit_uniform_row(main_w, pos_y + int(m_size * 0.14), cap_s, t0s, t1s, True)
+        # --- MODE 1: Single Unified Line (natural spacing, 100% centered) ---
+        if req_lines == 1 or len(words) == 1:
+            _emit_mixed_line(words, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=main_idx, inline_main_scale=0.86)
+            continue
+
+        before = words[:main_idx]
+        main_w = [words[main_idx]]
+        after = words[main_idx + 1:]
+
+        # Decide cleanly between 2 rows vs 3 staggered editorial rows
+        use_three = False
+        if req_lines >= 3 and before and after:
+            before_chars = sum(len(x["w"]) for x in before)
+            after_chars = sum(len(x["w"]) for x in after)
+            # Avoid weak 1-short-word orphans (e.g. "tem", "que", "de") alone on row 3
+            if len(words) >= 4 and (len(before) >= 2 or before_chars >= 6) and (len(after) >= 2 or after_chars >= 5):
+                use_three = True
+
+        # Visual baseline offsets: keep top & bottom whitespace symmetric when MAIN is uppercase
+        upper_main = cfg["upper"]
+        top_offset = int(m_size * 0.54 + s_size * 0.14)
+        bot_offset = int(m_size * (0.34 if upper_main else 0.42) + s_size * 0.21)
+        main_txt = main_w[0]["w"].upper() if upper_main else main_w[0]["w"]
+        main_w_px = min(width * 0.78, _measure(main_txt, is_main=True))
+        stag = min(int(width * 0.13), max(int(width * 0.04), int(main_w_px * 0.18)))
+
+        if use_three:
+            # 3 staggered editorial lines: Row 1 upper-left, MAIN centered, Row 3 lower-right
+            _emit_mixed_line(before, pos_x - stag, pos_y - top_offset, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x, pos_y, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x + stag, pos_y + bot_offset, cap_s, t0s, t1s, main_local_idx=None)
+        elif before and after:
+            # Strictly 2 balanced rows even when MAIN is in the middle: absorb shorter side neatly into MAIN's row
+            before_chars = sum(len(x["w"]) for x in before)
+            after_chars = sum(len(x["w"]) for x in after)
+            row_gap_up = int(m_size * 0.46 + s_size * 0.14)
+            row_gap_dn = int(m_size * (0.20 if upper_main else 0.26))
+            if after_chars <= before_chars:
+                _emit_mixed_line(before, pos_x - int(stag * 0.45), pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=None)
+                _emit_mixed_line(main_w + after, pos_x, pos_y + row_gap_dn, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=0.86)
             else:
-                _emit_uniform_row(main_w, pos_y - int(m_size * 0.14), cap_s, t0s, t1s, True)
-                _emit_uniform_row(after, pos_y + int(m_size * 0.60), cap_s, t0s, t1s, False)
+                _emit_mixed_line(before + main_w, pos_x, pos_y - row_gap_up, cap_s, t0s, t1s, main_local_idx=len(before), inline_main_scale=0.86)
+                _emit_mixed_line(after, pos_x + int(stag * 0.45), pos_y + row_gap_dn + int(s_size * 0.24), cap_s, t0s, t1s, main_local_idx=None)
+        elif before:
+            # 2 lines: small before on top (slightly left), MAIN on bottom (center / subtle right contrast)
+            top_2 = int(m_size * 0.42 + s_size * 0.14)
+            bot_2 = int(m_size * 0.18)
+            _emit_mixed_line(before, pos_x - int(stag * 0.45), pos_y - top_2, cap_s, t0s, t1s, main_local_idx=None)
+            _emit_mixed_line(main_w, pos_x + int(stag * 0.20), pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+        else:
+            # 2 lines: MAIN on top-left/center, small after tucked tightly below-right
+            top_2 = int(m_size * 0.14)
+            bot_2 = int(m_size * (0.34 if upper_main else 0.42) + s_size * 0.18)
+            _emit_mixed_line(main_w, pos_x - int(stag * 0.20), pos_y - top_2, cap_s, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            _emit_mixed_line(after, pos_x + int(stag * 0.45), pos_y + bot_2, cap_s, t0s, t1s, main_local_idx=None)
 
     # Hook overlay
     hook = (hook_title or "").strip()

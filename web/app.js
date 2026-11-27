@@ -5,7 +5,7 @@ if ('serviceWorker' in navigator) {
 const $ = (id) => document.getElementById(id);
 let selectedFile = null;
 let selectedStyle = 'classic';
-let selectedLines = 2;
+let selectedLines = 3;
 let selectedHookStyle = 'pill-white';
 let selectedHookY = 16;
 let selectedRhythm = 'natural';
@@ -85,19 +85,21 @@ function animateOverlay(style) {
   parts.forEach((node, idx) => {
     node.getAnimations?.().forEach((a) => a.cancel());
     const isMain = node.tagName === 'STRONG' || node.tagName === 'EM';
-    const delay = idx * 85;
-    let frames = [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'translateY(0)' }];
-    let dur = 360;
-    if (style === 'clean-14' || style === 'clean-12') {
-      frames = isMain ? [{ opacity: 0, transform: 'scale(.1)' }, { opacity: 1, transform: 'scale(1)' }] : [{ opacity: 0, transform: 'translateX(18px)' }, { opacity: 1, transform: 'translateX(0)' }];
-      dur = 420;
+    const delay = idx * 80;
+    let frames = [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }];
+    let dur = 320;
+    if (style === 'clean-14' || style === 'clean-12' || style === 'model-07') {
+      frames = isMain
+        ? [{ opacity: 0, transform: 'scale(.76)' }, { opacity: 1, transform: 'scale(1.05)', offset: 0.72 }, { opacity: 1, transform: 'scale(1)' }]
+        : [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'translateY(0)' }];
+      dur = 360;
     } else if (style === 'clean-13' || style === 'clean' || style === 'clean-lavish') {
-      frames = [{ opacity: 0, transform: 'translateX(20px)' }, { opacity: 1, transform: 'translateX(0)' }];
+      frames = [{ opacity: 0, transform: 'translateX(16px)' }, { opacity: 1, transform: 'translateX(0)' }];
     } else if (style === 'clean-9') {
-      frames = [{ opacity: 0, transform: 'translateY(-10px)' }, { opacity: 1, transform: 'translateY(0)' }];
+      frames = [{ opacity: 0, transform: 'translateY(-8px)', filter: 'blur(3px)' }, { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' }];
     } else if (style === 'clean-11') {
       frames = [{ opacity: 0 }, { opacity: 1 }];
-      dur = 180;
+      dur = 170;
     }
     try { node.animate(frames, { duration: dur, delay, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }); } catch {}
   });
@@ -105,8 +107,17 @@ function animateOverlay(style) {
 
 function syncOverlay(animate = false) {
   const ov = $('liveOverlay');
-  ov.className = 'live-overlay style-' + selectedStyle + (selectedLines === 1 ? ' is-one-line' : '');
+  const lineMode = selectedStyle === 'clean-10' ? 1 : selectedLines;
+  const modeCls = lineMode === 1 ? ' is-one-line' : (lineMode === 2 ? ' is-two-line' : ' is-staggered');
+  ov.className = 'live-overlay style-' + selectedStyle + modeCls;
   ov.innerHTML = EXAMPLES[selectedStyle] || EXAMPLES.classic;
+  if (lineMode === 2 && ov.children.length === 3) {
+    const second = ov.children[1], third = ov.children[2];
+    const wrap = document.createElement('span');
+    wrap.className = 'row-wrap';
+    second.before(wrap);
+    wrap.append(second, third);
+  }
   ov.style.top = $('posY').value + '%';
   if ($('customColorToggle')?.checked) {
     ov.style.setProperty('--accent', $('accentColor').value);
