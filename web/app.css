@@ -5,6 +5,7 @@
 @font-face { font-family: 'CreatoExtraBold'; src: url('/fonts/CreatoDisplay-ExtraBold.otf') format('opentype'); font-weight: 800; }
 @font-face { font-family: 'CreatoLight'; src: url('/fonts/CreatoDisplay-Light.otf') format('opentype'); font-weight: 300; }
 @font-face { font-family: 'AppleGaramond'; src: url('/fonts/AppleGaramond-Italic.ttf') format('truetype'); font-style: italic; font-weight: 400; }
+@font-face { font-family: 'AppleGaramondLight'; src: url('/fonts/AppleGaramond-LightItalic.ttf') format('truetype'); font-style: italic; font-weight: 300; }
 @font-face { font-family: 'AppleGaramondBold'; src: url('/fonts/AppleGaramond-BoldItalic.ttf') format('truetype'); font-style: italic; font-weight: 700; }
 @font-face { font-family: 'DMSans'; src: url('/fonts/DMSans.ttf') format('truetype'); }
 @font-face { font-family: 'Geist'; src: url('/fonts/Geist.ttf') format('truetype'); }
