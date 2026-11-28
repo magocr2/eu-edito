@@ -1,9 +1,8 @@
-const CACHE = 'eu-edito-web-v13';
-const SHELL = ['/', '/assets/app.css', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
+const CACHE = 'eu-edito-web-v14';
+const SHELL = ['/', '/assets/app.css', '/assets/library_preview.js', '/assets/app.js', '/assets/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
-  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -13,6 +12,9 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
-  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+  const url = new URL(e.request.url);
+  if (url.pathname.startsWith('/api/')) return;
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
 });

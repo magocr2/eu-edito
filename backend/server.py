@@ -11,6 +11,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
+from library_catalog import get_public_library
 from processor import (
     _prepare_card_png,
     apply_manual_caption_cuts,
@@ -96,6 +97,11 @@ def health():
 @app.route("/api/hardware")
 def api_hardware():
     return jsonify(HW_PROFILE)
+
+
+@app.route("/api/library")
+def api_library():
+    return jsonify(get_public_library())
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -224,30 +230,71 @@ def _run_render_pipeline(job_id, opts):
             res_choice = "720p"
         out_w, out_h = resolve_export_size(info["width"], info["height"], res_choice)
 
-        # Resolve optional bold, subtitles & media overlays (no Motion Graphics or SFX)
+        # Resolve subtitles, shared typography/animation overrides, vector graphic FX & media compositions
         generate_srt(captions, srt_path)
         generate_ass(
             captions,
             ass_path,
             width=out_w,
             height=out_h,
-            style_id=opts.get("style", "classic"),
+            style_id=opts.get("style", "highlight-words"),
             accent_hex=opts.get("accent_color", ""),
+            text_color=opts.get("text_color", "#FFFFFF"),
             pos_y_pct=float(opts.get("pos_y", 74)),
+            alignment=str(opts.get("alignment", "center")),
             caption_lines=int(opts.get("caption_lines", 3)),
             caption_scale=float(opts.get("caption_scale", 100)),
+            letter_spacing=float(opts.get("letter_spacing", 0)),
+            line_spacing=float(opts.get("line_spacing", 1.0)),
+            outline_val=float(opts.get("outline_val", 0.8)),
+            shadow_val=float(opts.get("shadow_val", 2.0)),
+            anim_in=str(opts.get("anim_in", "")),
+            anim_out=str(opts.get("anim_out", "fade-out")),
+            anim_dur=float(opts.get("anim_dur", 0.28)),
+            anim_intensity=float(opts.get("anim_intensity", 1.0)),
             main_font_id=opts.get("main_font", ""),
             small_font_id=opts.get("small_font", ""),
             caption_bold=bool(opts.get("caption_bold", False)),
             highlight_fx=str(opts.get("highlight_fx", "auto")),
+            gfx_cfg=opts.get("gfx_cfg") if isinstance(opts.get("gfx_cfg"), dict) else None,
+            fullscreen_mode=str(opts.get("fullscreen_mode", "auto")),
         )
+
+        # Resolve Professional Visual Compositions (floating-media, editorial-card, stacked-cards, visual-storytelling, split-composition)
+        resolved_compositions = []
+        raw_comps = list(opts.get("compositions") or [])
+        fallback_slots = [imp[0] for imp in impacts] if impacts else [c["s"] for c in captions[::3]]
+        for comp_i, comp in enumerate(raw_comps[:6]):
+            resolved_media = []
+            for m in (comp.get("media") or [])[:4]:
+                mid = secure_filename(str(m.get("id") or "").strip())
+                if not mid:
+                    continue
+                cand_c = JOBS_DIR / "_cards" / mid
+                cand_b = JOBS_DIR / "_brolls" / mid
+                mp = cand_c if cand_c.exists() else (cand_b if cand_b.exists() else None)
+                if mp:
+                    resolved_media.append({"path": mp, "id": mid})
+            exp_s = comp.get("start")
+            exp_e = comp.get("end")
+            if exp_s not in (None, "") and float(exp_s) >= 0.0:
+                cs = float(exp_s)
+                ce = float(exp_e) if (exp_e not in (None, "") and float(exp_e) > cs + 0.5) else (cs + 3.5)
+            else:
+                cs = float(fallback_slots[min(comp_i, len(fallback_slots) - 1)]) if fallback_slots else (comp_i * 3.5)
+                ce = cs + 3.5
+            resolved_compositions.append({
+                **comp,
+                "start": cs,
+                "end": ce,
+                "media": resolved_media,
+            })
 
         # Resolve multiple B-rolls with explicit start/end, per-caption timing, or automatic placement
         raw_brolls = list(opts.get("brolls") or [])
         if not raw_brolls and opts.get("broll_id"):
             raw_brolls = [{"id": opts["broll_id"], "layout": opts.get("broll_layout", "auto")}]
         broll_items = []
-        fallback_slots = [imp[0] for imp in impacts] if impacts else [c["s"] for c in captions[::3]]
         b_slot_idx = 0
         for b in raw_brolls[:5]:
             bid = secure_filename(str(b.get("id") or "").strip())
@@ -319,6 +366,7 @@ def _run_render_pipeline(job_id, opts):
             broll_items=broll_items,
             color_grade=bool(opts.get("color_grade", False)),
             card_items=card_items,
+            compositions=resolved_compositions,
         )
 
         edited_dur = round(sum(s["e"] - s["s"] for s in keep_ranges), 1)

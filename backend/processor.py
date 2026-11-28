@@ -12,6 +12,16 @@ import time
 import uuid
 from pathlib import Path
 
+from compositor import (
+    IMG_EXTS,
+    build_editorial_card_png,
+    emit_ass_graphic_fx,
+    ensure_rounded_mask,
+    ensure_split_mask,
+    motion_overlay_expr,
+)
+from library_catalog import resolve_caption_model
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 FONTS_DIR = BASE_DIR / "fonts"
 
@@ -398,27 +408,60 @@ def map_time_to_edited(t, keep_ranges):
     return round(acc, 3)
 
 
+_NO_ORPHAN_END = {
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+    "a", "o", "as", "os", "e", "ou", "que", "se", "com", "por", "para", "pra", "um", "uma",
+}
+
+
 def build_captions(words, keep_ranges, max_chars=26):
-    """Group words into dynamic short captions aligned to the cut timeline."""
+    """Group words into natural, readable blocks factoring punctuation, speech rate, pauses, and connector words."""
     mapped_words = []
     for w in words:
         mid = (w["s"] + w["e"]) / 2.0
-        # Skip words that fell inside a cut region
         if not any(seg["s"] - 0.03 <= mid <= seg["e"] + 0.03 for seg in keep_ranges):
             continue
         ms = map_time_to_edited(w["s"], keep_ranges)
         me = map_time_to_edited(w["e"], keep_ranges)
         if me <= ms:
             me = ms + 0.12
-        mapped_words.append({"w": w["w"], "s": round(ms, 3), "e": round(me, 3), "orig_s": round(w["s"], 3), "orig_e": round(w["e"], 3)})
+        mapped_words.append({
+            "w": w["w"],
+            "s": round(ms, 3),
+            "e": round(me, 3),
+            "orig_s": round(w["s"], 3),
+            "orig_e": round(w["e"], 3),
+        })
 
     captions = []
     cur = []
     cur_len = 0
-    for w in mapped_words:
+    for idx, w in enumerate(mapped_words):
         wlen = len(w["w"])
         gap = (w["s"] - cur[-1]["e"]) if cur else 0.0
-        if cur and (cur_len + 1 + wlen > max_chars or len(cur) >= 4 or gap > 0.45 or cur[-1]["w"].endswith((".", "!", "?"))):
+        cur_dur = (cur[-1]["e"] - cur[0]["s"]) if cur else 0.0
+        prev_clean = re.sub(r"[^\w\u00e0-\u00fa]", "", cur[-1]["w"].lower()) if cur else ""
+        has_punct = bool(cur and cur[-1]["w"].endswith((".", "!", "?", ";")))
+        soft_comma = bool(cur and cur[-1]["w"].endswith(",") and (cur_len >= 12 or len(cur) >= 3))
+        too_long_time = bool(cur and cur_dur >= 2.2 and len(cur) >= 3)
+        word_cap = 5 if (cur and cur_len + 1 + wlen <= max_chars - 2 and gap < 0.25) else 4
+
+        should_break = False
+        if cur:
+            if has_punct or soft_comma or gap > 0.42 or too_long_time:
+                should_break = True
+            elif len(cur) >= word_cap or (cur_len + 1 + wlen > max_chars):
+                # Avoid cutting right after a weak connector word if the next word fits safely
+                if prev_clean in _NO_ORPHAN_END and cur_len + 1 + wlen <= max_chars + 5 and gap < 0.30 and len(cur) < 6:
+                    should_break = False
+                else:
+                    should_break = True
+
+        if cur and should_break:
+            # Move dangling connector forward to next block when safe and cur keeps >=2 words
+            carry = None
+            if not has_punct and not soft_comma and gap < 0.28 and len(cur) >= 3 and prev_clean in _NO_ORPHAN_END:
+                carry = cur.pop()
             captions.append({
                 "s": cur[0]["s"],
                 "e": cur[-1]["e"],
@@ -427,10 +470,11 @@ def build_captions(words, keep_ranges, max_chars=26):
                 "text": " ".join(x["w"] for x in cur),
                 "words": cur,
             })
-            cur = []
-            cur_len = 0
+            cur = [carry] if carry else []
+            cur_len = len(carry["w"]) if carry else 0
         cur.append(w)
         cur_len += (1 if cur_len else 0) + wlen
+
     if cur:
         captions.append({
             "s": cur[0]["s"],
@@ -441,25 +485,27 @@ def build_captions(words, keep_ranges, max_chars=26):
             "words": cur,
         })
 
-    # Never strand a single trailing orphan word when it can join or steal a neighbor cleanly
+    # Avoid single-word dangling blocks when they belong with neighbor
     merged = []
     for cap in captions:
         if merged and len(cap["words"]) == 1 and (cap["s"] - merged[-1]["e"]) <= 0.55:
             prev = merged[-1]
-            if len(prev["words"]) <= 3 and len(prev["text"]) + 1 + len(cap["text"]) <= max_chars + 6:
+            if len(prev["words"]) <= 3 and len(prev["text"]) + 1 + len(cap["text"]) <= max_chars + 7:
                 prev["words"].extend(cap["words"])
                 prev["e"] = cap["e"]
                 prev["orig_e"] = cap["orig_e"]
                 prev["text"] = " ".join(x["w"] for x in prev["words"])
                 continue
             elif len(prev["words"]) >= 3:
-                stolen = prev["words"].pop()
+                w2_clean = re.sub(r"[^\w\u00e0-\u00fa]", "", prev["words"][-2]["w"].lower())
+                take_cnt = 2 if (w2_clean in _NO_ORPHAN_END and len(prev["words"]) >= 3) else 1
+                stolen_list = [prev["words"].pop() for _ in range(take_cnt)][::-1]
                 prev["e"] = prev["words"][-1]["e"]
                 prev["orig_e"] = prev["words"][-1]["orig_e"]
                 prev["text"] = " ".join(x["w"] for x in prev["words"])
-                cap["words"].insert(0, stolen)
-                cap["s"] = stolen["s"]
-                cap["orig_s"] = stolen["orig_s"]
+                cap["words"] = stolen_list + cap["words"]
+                cap["s"] = stolen_list[0]["s"]
+                cap["orig_s"] = stolen_list[0]["orig_s"]
                 cap["text"] = " ".join(x["w"] for x in cap["words"])
         merged.append(cap)
     return merged
@@ -532,7 +578,8 @@ def sync_edited_captions(edited_captions):
         s = float(cap.get("s", 0.0))
         e = max(s + 0.15, float(cap.get("e", s + 0.5)))
         orig_words = cap.get("words") or []
-        new_tokens = text.split()
+        raw_clean = text.replace("|", " ").replace("\n", " ")
+        new_tokens = raw_clean.split()
         if len(new_tokens) == len(orig_words) and orig_words:
             words = [
                 {"w": tok, "s": float(orig_words[i]["s"]), "e": float(orig_words[i]["e"])}
@@ -545,13 +592,22 @@ def sync_edited_captions(edited_captions):
                 for i, tok in enumerate(new_tokens)
             ]
         item = {"s": round(s, 3), "e": round(e, 3), "text": text, "words": words}
-        if cap.get("main_idx") is not None:
+        if cap.get("main_indices"):
+            valid_mi = [int(x) for x in cap["main_indices"] if 0 <= int(x) < len(words)]
+            if valid_mi:
+                item["main_indices"] = valid_mi
+                item["main_idx"] = valid_mi[0]
+        if cap.get("main_idx") is not None and "main_idx" not in item:
             try:
                 mi = int(cap["main_idx"])
                 if 0 <= mi < len(words):
                     item["main_idx"] = mi
             except Exception:
                 pass
+        if cap.get("graphic_fx"):
+            item["graphic_fx"] = str(cap["graphic_fx"])
+        if cap.get("fullscreen"):
+            item["fullscreen"] = True
         if "sfx" in cap and cap["sfx"] is not None:
             item["sfx"] = cap["sfx"] if isinstance(cap["sfx"], str) else bool(cap["sfx"])
         if cap.get("broll"):
@@ -819,95 +875,39 @@ def generate_srt(captions, out_path):
 
 
 
-def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic", accent_hex="", pos_y_pct=74, caption_lines=3, caption_scale=100, main_font_id="", small_font_id="", caption_bold=False, highlight_fx="auto"):
+def generate_ass(
+    captions,
+    out_path,
+    width=1080,
+    height=1920,
+    style_id="highlight-words",
+    accent_hex="",
+    text_color="#FFFFFF",
+    pos_y_pct=74,
+    alignment="center",
+    caption_lines=3,
+    caption_scale=100,
+    letter_spacing=0,
+    line_spacing=1.0,
+    outline_val=0.8,
+    shadow_val=2.0,
+    anim_in="",
+    anim_out="fade-out",
+    anim_dur=0.28,
+    anim_intensity=1.0,
+    main_font_id="",
+    small_font_id="",
+    caption_bold=False,
+    highlight_fx="auto",
+    gfx_cfg=None,
+    fullscreen_mode="auto",
+):
     """
-    Generate CapCut-grade ASS subtitles including reference-engineered styles & vector ASS graphics:
-    - Mandatory REAL bold variant on highlighted words (`_BOLD_VARIANT_MAP` + `\\b-1`)
-    - Dynamic Captions (`classic`, `model-07`, `clean-9`, `clean-10`)
-    - Kinetic Typography (`kinetic-tracking`, `kinetic-clip`, `kinetic-blurgrid`)
-    - Drawn Highlights (`drawn-circle`, `drawn-strike`, `drawn-bar`) + selectable `highlight_fx`
+    Generate CapCut/editorial-grade ASS subtitles backed by library_catalog.py & compositor.py.
+    Supports the 6 core caption models + real bold font mapping + all 11 entry/exit animations
+    + full typography overrides + editable vector graphic effects + manual breaks & multi-highlight.
     """
-    styles_cfg = {
-        # --- Dynamic Captions ---
-        "classic": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 58, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 100, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "rise", "fx": "none",
-        },
-        "model-07": {
-            "small_font": "Geist", "small_file": "Geist.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 108, "main_bold": -1, "main_italic": -1,
-            "upper": True, "default_accent": "#FFD66C", "anim": "pop", "fx": "none",
-        },
-        "clean-9": {
-            "small_font": "Creato Display Light", "small_file": "CreatoDisplay-Light.otf", "small_size": 54, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 94, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "blur", "fx": "none",
-        },
-        "clean-10": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 62, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#A375FA", "anim": "rise", "fx": "none",
-        },
-        "clean-12": {
-            "small_font": "DM Sans 9pt", "small_file": "DMSans.ttf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "DM Sans 9pt", "main_file": "DMSans.ttf", "main_size": 98, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "pop", "fx": "none",
-        },
-        "clean-13": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-Bold.otf", "main_size": 96, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "slide", "fx": "none",
-        },
-        "clean-14": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 110, "main_bold": -1, "main_italic": -1,
-            "upper": False, "default_accent": "#FFDFC4", "anim": "pop", "fx": "none",
-        },
-        "clean-lavish": {
-            "small_font": "Lavish", "small_file": "lavish.otf", "small_size": 56, "small_bold": 0, "small_italic": 0,
-            "main_font": "Lavish", "main_file": "lavish.otf", "main_size": 102, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "slide", "fx": "none",
-        },
-        # --- Kinetic Typography (Reference Videos 1 & 2) ---
-        "kinetic-tracking": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 114, "main_bold": -1, "main_italic": -1,
-            "upper": False, "default_accent": "#FFFFFF", "anim": "tracking", "fx": "none",
-        },
-        "kinetic-clip": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Apple Garamond", "main_file": "AppleGaramond-BoldItalic.ttf", "main_size": 112, "main_bold": -1, "main_italic": -1,
-            "upper": False, "default_accent": "#F472B6", "anim": "clip_reveal", "fx": "none",
-        },
-        "kinetic-blurgrid": {
-            "small_font": "Apple Garamond", "small_file": "AppleGaramond-Italic.ttf", "small_size": 56, "small_bold": 0, "small_italic": -1,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 106, "main_bold": -1, "main_italic": 0,
-            "upper": True, "default_accent": "#FFFFFF", "anim": "blur_grid", "fx": "none",
-        },
-        # --- Drawn Highlights (Reference Videos 1, 2 & 3) ---
-        "drawn-circle": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 50, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 86, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#FACC15", "anim": "blur", "fx": "circle",
-        },
-        "drawn-strike": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 90, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#EF4444", "anim": "clip_reveal", "fx": "strike",
-        },
-        "drawn-bar": {
-            "small_font": "Creato Display", "small_file": "CreatoDisplay-Regular.otf", "small_size": 52, "small_bold": 0, "small_italic": 0,
-            "main_font": "Creato Display", "main_file": "CreatoDisplay-ExtraBold.otf", "main_size": 90, "main_bold": -1, "main_italic": 0,
-            "upper": False, "default_accent": "#F472B6", "anim": "slide", "fx": "bar",
-        },
-    }
-    # Legacy aliases cleanly mapped to upgraded models
-    styles_cfg["clean-11"] = dict(styles_cfg["kinetic-tracking"])
-    styles_cfg["clean-15"] = dict(styles_cfg["drawn-bar"])
-    styles_cfg["clean"] = dict(styles_cfg["drawn-strike"])
-
-    cfg = dict(styles_cfg.get(style_id, styles_cfg["classic"]))
+    cfg = resolve_caption_model(style_id)
     font_overrides = {
         "bebas": ("Bebas Neue", "BebasNeue-Regular.ttf", -1, 0),
         "coolvetica": ("Coolvetica", "Coolvetica-Regular.otf", -1, 0),
@@ -922,7 +922,6 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
         "geist": ("Geist", "Geist.ttf", -1, 0),
         "dm-sans": ("DM Sans 9pt", "DMSans.ttf", -1, 0),
     }
-    # Real bold file mapping so highlighted tokens NEVER fall back to thin/light weights
     _BOLD_REAL_MAP = {
         "CreatoDisplay-Light.otf": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
         "CreatoDisplay-Regular.otf": ("Creato Display", "CreatoDisplay-ExtraBold.otf", -1, 0),
@@ -932,15 +931,10 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     }
     if main_font_id and main_font_id in font_overrides:
         mf, mfile, mb, mi = font_overrides[main_font_id]
-        cfg["main_font"] = mf
-        cfg["main_file"] = mfile
-        cfg["main_bold"] = -1  # Mandatory bold on highlighted words
-        cfg["main_italic"] = mi
+        cfg["main_font"], cfg["main_file"], cfg["main_bold"], cfg["main_italic"] = mf, mfile, -1, mi
     if cfg["main_file"] in _BOLD_REAL_MAP:
         bmf, bmfile, bmb, bmi = _BOLD_REAL_MAP[cfg["main_file"]]
-        cfg["main_font"] = bmf
-        cfg["main_file"] = bmfile
-        cfg["main_bold"] = bmb
+        cfg["main_font"], cfg["main_file"], cfg["main_bold"] = bmf, bmfile, bmb
         if cfg["main_italic"]:
             cfg["main_italic"] = bmi
     cfg["main_bold"] = -1
@@ -955,35 +949,45 @@ def generate_ass(captions, out_path, width=1080, height=1920, style_id="classic"
     }
     if small_font_id and small_font_id in small_font_overrides:
         sf, sfile, sb, si = small_font_overrides[small_font_id]
-        cfg["small_font"] = sf
-        cfg["small_file"] = sfile
-        cfg["small_bold"] = sb
-        cfg["small_italic"] = si
+        cfg["small_font"], cfg["small_file"], cfg["small_bold"], cfg["small_italic"] = sf, sfile, sb, si
     if caption_bold:
         cfg["small_bold"] = -1
         if cfg["small_file"] in _BOLD_REAL_MAP:
             bsf, bsfile, _, _ = _BOLD_REAL_MAP[cfg["small_file"]]
-            cfg["small_font"] = bsf
-            cfg["small_file"] = bsfile
-    cfg["main_bold"] = -1  # Ensure mandatory bold even after small/global logic
-    active_fx = cfg.get("fx", "none") if (not highlight_fx or highlight_fx == "auto") else highlight_fx
+            cfg["small_font"], cfg["small_file"] = bsf, bsfile
+    cfg["main_bold"] = -1
+
+    active_fx = cfg.get("default_fx", "none") if (not highlight_fx or highlight_fx == "auto") else highlight_fx
+    if active_fx == "bar":
+        active_fx = "pill"
+    in_anim = (anim_in or cfg.get("default_anim_in") or "pop").strip().lower()
+    out_anim = (anim_out or cfg.get("default_anim_out") or "fade-out").strip().lower()
+    in_ms = max(120, min(850, int(float(anim_dur or 0.28) * 1000)))
+    inten = max(0.35, min(1.6, float(anim_intensity or 1.0)))
+
     scale_f = min(width, height) / 1080.0
     user_scale = max(0.60, min(1.45, float(caption_scale or 100) / 100.0))
     s_size = max(20, int(cfg["small_size"] * scale_f * user_scale))
     m_size = max(28, int(cfg["main_size"] * scale_f * user_scale))
-    outline = round(max(0.4, 0.6 * scale_f), 1)
-    shadow = round(max(1.2, 2.0 * scale_f), 1)
-    main_shadow = round(max(0.6, 1.0 * scale_f), 1)
-    pos_x = int(width * 0.5)
+    outline = round(max(0.0, float(outline_val if outline_val is not None else 0.8) * scale_f), 1)
+    shadow = round(max(0.0, float(shadow_val if shadow_val is not None else 2.0) * scale_f), 1)
+    main_shadow = round(max(0.0, shadow * 0.55), 1)
+    fsp_base = round(float(letter_spacing or 0) * scale_f, 1)
+    line_mult = max(0.72, min(1.50, float(line_spacing or 1.0)))
+
+    align_norm = (alignment or "center").strip().lower()
+    an_code = 4 if align_norm == "left" else (6 if align_norm == "right" else 5)
+    pos_x = int(width * (0.10 if align_norm == "left" else (0.90 if align_norm == "right" else 0.50)))
     pos_y = int(height * max(16, min(86, float(pos_y_pct))) / 100.0)
+
+    text_ass = _hex_to_ass_bgr((text_color or "").strip() or cfg.get("default_color", "#FFFFFF"))
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
     accent_ass = _hex_to_ass_bgr(chosen_hex)
-    glow_blur = round(max(10.0, 18.0 * scale_f), 1)
-    glow_bord = round(max(3.5, 6.0 * scale_f), 1)
+    glow_blur = round(max(8.0, 16.0 * scale_f), 1)
+    glow_bord = round(max(3.0, 5.5 * scale_f), 1)
     has_color_accent = chosen_hex.upper() not in ("#FFFFFF", "FFFFFF")
-    glow_alpha = "&H5A&" if has_color_accent else "&H7A&"
+    glow_alpha = "&H5E&" if has_color_accent else "&H7C&"
 
-    # True ASS alpha: FF=transparent, 00=opaque! Ultra-soft edge & shadow so highlight words stay clean on glow
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -993,20 +997,15 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Small,{cfg['small_font']},{s_size},&H00FFFFFF,&H00FFFFFF,&HE4000000,&H9E000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,0,0,1,{outline},{shadow},5,36,36,36,1
-Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HF4000000,&HC8000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,0,{main_shadow},5,36,36,36,1
-Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_ass},&HFF000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,0,0,1,{glow_bord},0,5,36,36,36,1
+Style: Small,{cfg['small_font']},{s_size},{text_ass},{text_ass},&HE4000000,&H9E000000,{cfg['small_bold']},{cfg['small_italic']},0,0,100,100,{fsp_base},0,1,{outline},{shadow},{an_code},36,36,36,1
+Style: Main,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},&HF4000000,&HC8000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,{fsp_base},0,1,0,{main_shadow},{an_code},36,36,36,1
+Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_ass},&HFF000000,{cfg['main_bold']},{cfg['main_italic']},0,0,100,100,{fsp_base},0,1,{glow_bord},0,{an_code},36,36,36,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
     req_lines = int(caption_lines or 3)
-    if style_id == "clean-10":
-        req_lines = 1
-    anim = cfg["anim"]
-
-    # Load Pillow ImageFont if available for exact pixel width measurement & cap clamping
     s_pil = m_pil = None
     try:
         from PIL import ImageFont
@@ -1022,13 +1021,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     def _measure(txt, is_main=False, custom_sz=None):
         font_obj = m_pil if is_main else s_pil
         sz = custom_sz or (m_size if is_main else s_size)
+        extra_sp = max(0.0, fsp_base) * max(0, len(txt) - 1)
         if font_obj is not None:
             try:
                 base_sz = m_size if is_main else s_size
-                return float(font_obj.getlength(txt)) * (sz / max(base_sz, 1))
+                return float(font_obj.getlength(txt)) * (sz / max(base_sz, 1)) + extra_sp
             except Exception:
                 pass
-        return len(txt) * sz * 0.50
+        return len(txt) * sz * 0.50 + extra_sp
 
     def _word_score(w):
         clean = re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", w["w"])
@@ -1038,122 +1038,70 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return sc
 
     def _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=False):
-        t0 = max(0, int(rel_ms))
-        dur = 45 if anim == "cut" else (190 if anim == "blur" else 135)
-        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
-        exit_s = max(t0 + dur + 30, dur_ms - exit_dur)
-        exit_tag = f"\\t({exit_s},{dur_ms},2.3,\\alpha&HFF&)" if dur_ms > (t0 + dur + 110) else ""
+        t0 = max(0, int(rel_ms)) if in_anim == "stagger" else 0
+        fade_ms = 40 if in_anim == "none" else min(220, int(in_ms * 0.65))
+        exit_dur = 40 if out_anim == "none" else min(180, max(70, int(dur_ms * 0.16)))
+        exit_s = max(t0 + fade_ms + 30, dur_ms - exit_dur)
+        exit_tag = f"\\t({exit_s},{dur_ms},2.1,\\alpha&HFF&)" if (out_anim != "none" and dur_ms > (t0 + fade_ms + 90)) else ""
+        start_alpha = "\\alpha&H00&" if in_anim == "none" else "\\alpha&HFF&"
         if is_glow:
-            return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a{glow_alpha}\\3a&H82&\\4a&HFF&){exit_tag}"
+            if in_anim == "none":
+                return f"\\1a{glow_alpha}\\3a&H82&\\4a&HFF&{exit_tag}"
+            return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a{glow_alpha}\\3a&H82&\\4a&HFF&){exit_tag}"
         if is_main_tok:
-            return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
-        return f"\\alpha&HFF&\\t({t0},{t0 + dur},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
+            if in_anim == "none":
+                return f"\\1a&H00&\\3a&HF4&\\4a&HC8&{exit_tag}"
+            return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
+        if in_anim == "none":
+            return f"\\1a&H00&\\3a&HE4&\\4a&H9E&{exit_tag}"
+        return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
 
     def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, is_glow=False, est_w_px=300.0, row_h_px=90.0):
-        d = int(26 * scale_f)
-        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
-        exit_s = max(260, dur_ms - exit_dur)
-        s_exit = max(60, int(target_scale * 0.94))
-        exit_scale = f"\\t({exit_s},{dur_ms},2.3,\\fscx{s_exit}\\fscy{s_exit})" if dur_ms > 340 else ""
+        d = int(28 * scale_f * inten)
+        exit_dur = min(160, max(70, int(dur_ms * 0.16)))
+        exit_s = max(in_ms + 40, dur_ms - exit_dur)
+        s_exit = max(58, int(target_scale * (0.90 if out_anim == "scale-in" else 0.96)))
+        exit_tag = ""
+        if dur_ms > in_ms + 90 and out_anim != "none":
+            if out_anim == "slide-up":
+                exit_tag = f"\\move({x},{y},{x},{y - d},{exit_s},{dur_ms})"
+            elif out_anim == "slide-down":
+                exit_tag = f"\\move({x},{y},{x},{y + d},{exit_s},{dur_ms})"
+            else:
+                exit_tag = f"\\t({exit_s},{dur_ms},2.1,\\fscx{s_exit}\\fscy{s_exit})"
 
-        if anim == "tracking" and is_main:
-            # Video 2 (37.7s): wide letter-spacing collapsing crisply to tight focus
-            sp0 = max(14, int(34 * scale_f))
-            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}\\fsp{sp0}\\t(0,420,0.28,\\fsp0){exit_scale}"
-        if anim == "clip_reveal" and is_main:
-            # Video 1 (5.2s) & Video 2 (39.7s): left-to-right clip reveal across highlight text
-            half_rw = int((est_w_px * (target_scale / 100.0)) / 2.0) + int(24 * scale_f)
-            half_rh = int((row_h_px * (target_scale / 100.0)) * 0.72) + int(18 * scale_f)
-            cx0, cy0, cx1, cy1 = max(0, x - half_rw), max(0, y - half_rh), min(width, x + half_rw), min(height, y + half_rh)
-            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}\\clip({cx0},{cy0},{cx0 + 4},{cy1})\\t(0,380,0.35,\\clip({cx0},{cy0},{cx1},{cy1})){exit_scale}"
-        if anim == "blur_grid":
-            end_blur = glow_blur if is_glow else 0.9
-            s_lo = max(55, int(target_scale * 0.88))
-            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,260,0.35,\\fscx{target_scale}\\fscy{target_scale})\\blur{round(end_blur + 7.5, 1)}\\t(0,300,0.35,\\blur{end_blur}){exit_scale}"
-        if anim == "rise":
-            s_lo = max(55, int(target_scale * 0.92))
-            return f"\\move({x},{y + d},{x},{y},0,230)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
-        if anim == "slide":
-            s_lo = max(55, int(target_scale * 0.93))
-            shift_x = int(d * (1.8 if active_fx == "bar" and is_main else 1.1))
-            t_in = f"\\move({x - shift_x if (active_fx == 'bar' and is_main) else (x + shift_x)},{y},{x},{y},0,240)"
-            return f"{t_in}\\fscx{s_lo}\\fscy{s_lo}\\t(0,240,0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
-        if anim == "blur":
-            end_blur = glow_blur if is_glow else 0.9
-            s_lo = max(55, int(target_scale * 0.93))
-            return f"\\move({x},{y - int(d * 0.55)},{x},{y},0,220)\\fscx{s_lo}\\fscy{s_lo}\\t(0,230,0.32,\\fscx{target_scale}\\fscy{target_scale})\\blur{round(end_blur + 4.0, 1)}\\t(0,240,0.35,\\blur{end_blur}){exit_scale}"
-        if anim == "pop":
-            s_lo = max(50, int(target_scale * (0.80 if is_main else 0.90)))
-            s_hi = int(target_scale * (1.05 if is_main else 1.02))
-            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,145,0.34,\\fscx{s_hi}\\fscy{s_hi})\\t(145,245,0.5,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
-        # cut / tracking-sub: snappy cubic micro-scale entrance
-        s_lo = max(60, int(target_scale * 0.94))
-        return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,130,0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_scale}"
-
-    def _emit_drawn_fx(fx_kind, cx, cy, box_w, box_h, t0s, t1s, dur_ms):
-        """Emit native libass \\p1 vector highlights (circle / strike / bar) synced to highlighted text."""
-        if fx_kind not in ("circle", "strike", "bar"):
-            return
-        exit_dur = min(130, max(70, int(dur_ms * 0.16)))
-        ex_t = f"\\t({max(220, dur_ms - exit_dur)},{dur_ms},2.2,\\alpha&HFF&)" if dur_ms > 320 else ""
-
-        if fx_kind == "bar":
-            bw = max(80, int(box_w + 34 * scale_f))
-            bh = max(36, int(box_h * 1.12))
-            rx = max(8, min(22, int(bh * 0.24)))
-            x0, y0 = int(cx - bw // 2), int(cy - bh // 2)
-            path = (
-                f"m {rx} 0 l {bw - rx} 0 b {bw} 0 {bw} {rx} {bw} {rx} "
-                f"l {bw} {bh - rx} b {bw} {bh} {bw - rx} {bh} {bw - rx} {bh} "
-                f"l {rx} {bh} b 0 {bh} 0 {bh - rx} 0 {bh - rx} "
-                f"l 0 {rx} b 0 0 {rx} 0 {rx} 0"
-            )
-            events.append(
-                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an7\\pos({x0},{y0})\\p1\\1c{accent_ass}\\1a&H14&\\bord0\\shad0"
-                f"\\clip({x0},{y0},{x0 + 6},{y0 + bh})\\t(0,220,0.32,\\clip({x0},{y0},{x0 + bw},{y0 + bh})){ex_t}}}{path}{{\\p0}}"
-            )
-        elif fx_kind == "strike":
-            bw = max(80, int(box_w + 30 * scale_f))
-            lh = max(4, int(6 * scale_f))
-            x0, y0 = int(cx - bw // 2), int(cy + box_h * 0.22)
-            path = f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}"
-            events.append(
-                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an7\\pos({x0},{y0})\\p1\\1c{accent_ass}\\1a&H00&\\bord0\\shad0\\blur1.5"
-                f"\\clip({x0},{y0 - 4},{x0 + 4},{y0 + lh + 4})\\t(50,360,0.35,\\clip({x0},{y0 - 4},{x0 + bw},{y0 + lh + 4})){ex_t}}}{path}{{\\p0}}"
-            )
-        elif fx_kind == "circle":
-            # Organic 360-degree oval loop drawn progressively around the highlighted word (Video 3 10.2s)
-            bw = max(90, int(box_w + 46 * scale_f))
-            bh = max(44, int(box_h * 1.28))
-            rx, ry = bw / 2.0, bh / 2.0
-            k = 0.5523
-            kx, ky = rx * k, ry * k
-            x0, y0 = int(cx - rx), int(cy - ry)
-            stroke = round(max(2.6, 4.2 * scale_f), 1)
-            oval_path = (
-                f"m {int(rx)} 0 "
-                f"b {int(rx + kx)} 0 {bw} {int(ry - ky)} {bw} {int(ry)} "
-                f"b {bw} {int(ry + ky)} {int(rx + kx)} {bh} {int(rx)} {bh} "
-                f"b {int(rx - kx)} {bh} 0 {int(ry + ky)} 0 {int(ry)} "
-                f"b 0 {int(ry - ky)} {int(rx - kx)} 0 {int(rx)} 0"
-            )
-            pad = int(stroke + 8)
-            # Top arc draws left->right (0..210ms); Bottom arc draws right->left (170..390ms) = smooth 360 loop!
-            events.append(
-                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{accent_ass}\\3a&H0A&\\bord{stroke}\\shad0\\blur1.0"
-                f"\\clip({x0 - pad},{y0 - pad},{x0},{y0 + int(ry) + 2})\\t(30,220,0.45,\\clip({x0 - pad},{y0 - pad},{x0 + bw + pad},{y0 + int(ry) + 2})){ex_t}}}{oval_path}{{\\p0}}"
-            )
-            events.append(
-                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{accent_ass}\\3a&H0A&\\bord{stroke}\\shad0\\blur1.0"
-                f"\\clip({x0 + bw + pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})\\t(190,390,0.45,\\clip({x0 - pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})){ex_t}}}{oval_path}{{\\p0}}"
-            )
+        if in_anim == "none":
+            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}"
+        if in_anim == "scale-in":
+            s_lo = max(45, int(target_scale * (0.74 if is_main else 0.86)))
+            sp_tag = f"\\fsp{max(8, int(22 * scale_f))}\\t(0,{in_ms},0.3,\\fsp{fsp_base})" if (cfg["id"] == "big-word" and is_main) else ""
+            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{in_ms},0.30,\\fscx{target_scale}\\fscy{target_scale}){sp_tag}{exit_tag}"
+        if in_anim == "reveal":
+            half_rw = int((est_w_px * (target_scale / 100.0)) / 2.0) + int(28 * scale_f)
+            half_rh = int((row_h_px * (target_scale / 100.0)) * 0.78) + int(22 * scale_f)
+            ax0 = x if align_norm == "left" else (x - half_rw * 2 if align_norm == "right" else x - half_rw)
+            ax1 = ax0 + half_rw * 2
+            cx0, cx1 = max(0, ax0), min(width, ax1)
+            cy0, cy1 = max(0, y - half_rh), min(height, y + half_rh)
+            return f"\\pos({x},{y})\\fscx{target_scale}\\fscy{target_scale}\\clip({cx0},{cy0},{cx0 + 6},{cy1})\\t(0,{in_ms},0.35,\\clip({cx0},{cy0},{cx1},{cy1})){exit_tag}"
+        if in_anim == "slide-up":
+            return f"\\move({x},{y + d},{x},{y},0,{in_ms})\\fscx{target_scale}\\fscy{target_scale}{exit_tag}"
+        if in_anim == "slide-down":
+            return f"\\move({x},{y - d},{x},{y},0,{in_ms})\\fscx{target_scale}\\fscy{target_scale}{exit_tag}"
+        if in_anim == "slide-left":
+            return f"\\move({x + int(d * 1.4)},{y},{x},{y},0,{in_ms})\\fscx{target_scale}\\fscy{target_scale}{exit_tag}"
+        if in_anim == "slide-right":
+            return f"\\move({x - int(d * 1.4)},{y},{x},{y},0,{in_ms})\\fscx{target_scale}\\fscy{target_scale}{exit_tag}"
+        if in_anim == "pop":
+            s_lo = max(48, int(target_scale * (0.78 if is_main else 0.90)))
+            s_hi = int(target_scale * (1.06 if is_main else 1.02))
+            t_mid = int(in_ms * 0.60)
+            return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{t_mid},0.34,\\fscx{s_hi}\\fscy{s_hi})\\t({t_mid},{in_ms},0.5,\\fscx{target_scale}\\fscy{target_scale}){exit_tag}"
+        # fade-in / stagger / draw fallback
+        s_lo = max(65, int(target_scale * 0.95))
+        return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{in_ms},0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_tag}"
 
     def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None):
-        """Return inline ASS override tag for switching between Small and Main styles inside one line."""
         if is_glow:
             if not is_main_tok:
                 return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\alpha&HFF&"
@@ -1164,104 +1112,93 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
         if is_main_tok:
             msz = main_sz_override or m_size
-            # When drawn behind a solid highlight bar, crisp white bold reads cleaner than accent-on-accent!
-            fg_c = "&H00FFFFFF&" if active_fx == "bar" else accent_ass
+            fg_c = "&H00FFFFFF&" if active_fx == "pill" else accent_ass
             return (
                 f"\\fn{cfg['main_font']}\\fs{msz}\\b-1\\i{cfg['main_italic']}"
-                f"\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.8"
+                f"\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
             )
         return (
             f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}"
-            f"\\1c&H00FFFFFF&\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.8"
+            f"\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
         )
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_idx=None, inline_main_scale=1.0, instant_in=False, instant_out=False):
-        """Render a single horizontal ASS line centered natively by libass."""
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none"):
         if not tokens:
             return
-        dur_ms = max(120, int((cap_e + (0.0 if instant_out else 0.12) - cap_s) * 1000))
+        m_set = set(main_local_set or [])
+        has_main = bool(m_set)
+        primary_m = min(m_set) if has_main else None
+        dur_ms = max(120, int((cap_e + 0.12 - cap_s) * 1000))
         max_w = width * 0.86
-        inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if main_local_idx is not None else m_size
+        inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if has_main else m_size
         est_w = 0.0
         for idx, w in enumerate(tokens):
-            is_m = (main_local_idx is not None and idx == main_local_idx)
+            is_m = idx in m_set
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             est_w += _measure(txt, is_main=is_m, custom_sz=(inline_m_sz if is_m else s_size))
         est_w += _measure(" ", is_main=False) * max(0, len(tokens) - 1)
         fit_pct = min(100, max(54, int((max_w / max(est_w, 1.0)) * 100)))
         half_w = (est_w * (fit_pct / 100.0)) / 2.0
-        safe_x = int(max(width * 0.07 + half_w, min(width * 0.93 - half_w, x_center)))
-        if half_w * 2 > width * 0.82:
-            safe_x = pos_x
+        if align_norm == "center":
+            safe_x = int(max(width * 0.07 + half_w, min(width * 0.93 - half_w, x_center)))
+            if half_w * 2 > width * 0.82:
+                safe_x = pos_x
+        else:
+            safe_x = x_center
 
-        has_main = (main_local_idx is not None and 0 <= main_local_idx < len(tokens))
+        if has_main and row_fx not in ("none", ""):
+            solo_m = (len(tokens) == 1)
+            mtok = tokens[primary_m]
+            mtxt = mtok["w"].upper() if cfg["upper"] else mtok["w"]
+            mw_px = _measure(mtxt, is_main=True, custom_sz=inline_m_sz) * (fit_pct / 100.0)
+            cx_m = safe_x
+            if align_norm == "left":
+                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + _measure(" ", is_main=False) * primary_m
+                cx_m = int(safe_x + left_w * (fit_pct / 100.0) + mw_px * 0.5)
+            elif align_norm == "right":
+                right_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[primary_m + 1:], primary_m + 1)) + _measure(" ", is_main=False) * max(0, len(tokens) - primary_m - 1)
+                cx_m = int(safe_x - right_w * (fit_pct / 100.0) - mw_px * 0.5)
+            elif not solo_m:
+                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + _measure(" ", is_main=False) * primary_m
+                cx_m = int(safe_x - half_w + left_w * (fit_pct / 100.0) + mw_px * 0.5)
+            m_start_s = max(cap_s, float(mtok.get("s", cap_s)))
+            mt0s = _fmt_ass_time(m_start_s)
+            m_dur_ms = max(240, int((cap_e + 0.12 - m_start_s) * 1000))
+            emit_ass_graphic_fx(
+                events, row_fx, cx_m, y_row, mw_px, inline_m_sz * (fit_pct / 100.0),
+                mt0s, t1s, m_dur_ms, scale_f, accent_ass, gfx_cfg=gfx_cfg,
+            )
 
-        def _rev_tag(rel_ms, is_g=False, is_m=False):
-            if instant_in:
-                ex = ""
-                if not instant_out and dur_ms > 240:
-                    ed = min(130, max(70, int(dur_ms * 0.16)))
-                    es = max(100, dur_ms - ed)
-                    ex = f"\\t({es},{dur_ms},2.3,\\alpha&HFF&)"
-                if is_g:
-                    return f"\\1a{glow_alpha}\\3a&H82&\\4a&HFF&{ex}"
-                if is_m:
-                    return f"\\1a&H00&\\3a&HF4&\\4a&HC8&{ex}"
-                return f"\\1a&H00&\\3a&HE4&\\4a&H9E&{ex}"
-            base = _word_reveal(rel_ms, dur_ms, is_glow=is_g, is_main_tok=is_m)
-            if instant_out:
-                base = re.sub(r"\\t\(\d+,\d+,2\.3,\\alpha&HFF&\)", "", base)
-            return base
-
-        # Layer 1: Soft Glow halo behind any Main highlight token on this line
         if has_main:
             solo_main_glow = (len(tokens) == 1)
-            if active_fx in ("circle", "strike", "bar"):
-                mtok = tokens[main_local_idx]
-                mtxt = mtok["w"].upper() if cfg["upper"] else mtok["w"]
-                mw_px = _measure(mtxt, is_main=True, custom_sz=inline_m_sz) * (fit_pct / 100.0)
-                offset_to_m = 0.0
-                if not solo_main_glow:
-                    left_w = sum(_measure(t["w"], is_main=False) for t in tokens[:main_local_idx]) + _measure(" ", is_main=False) * main_local_idx
-                    left_w *= (fit_pct / 100.0)
-                    offset_to_m = -half_w + left_w + mw_px * 0.5
-                # Start the drawn highlight right when the highlighted word itself speaks (sync!)
-                m_start_s = cap_s if instant_in else max(cap_s, float(mtok.get("s", cap_s)))
-                mt0s = _fmt_ass_time(m_start_s)
-                m_dur_ms = max(240, int((cap_e + (0.0 if instant_out else 0.12) - m_start_s) * 1000))
-                _emit_drawn_fx(active_fx, int(safe_x + offset_to_m), y_row, mw_px, inline_m_sz * (fit_pct / 100.0), mt0s, t1s, m_dur_ms)
-
-            glow_motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True, est_w_px=est_w, row_h_px=inline_m_sz)
-            glow_blur_tag = f"\\blur{glow_blur}" if anim not in ("blur", "blur_grid") else ""
+            glow_motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True, est_w_px=est_w, row_h_px=inline_m_sz)
             g_chunks = []
             for idx, w in enumerate(tokens):
-                is_m = (idx == main_local_idx)
+                is_m = idx in m_set
                 txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
                 if is_m:
                     rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
                     sw = _inline_switch(True, is_glow=True, main_sz_override=inline_m_sz)
-                    g_chunks.append(f"{{{sw}{_rev_tag(rel_ms, is_g=True, is_m=True)}}}{txt}")
+                    g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, dur_ms, is_glow=True, is_main_tok=True)}}}{txt}")
                 else:
                     sw = _inline_switch(False, is_glow=True, main_sz_override=inline_m_sz)
                     g_chunks.append(f"{{{sw}}}{txt}")
             glow_base_style = "MainGlow" if solo_main_glow else "Small"
             glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
-            if active_fx != "bar":
+            if row_fx != "pill":
                 events.append(
-                    f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an5{glow_motion}{glow_blur_tag}}}{glow_text}"
+                    f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an{an_code}{glow_motion}\\blur{glow_blur}}}{glow_text}"
                 )
 
-        # Layer 2 (Main) or Layer 0 (Small): Crisp centered foreground text
         solo_main = (has_main and len(tokens) == 1)
-        motion = f"\\pos({safe_x},{y_row})\\fscx{fit_pct}\\fscy{fit_pct}" if instant_in else _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False, est_w_px=est_w, row_h_px=(inline_m_sz if has_main else s_size))
-        blur_base = "\\blur0.8" if anim not in ("blur", "blur_grid") else ""
+        motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False, est_w_px=est_w, row_h_px=(inline_m_sz if has_main else s_size))
         fg_chunks = []
         for idx, w in enumerate(tokens):
-            is_m = (has_main and idx == main_local_idx)
+            is_m = idx in m_set
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-            rev = _rev_tag(rel_ms, is_g=False, is_m=is_m)
-            if (has_main and not solo_main) or (is_m and active_fx == "bar"):
+            rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=is_m)
+            if (has_main and not solo_main) or (is_m and row_fx == "pill"):
                 sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
                 fg_chunks.append(f"{{{sw}{rev}}}{txt}")
             else:
@@ -1269,104 +1206,136 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         style_name = "Main" if solo_main else "Small"
         layer_id = 2 if has_main else 0
-        if has_main and not solo_main:
-            fg_text = f" {{{_inline_switch(False, is_glow=False)}}}".join(fg_chunks)
-        else:
-            fg_text = " ".join(fg_chunks)
+        fg_text = f" {{{_inline_switch(False, is_glow=False)}}}".join(fg_chunks) if (has_main and not solo_main) else " ".join(fg_chunks)
         events.append(
-            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an5{motion}{blur_base}}}{fg_text}"
+            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an{an_code}{motion}\\blur0.7}}{fg_text}"
         )
 
-    def _split_two_balanced(tokens, main_i):
-        """Split tokens into 2 balanced rows without leaving a lone orphan normal word."""
+    def _split_two_balanced(tokens, m_idx):
         n = len(tokens)
-        best_k = max(1, min(n - 1, (main_i + 1) if main_i < n - 1 else n - 1))
+        best_k = max(1, min(n - 1, (m_idx + 1) if m_idx < n - 1 else n - 1))
         best_cost = 1e9
         for k in range(1, n):
             r1, r2 = tokens[:k], tokens[k:]
-            w1 = sum(len(t["w"]) for t in r1)
-            w2 = sum(len(t["w"]) for t in r2)
-            cost = abs(w1 - w2)
-            # Heavily penalize leaving 1 stray word alone unless it is the hero MAIN word itself
-            if len(r1) == 1 and main_i != 0:
+            cost = abs(sum(len(t["w"]) for t in r1) - sum(len(t["w"]) for t in r2))
+            if len(r1) == 1 and m_idx != 0:
                 cost += 25
-            if len(r2) == 1 and main_i != k:
+            if len(r2) == 1 and m_idx != k:
                 cost += 25
-            # Slight preference for breaking right after or before MAIN for editorial rhythm
-            if k == main_i or k == main_i + 1:
+            if k == m_idx or k == m_idx + 1:
                 cost -= 2
             if cost < best_cost:
-                best_cost = cost
-                best_k = k
+                best_cost, best_k = cost, k
         return tokens[:best_k], tokens[best_k:]
 
     for c in captions:
+        raw_text = (c.get("text") or "").strip()
         words = c.get("words") or []
-        text = (c.get("text") or "").strip() or " ".join(w.get("w", "") for w in words).strip()
-        if not text:
+        if not raw_text and not words:
             continue
-        cap_s = float(c["s"])
-        cap_e = float(c["e"])
+        cap_s, cap_e = float(c["s"]), float(c["e"])
         if not words:
-            toks = text.split()
+            toks = raw_text.replace("|", " ").replace("\n", " ").split()
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
             words = [{"w": tok, "s": cap_s + i * step, "e": cap_s + (i + 1) * step} for i, tok in enumerate(toks)]
 
-        t0s = _fmt_ass_time(cap_s)
-        t1s = _fmt_ass_time(cap_e + 0.12)
-        custom_main = c.get("main_idx")
-        if custom_main is not None and 0 <= int(custom_main) < len(words):
-            main_idx = int(custom_main)
+        t0s, t1s = _fmt_ass_time(cap_s), _fmt_ass_time(cap_e + 0.12)
+        if c.get("main_indices"):
+            m_indices = [int(i) for i in c["main_indices"] if 0 <= int(i) < len(words)]
+        elif c.get("main_idx") is not None and 0 <= int(c["main_idx"]) < len(words):
+            m_indices = [int(c["main_idx"])]
         else:
-            main_idx = max(range(len(words)), key=lambda i: _word_score(words[i]))
+            m_indices = [max(range(len(words)), key=lambda i: _word_score(words[i]))]
+        m_set_all = set(m_indices)
+        main_idx = m_indices[0] if m_indices else 0
+        cap_fx = c.get("graphic_fx") or active_fx
+        if cap_fx == "bar":
+            cap_fx = "pill"
 
-        # --- MODE 1: Single Unified Line (natural spacing, 100% centered) ---
+        # Editorial Serif fullscreen scene backdrop when explicitly enabled or full-sentence punctuation matches
+        is_full_bg = (fullscreen_mode == "on") or bool(c.get("fullscreen")) or (
+            cfg.get("fullscreen_backdrop") and fullscreen_mode != "off" and len(words) <= 3 and ("." in raw_text or "!" in raw_text)
+        )
+        if is_full_bg:
+            events.append(
+                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&H42&\\bord0\\shad0}}m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}"
+            )
+
+        # Layered Typography background depth echo behind foreground text
+        if cfg.get("layered_overlap") and words:
+            bg_word = words[main_idx]["w"].upper()
+            bg_sz = int(m_size * 1.65)
+            bg_y = max(int(height * 0.16), pos_y - int(m_size * 0.12))
+            events.append(
+                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an5\\pos({pos_x},{bg_y})\\fn{cfg['main_font']}\\fs{bg_sz}\\b-1\\1c&HFFFFFF&\\1a&HC4&\\bord0\\shad0\\blur2.4}}{bg_word}"
+            )
+
+        # Manual line breaks using '|' or newline
+        if "|" in raw_text or "\n" in raw_text:
+            parts = [p.strip().split() for p in re.split(r"[|\n]+", raw_text) if p.strip()]
+            cursor = 0
+            n_rows = len(parts)
+            step_y = int((m_size * 0.56 + s_size * 0.44) * line_mult)
+            y_start = pos_y - int(((n_rows - 1) * step_y) / 2)
+            for r_idx, ptoks in enumerate(parts):
+                cnt = len(ptoks)
+                row_tokens = words[cursor:cursor + cnt] if cursor + cnt <= len(words) else [{"w": t, "s": cap_s, "e": cap_e} for t in ptoks]
+                row_m = {j for j in range(len(row_tokens)) if (cursor + j) in m_set_all}
+                _emit_mixed_line(row_tokens, pos_x, y_start + r_idx * step_y, cap_s, cap_e, t0s, t1s, main_local_set=row_m, inline_main_scale=0.92 if len(row_tokens) > 1 else 1.0, row_fx=cap_fx)
+                cursor += cnt
+            continue
+
         if req_lines == 1 or len(words) == 1:
-            _emit_mixed_line(words, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=main_idx, inline_main_scale=0.86)
+            _emit_mixed_line(words, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx)
             continue
 
         before = words[:main_idx]
         main_w = [words[main_idx]]
         after = words[main_idx + 1:]
-
         upper_main = cfg["upper"]
-        fx_pad = int(m_size * 0.16) if active_fx in ("circle", "bar") else 0
-        top_offset = int(m_size * 0.39 + s_size * 0.30) + fx_pad
-        bot_offset = int(m_size * (0.38 if upper_main else 0.42) + s_size * 0.34) + fx_pad
-        top_2_above = int(m_size * 0.28 + s_size * 0.32) + fx_pad
-        bot_2_below = int(m_size * 0.16) + fx_pad
-        top_2_main = int(m_size * 0.16) + fx_pad
-        bot_2_after = int(m_size * (0.24 if upper_main else 0.28) + s_size * 0.36) + fx_pad
+        fx_pad = int(m_size * (0.20 if cap_fx in ("circle", "pill", "arrow") else 0.12 if cap_fx == "underline" else 0.0))
+        mb_has = any(i < len(before) for i in m_set_all)
+        ma_has = any(i > main_idx for i in m_set_all)
+        top_offset = int(((m_size * 0.44 + (m_size * 0.34 if mb_has else s_size * 0.32))) * line_mult) + fx_pad
+        bot_offset = int(((m_size * (0.42 if upper_main else 0.46) + (m_size * 0.36 if ma_has else s_size * 0.35))) * line_mult) + fx_pad
+        top_2_above = int((m_size * 0.28 + s_size * 0.32) * line_mult) + fx_pad
+        bot_2_below = int(m_size * 0.16 * line_mult) + fx_pad
+        top_2_main = int(m_size * 0.16 * line_mult) + fx_pad
+        bot_2_after = int((m_size * (0.24 if upper_main else 0.28) + s_size * 0.36) * line_mult) + fx_pad
 
         if req_lines >= 3 and before and after:
-            # Never strand a single short orphan normal word (< 5 chars) when 2 rows look cleaner!
             orphan_before = (len(before) == 1 and len(before[0]["w"]) <= 4 and len(after) >= 2)
             orphan_after = (len(after) == 1 and len(after[0]["w"]) <= 4 and len(before) >= 2)
             if orphan_before or orphan_after:
                 r1, r2 = _split_two_balanced(words, main_idx)
-                m1 = main_idx if main_idx < len(r1) else None
-                m2 = (main_idx - len(r1)) if main_idx >= len(r1) else None
-                _emit_mixed_line(r1, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_idx=m1, inline_main_scale=0.92 if m1 is not None else 1.0)
-                _emit_mixed_line(r2, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=m2, inline_main_scale=0.92 if m2 is not None else 1.0)
+                m1 = {i for i in m_set_all if i < len(r1)}
+                m2 = {i - len(r1) for i in m_set_all if i >= len(r1)}
+                _emit_mixed_line(r1, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=0.92 if m1 else 1.0, row_fx=cap_fx)
+                _emit_mixed_line(r2, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=0.92 if m2 else 1.0, row_fx=cap_fx)
             else:
-                _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-                _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-                _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+                mb = {i for i in m_set_all if i < len(before)}
+                ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
+                _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx)
+                _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
+                _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx)
         elif req_lines == 2:
-            # Balanced 2 fixed lines without leaving a stray orphan word
             r1, r2 = _split_two_balanced(words, main_idx)
-            m1 = main_idx if main_idx < len(r1) else None
-            m2 = (main_idx - len(r1)) if main_idx >= len(r1) else None
-            y1 = pos_y - (top_2_main if m1 == 0 and len(r1) == 1 else top_2_above)
-            y2 = pos_y + (bot_2_below if m2 == 0 and len(r2) == 1 else bot_2_after)
-            _emit_mixed_line(r1, pos_x, y1, cap_s, cap_e, t0s, t1s, main_local_idx=m1, inline_main_scale=0.94 if m1 is not None else 1.0)
-            _emit_mixed_line(r2, pos_x, y2, cap_s, cap_e, t0s, t1s, main_local_idx=m2, inline_main_scale=0.94 if m2 is not None else 1.0)
+            m1 = {i for i in m_set_all if i < len(r1)}
+            m2 = {i - len(r1) for i in m_set_all if i >= len(r1)}
+            y1 = pos_y - (top_2_main if (0 in m1 and len(r1) == 1) else top_2_above)
+            y2 = pos_y + (bot_2_below if (0 in m2 and len(r2) == 1) else bot_2_after)
+            _emit_mixed_line(r1, pos_x, y1, cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=0.94 if m1 else 1.0, row_fx=cap_fx)
+            _emit_mixed_line(r2, pos_x, y2, cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=0.94 if m2 else 1.0, row_fx=cap_fx)
         elif before:
-            _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_idx=None)
-            _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
+            mb = {i for i in m_set_all if i < len(before)}
+            _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx)
+            _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
         else:
-            _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_idx=0, inline_main_scale=1.0)
-            _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_idx=None)
+            ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
+            _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
+            _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx)
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
@@ -1410,6 +1379,7 @@ def render_video(
     card_start=None,
     card_dur=3.2,
     card_items=None,
+    compositions=None,
 ):
     ffmpeg, _ = find_ffmpeg()
     ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
@@ -1525,6 +1495,7 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(mask_png)]
 
+    temp_artifacts = []
     # Pre-build gradient seam feather masks if split-screen B-rolls are used
     hh = (h_even // 2) - ((h_even // 2) % 2)
     feather_px = max(24, int(hh * 0.14))
@@ -1532,8 +1503,9 @@ def render_video(
     b_full_h = hh + feather_px
     top_fmask_idx = bot_fmask_idx = None
     if broll_inputs:
-        tmask_png = _ensure_split_mask(Path(out_path).parent / f"split_top_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "top")
-        bmask_png = _ensure_split_mask(Path(out_path).parent / f"split_bot_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "bottom")
+        tmask_png = ensure_split_mask(Path(out_path).parent / f"split_top_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "top")
+        bmask_png = ensure_split_mask(Path(out_path).parent / f"split_bot_{w_even}x{b_full_h}.png", w_even, b_full_h, feather_px, "bottom")
+        temp_artifacts.extend([tmask_png, bmask_png])
         top_fmask_idx = next_in_idx
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(tmask_png)]
@@ -1541,7 +1513,111 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(bmask_png)]
 
-    use_fc = bool(fc_parts or broll_inputs or card_inputs or color_grade)
+    # Support rich Professional Composition Models (floating-media, editorial-card, stacked-cards, visual-storytelling, split-composition)
+    comp_list = list(compositions or [])
+    comp_stages = []
+    for ci_m, comp in enumerate(comp_list[:6]):
+        ctype = (comp.get("type") or "floating-media").strip().lower()
+        cs = max(0.0, float(comp.get("start") or 0.0))
+        ce = max(cs + 1.4, float(comp.get("end") or (cs + 3.5)))
+        cd = min(12.0, ce - cs)
+        ce = cs + cd
+        anim_in = (comp.get("anim_in") or "scale-in").lower()
+        anim_out = (comp.get("anim_out") or "fade-out").lower()
+        anim_dur = float(comp.get("anim_dur") or 0.34)
+        anim_int = float(comp.get("anim_intensity") or 1.0)
+        bg_hex = comp.get("bg_color") or "#FFFFFF"
+        acc_hex = comp.get("accent_color") or "#F472B6"
+        txt_hex = comp.get("text_color") or "#111827"
+        rad = int(comp.get("radius") or 24)
+        sh_pct = int(comp.get("shadow") or 55)
+        media_list = list(comp.get("media") or [])
+
+        if ctype == "editorial-card":
+            m_src = media_list[0].get("path") if (media_list and media_list[0].get("path")) else None
+            c_png = Path(out_path).parent / f"edcard_{ci_m}_{uuid.uuid4().hex[:6]}.png"
+            card_w = max(240, int(w_even * (float(comp.get("scale") or 74) / 100.0)))
+            card_w -= card_w % 2
+            build_editorial_card_png(
+                m_src, c_png, card_w=card_w,
+                title=comp.get("title") or "", subtitle=comp.get("subtitle") or "",
+                tag=comp.get("tag") or "", bg_hex=bg_hex, accent_hex=acc_hex, text_hex=txt_hex,
+                radius=rad, shadow_pct=sh_pct,
+            )
+            temp_artifacts.append(c_png)
+            c_idx = next_in_idx
+            next_in_idx += 1
+            extra_inputs += ["-loop", "1", "-i", str(c_png)]
+            tx = f"(W-w)*{float(comp.get('x', 50))/100.0:.2f}"
+            ty = f"{int(h_even * float(comp.get('y', 18))/100.0)}"
+            comp_stages.append(("overlay_png", c_idx, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty))
+        elif ctype in ("stacked-cards", "visual-storytelling"):
+            angles = (-4.5, 3.5, 0.0) if ctype == "stacked-cards" else (-2.0, 2.0, 0.0)
+            labels = list(comp.get("labels") or [])
+            base_x = float(comp.get("x", 10 if ctype == "stacked-cards" else 8))
+            base_y = float(comp.get("y", 14))
+            for li, mitem in enumerate((media_list or [{"path": None}])[:3]):
+                m_src = mitem.get("path")
+                if m_src and not Path(m_src).exists():
+                    continue
+                is_story_main = (ctype == "visual-storytelling" and li == 0)
+                c_w = max(200, int(w_even * (0.64 if is_story_main else (0.48 if ctype == "stacked-cards" else 0.36))))
+                c_w -= c_w % 2
+                c_png = Path(out_path).parent / f"stack_{ci_m}_{li}_{uuid.uuid4().hex[:6]}.png"
+                sub_lbl = labels[li] if li < len(labels) else (comp.get("subtitle") or "" if li == 0 else "")
+                build_editorial_card_png(
+                    m_src, c_png, card_w=c_w,
+                    title=(comp.get("title") or "") if li == 0 else sub_lbl,
+                    subtitle=(comp.get("subtitle") or "") if li == 0 else "",
+                    tag=(comp.get("tag") or "") if li == 0 else (sub_lbl if not is_story_main else ""),
+                    bg_hex=bg_hex, accent_hex=acc_hex, text_hex=txt_hex,
+                    radius=rad, shadow_pct=sh_pct, angle_deg=angles[li % len(angles)],
+                )
+                temp_artifacts.append(c_png)
+                c_idx = next_in_idx
+                next_in_idx += 1
+                extra_inputs += ["-loop", "1", "-i", str(c_png)]
+                st_delay = li * 0.24
+                if ctype == "stacked-cards":
+                    px_pct = min(65.0, base_x + li * 16.0)
+                    py_pct = min(56.0, base_y + li * 12.0)
+                else:
+                    slots = [(8.0, 10.0), (54.0, 14.0), (52.0, 38.0)]
+                    px_pct, py_pct = slots[li % len(slots)]
+                tx = f"{int(w_even * px_pct / 100.0)}"
+                ty = f"{int(h_even * py_pct / 100.0)}"
+                in_k = "slide-left" if (li % 2 == 1 and anim_in == "stagger") else ("slide-right" if anim_in == "stagger" else anim_in)
+                comp_stages.append(("overlay_png", c_idx, cs + st_delay, max(1.0, cd - st_delay), in_k, anim_out, anim_dur, anim_int, tx, ty))
+        elif ctype == "floating-media":
+            for fi, mitem in enumerate(media_list[:4]):
+                mp = mitem.get("path")
+                if not mp or not Path(mp).exists():
+                    continue
+                is_img = Path(mp).suffix.lower() in IMG_EXTS
+                m_idx = next_in_idx
+                next_in_idx += 1
+                extra_inputs += (["-loop", "1", "-i", str(mp)] if is_img else ["-i", str(mp)])
+                sc_p = float(comp.get("scale") or 40) / 100.0
+                bw = max(160, int(w_even * sc_p))
+                bh = max(140, int(h_even * sc_p * 0.56))
+                bw -= bw % 2
+                bh -= bh % 2
+                st_delay = fi * 0.20 if anim_in == "stagger" else 0.0
+                px_pct = min(82.0, float(comp.get("x", 6)) + fi * 14.0)
+                py_pct = min(72.0, float(comp.get("y", 8)) + fi * 16.0)
+                tx = f"{int(w_even * px_pct / 100.0)}"
+                ty = f"{int(h_even * py_pct / 100.0)}"
+                comp_stages.append(("floating", m_idx, is_img, bw, bh, rad, cs + st_delay, max(1.0, cd - st_delay), anim_in, anim_out, anim_dur, anim_int, tx, ty))
+        elif ctype == "split-composition" and media_list:
+            mp = media_list[0].get("path")
+            if mp and Path(mp).exists():
+                is_img = Path(mp).suffix.lower() in IMG_EXTS
+                m_idx = next_in_idx
+                next_in_idx += 1
+                extra_inputs += (["-loop", "1", "-i", str(mp)] if is_img else ["-i", str(mp)])
+                comp_stages.append(("split", m_idx, is_img, comp.get("orientation") or "vertical", float(comp.get("split_ratio") or 50), int(comp.get("gap") or 10), rad, acc_hex, comp.get("highlight_pane") or "a", cs, cd, anim_in, anim_out, anim_dur))
+
+    use_fc = bool(fc_parts or broll_inputs or card_inputs or comp_stages or color_grade)
     af_chain = "highpass=f=65,acompressor=threshold=-22dB:ratio=1.7:attack=12:release=140:makeup=1.2,alimiter=limit=0.95" if (studio_audio and has_src_audio) else ""
     base_scale_step = "" if pre_scaled_done else scale_base
 
@@ -1611,7 +1687,8 @@ def render_video(
                 oy = f"{int(h_even * (0.09 + (s_ord % 3) * 0.17))}"
             bw -= bw % 2
             bh -= bh % 2
-            rmask = _ensure_rounded_mask(Path(out_path).parent / f"rmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+            rmask = ensure_rounded_mask(Path(out_path).parent / f"rmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+            temp_artifacts.append(rmask)
             rmask_idx = next_in_idx
             next_in_idx += 1
             extra_inputs += ["-loop", "1", "-i", str(rmask)]
@@ -1695,6 +1772,109 @@ def render_video(
             fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vc{ci}]")
             cur_v = f"[vc{ci}]"
 
+        # Composite rich Library Composition Models (floating-media, editorial-card, stacked-cards, visual-storytelling, split-composition)
+        for csi, st in enumerate(comp_stages):
+            kind = st[0]
+            if kind == "overlay_png":
+                _, c_idx, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty = st
+                ce = cs + cd
+                fd_in = 0.05 if anim_in == "none" else min(0.45, max(0.18, anim_dur))
+                fd_out = 0.05 if anim_out == "none" else min(0.45, max(0.18, anim_dur))
+                ox, oy = motion_overlay_expr(anim_in, anim_out, anim_dur, anim_int, cs, ce, tx, ty, w_even, h_even)
+                fc_parts.append(
+                    f"[{c_idx}:v]trim=duration={cd:.3f},format=rgba,"
+                    f"fade=t=in:st=0:d={fd_in:.2f}:alpha=1,fade=t=out:st={max(0.1, cd - fd_out):.3f}:d={fd_out:.2f}:alpha=1,"
+                    f"setpts=PTS-STARTPTS+{cs:.3f}/TB[vcmp{csi}]"
+                )
+                fc_parts.append(f"{cur_v}[vcmp{csi}]overlay=x='{ox}':y='{oy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vcmpout{csi}]")
+                cur_v = f"[vcmpout{csi}]"
+            elif kind == "floating":
+                _, m_idx, is_img, bw, bh, rad, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty = st
+                ce = cs + cd
+                fd_in = 0.05 if anim_in == "none" else min(0.45, max(0.18, anim_dur))
+                fd_out = 0.05 if anim_out == "none" else min(0.45, max(0.18, anim_dur))
+                rmask = ensure_rounded_mask(Path(out_path).parent / f"cmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+                temp_artifacts.append(rmask)
+                rm_idx = next_in_idx
+                next_in_idx += 1
+                extra_inputs += ["-loop", "1", "-i", str(rmask)]
+                ox, oy = motion_overlay_expr(anim_in, anim_out, anim_dur, anim_int, cs, ce, tx, ty, w_even, h_even)
+                fc_parts.append(f"[{rm_idx}:v]trim=duration={cd:.3f},setpts=PTS-STARTPTS[crm{csi}]")
+                fc_parts.append(
+                    f"[{m_idx}:v]trim=start=0:end={cd:.3f},setpts=PTS-STARTPTS,"
+                    f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={bw}:{bh},format=rgba[cflt{csi}]"
+                )
+                fc_parts.append(
+                    f"[cflt{csi}][crm{csi}]alphamerge=shortest=1,"
+                    f"fade=t=in:st=0:d={fd_in:.2f}:alpha=1,fade=t=out:st={max(0.1, cd - fd_out):.3f}:d={fd_out:.2f}:alpha=1,"
+                    f"setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[cflta{csi}]"
+                )
+                fc_parts.append(f"{cur_v}[cflta{csi}]overlay=x='{ox}':y='{oy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vcmpout{csi}]")
+                cur_v = f"[vcmpout{csi}]"
+            elif kind == "split":
+                _, m_idx, is_img, orient, ratio, gap, rad, acc_hex, hl_pane, cs, cd, anim_in, anim_out, anim_dur = st
+                ce = cs + cd
+                ratio = max(30.0, min(70.0, ratio))
+                gap = max(0, min(28, gap))
+                is_horiz = (orient == "horizontal")
+                if is_horiz:
+                    pane_a_w = int((w_even - gap * 3) * (ratio / 100.0))
+                    pane_a_w -= pane_a_w % 2
+                    pane_b_w = max(120, w_even - gap * 3 - pane_a_w)
+                    pane_b_w -= pane_b_w % 2
+                    pane_h = h_even - gap * 2
+                    pane_h -= pane_h % 2
+                    ax, ay, aw, ah = gap, gap, pane_a_w, pane_h
+                    bx, by, bw, bh = gap * 2 + pane_a_w, gap, pane_b_w, pane_h
+                else:
+                    pane_a_h = int((h_even - gap * 3) * (ratio / 100.0))
+                    pane_a_h -= pane_a_h % 2
+                    pane_b_h = max(160, h_even - gap * 3 - pane_a_h)
+                    pane_b_h -= pane_b_h % 2
+                    pane_w = w_even - gap * 2
+                    pane_w -= pane_w % 2
+                    ax, ay, aw, ah = gap, gap, pane_w, pane_a_h
+                    bx, by, bw, bh = gap, gap * 2 + pane_a_h, pane_w, pane_b_h
+
+                mask_a = ensure_rounded_mask(Path(out_path).parent / f"spmask_{aw}x{ah}_r{rad}.png", aw, ah, radius=rad)
+                mask_b = ensure_rounded_mask(Path(out_path).parent / f"spmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+                temp_artifacts.extend([mask_a, mask_b])
+                ma_idx = next_in_idx; next_in_idx += 1; extra_inputs += ["-loop", "1", "-i", str(mask_a)]
+                mb_idx = next_in_idx; next_in_idx += 1; extra_inputs += ["-loop", "1", "-i", str(mask_b)]
+
+                fd = min(0.4, max(0.18, anim_dur))
+                fc_parts.append(f"{cur_v}split=2[splbg{csi}][splspk{csi}]")
+                fc_parts.append(f"[{ma_idx}:v]trim=duration={cd:.3f},setpts=PTS-STARTPTS[spma{csi}]")
+                fc_parts.append(f"[{mb_idx}:v]trim=duration={cd:.3f},setpts=PTS-STARTPTS[spmb{csi}]")
+                fc_parts.append(
+                    f"[splspk{csi}]trim=start={cs:.3f}:end={ce:.3f},setpts=PTS-STARTPTS,"
+                    f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={bw}:{bh}:(iw-ow)/2:(ih-oh)*0.20,format=rgba[spspkraw{csi}]"
+                )
+                fc_parts.append(
+                    f"[spspkraw{csi}][spmb{csi}]alphamerge=shortest=1,"
+                    f"fade=t=in:st=0:d={fd:.2f}:alpha=1,fade=t=out:st={max(0.1, cd-fd):.3f}:d={fd:.2f}:alpha=1,"
+                    f"setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[spspka{csi}]"
+                )
+                fc_parts.append(
+                    f"[{m_idx}:v]trim=start=0:end={cd:.3f},setpts=PTS-STARTPTS,"
+                    f"scale={aw}:{ah}:force_original_aspect_ratio=increase:flags={scale_flags},crop={aw}:{ah},format=rgba[spmedraw{csi}]"
+                )
+                fc_parts.append(
+                    f"[spmedraw{csi}][spma{csi}]alphamerge=shortest=1,"
+                    f"fade=t=in:st=0:d={fd:.2f}:alpha=1,fade=t=out:st={max(0.1, cd-fd):.3f}:d={fd:.2f}:alpha=1,"
+                    f"setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[spmeda{csi}]"
+                )
+                fc_parts.append(f"[splbg{csi}]drawbox=x=0:y=0:w={w_even}:h={h_even}:color=0x090d11@0.92:t=fill:enable='between(t,{cs:.3f},{ce:.3f})'[spdark{csi}]")
+                fc_parts.append(f"[spdark{csi}][spspka{csi}]overlay=x={bx}:y={by}:enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[spstep1_{csi}]")
+                fc_parts.append(f"[spstep1_{csi}][spmeda{csi}]overlay=x={ax}:y={ay}:enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[spstep2_{csi}]")
+                if hl_pane in ("a", "b"):
+                    hx, hy, hw_b, hh_b = (ax, ay, aw, ah) if hl_pane == "a" else (bx, by, bw, bh)
+                    hcol = "0x" + (acc_hex.strip().lstrip("#") or "22C55E")
+                    fc_parts.append(f"[spstep2_{csi}]drawbox=x={hx}:y={hy}:w={hw_b}:h={hh_b}:color={hcol}@0.88:t=4:enable='between(t,{cs:.3f},{ce:.3f})'[vcmpout{csi}]")
+                else:
+                    fc_parts.append(f"[spstep2_{csi}]null[vcmpout{csi}]")
+                cur_v = f"[vcmpout{csi}]"
+
         fc_parts.append(f"{cur_v}subtitles='{ass_escaped}':fontsdir='{fonts_escaped}'[vout]")
 
         if not has_src_audio:
@@ -1715,26 +1895,33 @@ def render_video(
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"
     ]
 
-    if hw.get("nvenc_ready"):
-        nv_cmd = base_cmd + ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", str(out_path)]
-        r = subprocess.run(nv_cmd, capture_output=True, text=True)
-        if r.returncode == 0 and Path(out_path).exists():
-            return
+    try:
+        if hw.get("nvenc_ready"):
+            nv_cmd = base_cmd + ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", str(out_path)]
+            r = subprocess.run(nv_cmd, capture_output=True, text=True)
+            if r.returncode == 0 and Path(out_path).exists():
+                return
 
-    if low_ram:
-        cpu_cmd = base_cmd + [
-            "-filter_threads", "1", "-filter_complex_threads", "1",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
-            "-maxrate", "4500k", "-bufsize", "2M",
-            "-rc-lookahead", "6", "-refs", "1", "-bf", "0",
-            "-threads", "1", str(out_path)
-        ]
-    else:
-        cpu_preset = "fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast"
-        cpu_cmd = base_cmd + [
-            "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
-            "-threads", str(hw.get("cpu_threads", 0)), str(out_path)
-        ]
-    r = subprocess.run(cpu_cmd, capture_output=True, text=True, timeout=360)
-    if r.returncode != 0:
-        raise RuntimeError(f"Erro no FFmpeg: {(r.stderr or '')[-400:]}")
+        if low_ram:
+            cpu_cmd = base_cmd + [
+                "-filter_threads", "1", "-filter_complex_threads", "1",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
+                "-maxrate", "4500k", "-bufsize", "2M",
+                "-rc-lookahead", "6", "-refs", "1", "-bf", "0",
+                "-threads", "1", str(out_path)
+            ]
+        else:
+            cpu_preset = "fast" if hw.get("cpu_cores", 4) >= 4 else "veryfast"
+            cpu_cmd = base_cmd + [
+                "-c:v", "libx264", "-preset", cpu_preset, "-crf", "17",
+                "-threads", str(hw.get("cpu_threads", 0)), str(out_path)
+            ]
+        r = subprocess.run(cpu_cmd, capture_output=True, text=True, timeout=360)
+        if r.returncode != 0:
+            raise RuntimeError(f"Erro no FFmpeg: {(r.stderr or '')[-400:]}")
+    finally:
+        for tp in temp_artifacts:
+            try:
+                Path(tp).unlink(missing_ok=True)
+            except Exception:
+                pass
