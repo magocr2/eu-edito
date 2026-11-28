@@ -51,8 +51,9 @@ function goToStep(step) {
   const s = Math.max(1, Math.min(6, Number(step) || 1));
   if (s > 1 && !videoUnlocked) return;
   currentStep = s;
-  // Preview aparece da etapa 2 em diante (não na etapa 1)
-  if ($('previewCard')) $('previewCard').hidden = (s === 1 || !videoUnlocked);
+  // Preview fica oculto nas Etapas 1 e 2 (aparece da Etapa 3 em diante, ou quando há resultado)
+  const hasResult = $('resultBox') && !$('resultBox').hidden;
+  if ($('previewCard')) $('previewCard').hidden = ((s <= 2 && !hasResult) || !videoUnlocked);
 
   document.querySelectorAll('.wizard-step').forEach((sec) => { sec.hidden = Number(sec.dataset.step) !== s; });
   document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
@@ -62,16 +63,16 @@ function goToStep(step) {
     pill.classList.toggle('is-done', videoUnlocked && ps < s);
   });
 
-  // Sticky CTA aparece na etapa 6 (últimas opções) ou quando há resultado/revisão
-  const inFinal = (s === 6);
-  if ($('resultBox') && !$('resultBox').hidden) {
+  // Sticky CTA aparece nas etapas 5 (Transcrição/Revisão) e 6 (Exportar), ou quando há revisão aberta
+  const inActionStep = (s === 5 || s === 6);
+  if (hasResult) {
     setStickyVisible(false);
-  } else if ($('reviewCard') && !$('reviewCard').hidden) {
+  } else if ($('reviewCard') && !$('reviewCard').hidden && s >= 5) {
     setStickyVisible(true);
   } else {
-    setStickyVisible(inFinal);
+    setStickyVisible(inActionStep);
   }
-  if (s !== 6 && $('resultBox').hidden) clearMediaPreview();
+  if (s !== 6 && !hasResult) clearMediaPreview();
   if ($('pvStageHint')) {
     $('pvStageHint').textContent = s === 6 ? 'Prévia de legendas, B-rolls e composições' : 'Arraste a legenda ou use A-/A+';
   }
@@ -918,6 +919,7 @@ function handleVideoFileSelected(f) {
   flowStage = 'transcribe'; activePreviewCaptionIdx = -1; lastCineFiredIdx = -1; pendingCardBrollIdx = -1;
   clearMediaPreview();
   $('reviewCard').hidden = true;
+  if ($('goExportBtn')) $('goExportBtn').disabled = true;
   if ($('syncTimelineBox')) $('syncTimelineBox').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Abrir Central de Edição →';
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
@@ -1397,6 +1399,7 @@ async function pollRenderCompletion() {
     $('progressText').textContent = st.message || 'Renderizando…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
     if (st.status === 'done') {
       clearMediaPreview(); lastVideoUrl = st.video_url; cachedVideoBlob = null; cachedShareFile = null;
+      if ($('previewCard')) $('previewCard').hidden = false;
       $('previewVideo').src = st.video_url; $('previewVideo').muted = false; $('previewVideo').hidden = false;
       $('emptyStage').hidden = true; $('liveOverlay').hidden = true;
       $('downloadMp4').href = st.video_url + '?dl=1'; $('downloadMp4').download = `eu-edito-${currentJobId || 'pronto'}.mp4`;
@@ -1479,6 +1482,8 @@ $('generateBtn').addEventListener('click', async () => {
         $('progressText').textContent = st.message || 'Transcrevendo…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
         if (st.status === 'review') {
           renderCaptionEditor(st.captions || []); $('progressBox').hidden = true; $('reviewCard').hidden = false;
+          if ($('goExportBtn')) $('goExportBtn').disabled = false;
+          goToStep(5);
           $('reviewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
           flowStage = 'render'; $('generateBtn').textContent = '2. Gerar Vídeo Pronto →'; $('generateBtn').disabled = false;
           setStickyVisible(true); return;

@@ -31,20 +31,20 @@
       <button type="button" id="closeIosHint" aria-label="Fechar">✕</button>
     </div>
 
-    <!-- STEPPER — 6 etapas visíveis -->
+    <!-- STEPPER — 6 etapas -->
     <nav id="wizardStepper" class="wizard-stepper" aria-label="Etapas de edição">
       <button type="button" class="ws-pill is-active" data-step="1"><span>1</span>Vídeo</button>
-      <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Modelo</button>
-      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Estilo</button>
-      <button type="button" class="ws-pill" data-step="4" disabled><span>4</span>Fonte</button>
-      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Linhas</button>
-      <button type="button" class="ws-pill" data-step="6" disabled><span>6</span>Extras</button>
+      <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Decupagem</button>
+      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Legenda</button>
+      <button type="button" class="ws-pill" data-step="4" disabled><span>4</span>Efeitos</button>
+      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Revisar</button>
+      <button type="button" class="ws-pill" data-step="6" disabled><span>6</span>Exportar</button>
     </nav>
 
     <main class="feed">
       <div class="workspace-grid">
         <div class="workspace-left">
-      <!-- PRÉVIA SINCRONIZADA (oculta na Etapa 1) -->
+      <!-- PRÉVIA SINCRONIZADA (oculta nas Etapas 1 e 2) -->
       <section id="previewCard" class="card preview-card" hidden>
         <div class="pv-top-bar">
           <span class="pv-title">Prévia em Tempo Real</span>
@@ -122,8 +122,9 @@
         <!-- Nenhum botão "Avançar" aqui — ao selecionar vídeo vai direto para etapa 2 -->
       </section>
 
-      <!-- ETAPA 2: Escolher Modo Rápido/Automático ou Modelo de Legenda -->
+      <!-- ETAPA 2: Decupagem + Modos Rápidos -->
       <section class="card wizard-step" data-step="2" hidden>
+        <!-- Modos Rápidos (Automático / Rápido) -->
         <div class="mode-banner" id="modeBanner">
           <div class="mode-banner-head">
             <strong>⚡ Atalhos de Edição Inteligente</strong>
@@ -136,12 +137,36 @@
             </button>
             <button type="button" id="quickModeBtn" class="mode-btn mode-btn-quick">
               <strong>⚡ Modo Rápido</strong>
-              <small>Usa o modelo escolhido abaixo + destaques e já gera pronto</small>
+              <small>Usa o modelo escolhido + destaques e já gera pronto</small>
             </button>
           </div>
         </div>
 
-        <div class="step-head" style="margin-top:12px"><span class="badge">2</span><h2>Modelo de Legenda</h2></div>
+        <div class="step-head" style="margin-top:14px"><span class="badge">2</span><h2>Decupagem Automática</h2></div>
+        <p class="review-hint">Configure como o app vai cortar pausas, silêncios e vícios de fala do seu vídeo.</p>
+
+        <!-- Decupagem -->
+        <label class="toggle-row">
+          <div><strong>Decupagem automática</strong><small>Corta pausas, silêncios e vícios de fala</small></div>
+          <span class="switch"><input type="checkbox" id="cutsToggle" checked><span class="slider"></span></span>
+        </label>
+        <div id="rhythmBox" class="rhythm-box">
+          <span class="res-label">Ritmo da decupagem</span>
+          <div class="rhythm-grid" id="rhythmGrid">
+            <button type="button" class="res-pill is-active" data-rhythm="natural"><strong>Natural</strong><small>Cortes suaves</small></button>
+            <button type="button" class="res-pill" data-rhythm="firm"><strong>Firme</strong><small>Sem respiros</small></button>
+          </div>
+        </div>
+
+        <div class="step-nav" style="margin-top:16px">
+          <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
+          <button type="button" class="primary-btn" data-next="3">Próximo: Legenda →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 3: Modelo de Legenda + Cor e Posição -->
+      <section class="card wizard-step" data-step="3" hidden>
+        <div class="step-head"><span class="badge">3</span><h2>Modelo de Legenda</h2></div>
         <div class="cat-tabs cat-tabs-3" id="catTabs">
           <button type="button" class="cat-tab is-active" data-cat="traditional">🏛️ Tradicionais</button>
           <button type="button" class="cat-tab" data-cat="dynamic">⚡ Dinâmicas</button>
@@ -224,16 +249,8 @@
           </button>
         </div>
 
-        <div class="step-nav">
-          <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
-          <button type="button" class="primary-btn" data-next="3">Próximo: Estilo →</button>
-        </div>
-      </section>
-
-      <!-- ETAPA 3: Cor, Altura e Tamanho (preview ao vivo) -->
-      <section class="card wizard-step" data-step="3" hidden>
-        <div class="step-head"><span class="badge">3</span><h2>Cores &amp; Posição</h2></div>
-
+        <!-- Cores & Posição -->
+        <div class="step-head" style="margin-top:14px;margin-bottom:8px"><span class="badge" style="background:linear-gradient(135deg,#f472b6,#ec4899)">🎨</span><h2 style="font-size:13.5px">Cores &amp; Posição</h2></div>
         <div class="row-2">
           <div class="field">
             <span class="color-head"><label for="customColorToggle">Cor destaque</label><input type="checkbox" id="customColorToggle" checked></span>
@@ -260,15 +277,16 @@
         </div>
 
         <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="2">← Modelo</button>
-          <button type="button" class="primary-btn" data-next="4">Próximo: Fonte →</button>
+          <button type="button" class="secondary-btn" data-prev="2">← Decupagem</button>
+          <button type="button" class="primary-btn" data-next="4">Próximo: Fonte &amp; Efeitos →</button>
         </div>
       </section>
 
-      <!-- ETAPA 4: Fontes -->
+      <!-- ETAPA 4: Fonte, Linhas, Efeitos Gráficos e Holofote -->
       <section class="card wizard-step" data-step="4" hidden>
-        <div class="step-head"><span class="badge">4</span><h2>Fontes</h2></div>
+        <div class="step-head"><span class="badge">4</span><h2>Fonte &amp; Efeitos</h2></div>
 
+        <!-- Fontes -->
         <div class="row-2">
           <label class="field">
             <span>Fonte do destaque</span>
@@ -306,7 +324,7 @@
 
         <!-- Avançado (espaçamentos, contorno) -->
         <details class="adv-details" style="margin-top:10px">
-          <summary class="adv-summary">⚙️ Configurações avançadas</summary>
+          <summary class="adv-summary">⚙️ Configurações avançadas de fonte</summary>
           <div class="props-panel" style="margin-top:8px">
             <div class="row-2">
               <label class="field"><span>Entrelinha (<b id="lineSpVal">1.0x</b>)</span><input type="range" id="lineSpacing" min="0.75" max="1.45" step="0.05" value="1.0"></label>
@@ -319,17 +337,8 @@
           </div>
         </details>
 
-        <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="3">← Estilo</button>
-          <button type="button" class="primary-btn" data-next="5">Próximo: Linhas →</button>
-        </div>
-      </section>
-
-      <!-- ETAPA 5: Linhas, Animação e Holofote -->
-      <section class="card wizard-step" data-step="5" hidden>
-        <div class="step-head"><span class="badge">5</span><h2>Linhas &amp; Animação</h2></div>
-
-        <span class="res-label">Quebra de linhas da legenda</span>
+        <!-- Quebra de Linhas -->
+        <div class="step-head" style="margin-top:14px;margin-bottom:6px"><span class="badge" style="background:linear-gradient(135deg,#60a5fa,#3b82f6)">≡</span><h2 style="font-size:13.5px">Quebra de Linhas</h2></div>
         <div class="res-grid" id="linesGrid">
           <button type="button" class="res-pill" data-lines="1"><strong>1 linha</strong><small>Compacta</small></button>
           <button type="button" class="res-pill" data-lines="2"><strong>2 linhas</strong><small>Equilibrada</small></button>
@@ -337,6 +346,7 @@
         </div>
         <small class="step-hint" style="margin-top:4px;display:block;color:var(--muted)">Regra automática: nunca deixa palavra isolada sozinha em uma linha.</small>
 
+        <!-- Animações -->
         <div class="props-panel" style="margin-top:10px">
           <div class="row-2">
             <label class="field"><span>Entrada</span>
@@ -451,31 +461,47 @@
           <button type="button" id="cineReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px;border-color:rgba(250,204,21,0.45);color:#fde047">🎬 Simular Destaque Cinematográfico na Prévia</button>
         </div>
 
-        <div class="step-nav">
-          <button type="button" class="secondary-btn" data-prev="4">← Fonte</button>
-          <button type="button" class="primary-btn" data-next="6">Próximo: Cortes &amp; Extras →</button>
+        <div class="step-nav" style="margin-top:14px">
+          <button type="button" class="secondary-btn" data-prev="3">← Legenda</button>
+          <button type="button" class="primary-btn" data-next="5">Próximo: Revisar →</button>
         </div>
       </section>
 
-      <!-- ETAPA 6: Cortes, Áudio, B-rolls e Cards -->
-      <section class="card wizard-step" data-step="6" hidden>
-        <div class="step-head"><span class="badge">6</span><h2>Cortes, Áudio &amp; Extras</h2></div>
+      <!-- ETAPA 5: Revisar — Transcrição + Central de Edição -->
+      <section class="card wizard-step" data-step="5" hidden>
+        <div class="step-head"><span class="badge">5</span><h2>Transcrição &amp; Edição</h2></div>
+        <p class="review-hint">Clique em <b>Transcrever &amp; Revisar</b> para processar o vídeo. Depois edite os cards, ajuste destaques, adicione holofote e B-rolls.</p>
 
-        <!-- Decupagem -->
-        <label class="toggle-row">
-          <div><strong>Decupagem automática</strong><small>Corta pausas, silêncios e vícios de fala</small></div>
-          <span class="switch"><input type="checkbox" id="cutsToggle" checked><span class="slider"></span></span>
-        </label>
-        <div id="rhythmBox" class="rhythm-box">
-          <span class="res-label">Ritmo da decupagem</span>
-          <div class="rhythm-grid" id="rhythmGrid">
-            <button type="button" class="res-pill is-active" data-rhythm="natural"><strong>Natural</strong><small>Cortes suaves</small></button>
-            <button type="button" class="res-pill" data-rhythm="firm"><strong>Firme</strong><small>Sem respiros</small></button>
+        <!-- Central de Transcrição (cards) — aparece após processar -->
+        <section id="reviewCard" hidden>
+          <div class="step-head" style="margin-top:4px;margin-bottom:8px">
+            <span class="badge">✓</span>
+            <div>
+              <h2 style="font-size:14px">Central de Transcrição &amp; Edição</h2>
+              <small id="reviewAnalysisSummary" style="display:block;font-size:11px;color:var(--green-bright)"></small>
+            </div>
           </div>
+          <p class="review-hint">Toque nas palavras para destacar (pode selecionar várias ou expressões completas), abra <b>＋ Elementos</b> em cada card para vincular efeitos gráficos, holofote ou B-rolls exatamente naquela fala.</p>
+          <div class="review-toolbar">
+            <button type="button" id="applyAutoSuggestionsBtn" class="mini-pill-btn">✨ Aplicar sugestões</button>
+            <button type="button" id="prevCardBtn" class="mini-pill-btn">← Card anterior</button>
+            <button type="button" id="nextCardBtn" class="mini-pill-btn">Próximo card →</button>
+          </div>
+          <div id="captionEditorList" class="caption-editor-list"></div>
+        </section>
+
+        <div class="step-nav" style="margin-top:14px">
+          <button type="button" class="secondary-btn" data-prev="4">← Efeitos</button>
+          <button type="button" class="primary-btn" data-next="6" id="goExportBtn" disabled>Finalizar &amp; Exportar →</button>
         </div>
+      </section>
+
+      <!-- ETAPA 6: Exportar — Áudio, qualidade, B-rolls, resultado -->
+      <section class="card wizard-step" data-step="6" hidden>
+        <div class="step-head"><span class="badge">6</span><h2>Exportar Vídeo</h2></div>
 
         <!-- Limpeza de áudio -->
-        <label class="toggle-row" style="margin-top:9px">
+        <label class="toggle-row">
           <div><strong>🎙️ Limpeza suave de áudio (opcional)</strong><small>Ative apenas se o áudio tiver ruído</small></div>
           <span class="switch"><input type="checkbox" id="studioAudioToggle"><span class="slider"></span></span>
         </label>
@@ -627,27 +653,9 @@
         </details>
 
         <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="5">← Linhas</button>
+          <button type="button" class="secondary-btn" data-prev="5">← Revisão</button>
           <!-- Nenhum "próximo" — sticky CTA aparece para gerar -->
         </div>
-      </section>
-
-      <!-- CENTRAL DE CONTROLE DA TRANSCRIÇÃO (Cards Individuais) -->
-      <section id="reviewCard" class="card" hidden>
-        <div class="step-head">
-          <span class="badge">✓</span>
-          <div>
-            <h2>Central de Transcrição &amp; Edição</h2>
-            <small id="reviewAnalysisSummary" style="display:block;font-size:11px;color:var(--green-bright)"></small>
-          </div>
-        </div>
-        <p class="review-hint">Toque nas palavras para destacar (pode selecionar várias ou expressões completas), abra <b>＋ Elementos</b> em cada card para vincular efeitos gráficos, holofote ou B-rolls exatamente naquela fala.</p>
-        <div class="review-toolbar">
-          <button type="button" id="applyAutoSuggestionsBtn" class="mini-pill-btn">✨ Aplicar sugestões</button>
-          <button type="button" id="prevCardBtn" class="mini-pill-btn">← Card anterior</button>
-          <button type="button" id="nextCardBtn" class="mini-pill-btn">Próximo card →</button>
-        </div>
-        <div id="captionEditorList" class="caption-editor-list"></div>
       </section>
 
       <!-- RESULTADO FINAL -->
