@@ -4,6 +4,17 @@ if ('serviceWorker' in navigator) {
 
 const $ = (id) => document.getElementById(id);
 const PV = window.EuEditoPreview;
+let _flashTimer = null;
+function flash(msg) {
+  const hint = $('pvStageHint');
+  if (hint) {
+    const prev = hint.dataset.base || hint.textContent;
+    if (!hint.dataset.base) hint.dataset.base = prev;
+    hint.textContent = msg;
+    clearTimeout(_flashTimer);
+    _flashTimer = setTimeout(() => { hint.textContent = hint.dataset.base || 'Arraste a legenda ou use A-/A+'; }, 2200);
+  }
+}
 
 let selectedFile = null;
 let selectedFiles = []; // [{ file, name, sizeMB, duration, thumbUrl }]

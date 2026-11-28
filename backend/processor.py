@@ -1432,7 +1432,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             step = max(0.08, (cap_e - cap_s) / max(1, len(toks)))
             words = [{"w": tok, "s": cap_s + i * step, "e": cap_s + (i + 1) * step} for i, tok in enumerate(toks)]
 
-        t0s, t1s = _fmt_ass_time(cap_s), _fmt_ass_time(cap_e + 0.12)
+        next_s = float(captions[cap_idx + 1]["s"]) if (cap_idx + 1 < len(captions)) else (cap_e + 0.12)
+        eff_end = max(cap_s + 0.08, min(cap_e + 0.12, next_s - 0.01))
+        t0s, t1s = _fmt_ass_time(cap_s), _fmt_ass_time(eff_end)
         if c.get("main_indices"):
             m_indices = [int(i) for i in c["main_indices"] if 0 <= int(i) < len(words)]
         elif c.get("main_idx") is not None and 0 <= int(c["main_idx"]) < len(words):
