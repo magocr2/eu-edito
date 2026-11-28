@@ -17,6 +17,7 @@ from processor import (
     apply_manual_caption_cuts,
     build_captions,
     compute_keep_ranges,
+    concat_videos,
     detect_hardware,
     generate_ass,
     generate_srt,
@@ -106,15 +107,32 @@ def api_library():
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
-    f = request.files.get("video")
-    if not f or not f.filename:
+    files = [f for f in request.files.getlist("video") if f and f.filename]
+    if not files:
         return jsonify({"error": "Nenhum vídeo enviado."}), 400
     job_id = uuid.uuid4().hex[:12]
     jdir = JOBS_DIR / job_id
     jdir.mkdir(parents=True, exist_ok=True)
-    safe_name = secure_filename(f.filename) or "video.mp4"
-    src_path = jdir / f"input_{safe_name}"
-    f.save(str(src_path))
+    if len(files) == 1:
+        f = files[0]
+        safe_name = secure_filename(f.filename) or "video.mp4"
+        src_path = jdir / f"input_{safe_name}"
+        f.save(str(src_path))
+        info = probe_video(src_path)
+        take_ranges = [{"index": 0, "filename": safe_name, "s": 0.0, "e": round(float(info.get("duration") or 0.0), 3), "duration": round(float(info.get("duration") or 0.0), 3)}]
+    else:
+        take_paths = []
+        take_names = []
+        for idx, f in enumerate(files):
+            sname = secure_filename(f.filename) or f"take_{idx+1}.mp4"
+            tp = jdir / f"take_{idx:02d}_{sname}"
+            f.save(str(tp))
+            take_paths.append(tp)
+            take_names.append(sname)
+        src_path = jdir / "input_merged.mp4"
+        take_ranges = concat_videos(take_paths, take_names, src_path, HW_PROFILE)
+        safe_name = f"{len(files)}_takes_combinados.mp4"
+
     _set_job(
         job_id,
         status="uploaded",
@@ -122,8 +140,27 @@ def api_upload():
         message="Vídeo recebido. Pronto para processar.",
         filename=safe_name,
         src_path=str(src_path),
+        take_ranges=take_ranges,
+        source_url=f"/api/jobs/{job_id}/source",
     )
-    return jsonify({"job_id": job_id, "filename": safe_name})
+    return jsonify({
+        "job_id": job_id,
+        "filename": safe_name,
+        "take_count": len(files),
+        "take_ranges": take_ranges,
+        "source_url": f"/api/jobs/{job_id}/source",
+    })
+
+
+@app.route("/api/jobs/<job_id>/source")
+def api_job_source(job_id):
+    j = _get_job(job_id)
+    if not j or not j.get("src_path"):
+        return jsonify({"error": "Vídeo não encontrado."}), 404
+    p = Path(j["src_path"])
+    if not p.exists():
+        return jsonify({"error": "Arquivo de origem não encontrado."}), 404
+    return send_file(str(p), mimetype="video/mp4", conditional=True)
 
 
 @app.route("/api/upload_broll", methods=["POST"])

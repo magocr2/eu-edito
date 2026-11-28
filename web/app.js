@@ -6,6 +6,9 @@ const $ = (id) => document.getElementById(id);
 const PV = window.EuEditoPreview;
 
 let selectedFile = null;
+let selectedFiles = []; // [{ file, name, sizeMB, duration, thumbUrl }]
+let currentTakeRanges = [];
+let appendVideoMode = false;
 let selectedStyle = 'classic';
 let selectedAlign = 'center';
 let selectedFx = 'auto';
@@ -613,7 +616,7 @@ function renderBrollList() {
     sel.addEventListener('change', () => {
       b.layout = sel.value;
       if (b.layout === 'custom') openPosStudio('broll', idx);
-      else { if (activePosTarget?.kind === 'broll' && activePosTarget.idx === idx && $('brollPosStudio')) $('brollPosStudio').hidden = true; previewBrollInStage(idx); renderBrollList(); }
+      else { b.confirmed = true; if (activePosTarget?.kind === 'broll' && activePosTarget.idx === idx && $('brollPosStudio')) $('brollPosStudio').hidden = true; previewBrollInStage(idx); renderBrollList(); renderSyncTimeline(); }
       markDirtyAfterRender();
     });
     const posBtn = document.createElement('button'); posBtn.type = 'button'; posBtn.className = 'media-preview-btn'; posBtn.textContent = '📍'; posBtn.title = 'Posicionar na tela';
@@ -913,27 +916,192 @@ $('previewVideo')?.addEventListener('timeupdate', () => {
   }
 });
 
-function handleVideoFileSelected(f) {
-  if (!f) return;
-  selectedFile = f; videoUnlocked = true; currentJobId = ''; cachedVideoBlob = null; currentCaptions = [];
+function probeLocalVideoMeta(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    v.playsInline = true;
+    v.src = url;
+    const done = (dur = 0, thumbUrl = '') => {
+      try { URL.revokeObjectURL(url); } catch {}
+      resolve({ duration: dur, thumbUrl });
+    };
+    const timer = setTimeout(() => done(0, ''), 3500);
+    v.onloadedmetadata = () => {
+      const dur = Number(v.duration || 0);
+      try {
+        v.currentTime = Math.min(0.25, dur > 0 ? dur * 0.1 : 0);
+      } catch {
+        clearTimeout(timer); done(dur, '');
+      }
+    };
+    v.onseeked = () => {
+      clearTimeout(timer);
+      try {
+        const c = document.createElement('canvas');
+        c.width = 96; c.height = 128;
+        const ctx = c.getContext('2d');
+        if (ctx && v.videoWidth && v.videoHeight) {
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          done(Number(v.duration || 0), c.toDataURL('image/jpeg', 0.65));
+          return;
+        }
+      } catch {}
+      done(Number(v.duration || 0), '');
+    };
+    v.onerror = () => { clearTimeout(timer); done(0, ''); };
+  });
+}
+
+function renderVideoQueue() {
+  const box = $('videoQueueBox'), list = $('videoQueueList'), ttl = $('videoQueueTitle');
+  if (!box || !list) return;
+  if (!selectedFiles.length) {
+    box.hidden = true;
+    list.replaceChildren();
+    videoUnlocked = false;
+    selectedFile = null;
+    if ($('generateBtn')) $('generateBtn').disabled = true;
+    if ($('uploadTitle')) $('uploadTitle').textContent = 'Escolher um ou mais vídeos (takes)';
+    if ($('uploadSub')) $('uploadSub').textContent = 'Toque ou arraste seus vídeos (MP4, MOV, WebM)';
+    document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
+      const ps = Number(pill.dataset.step);
+      pill.disabled = ps > 1;
+    });
+    return;
+  }
+  box.hidden = false;
+  if (ttl) ttl.textContent = `Vídeos na sequência (${selectedFiles.length})`;
+  const totalMB = selectedFiles.reduce((acc, it) => acc + it.sizeMB, 0);
+  if ($('uploadTitle')) {
+    $('uploadTitle').textContent = selectedFiles.length === 1
+      ? selectedFiles[0].name
+      : `${selectedFiles.length} vídeos selecionados`;
+  }
+  if ($('uploadSub')) {
+    $('uploadSub').textContent = `${totalMB.toFixed(1)} MB · Clique em ＋ Adicionar para incluir mais takes`;
+  }
+  list.replaceChildren();
+  selectedFiles.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'vq-item';
+    const ord = document.createElement('span'); ord.className = 'vq-order'; ord.textContent = String(idx + 1);
+    const thumb = item.thumbUrl ? document.createElement('img') : document.createElement('div');
+    thumb.className = 'vq-thumb';
+    if (item.thumbUrl) { thumb.src = item.thumbUrl; thumb.alt = item.name; }
+    else { thumb.style.display = 'grid'; thumb.style.placeItems = 'center'; thumb.textContent = '🎬'; }
+    const meta = document.createElement('div'); meta.className = 'vq-meta';
+    const nm = document.createElement('strong'); nm.textContent = item.name;
+    const sub = document.createElement('small');
+    sub.textContent = `${item.duration > 0 ? fmtMMSS(item.duration) + ' · ' : ''}${item.sizeMB.toFixed(1)} MB`;
+    meta.append(nm, sub);
+    const acts = document.createElement('div'); acts.className = 'vq-actions';
+    const upBtn = document.createElement('button'); upBtn.type = 'button'; upBtn.className = 'vq-btn'; upBtn.textContent = '↑'; upBtn.title = 'Mover para cima';
+    upBtn.disabled = (idx === 0);
+    upBtn.addEventListener('click', () => {
+      if (idx === 0) return;
+      [selectedFiles[idx - 1], selectedFiles[idx]] = [selectedFiles[idx], selectedFiles[idx - 1]];
+      syncPrimaryFilePreview(); renderVideoQueue();
+    });
+    const dnBtn = document.createElement('button'); dnBtn.type = 'button'; dnBtn.className = 'vq-btn'; dnBtn.textContent = '↓'; dnBtn.title = 'Mover para baixo';
+    dnBtn.disabled = (idx === selectedFiles.length - 1);
+    dnBtn.addEventListener('click', () => {
+      if (idx >= selectedFiles.length - 1) return;
+      [selectedFiles[idx], selectedFiles[idx + 1]] = [selectedFiles[idx + 1], selectedFiles[idx]];
+      syncPrimaryFilePreview(); renderVideoQueue();
+    });
+    const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.className = 'vq-btn is-del'; delBtn.textContent = '✕'; delBtn.title = 'Remover vídeo';
+    delBtn.addEventListener('click', () => {
+      selectedFiles.splice(idx, 1);
+      syncPrimaryFilePreview(); renderVideoQueue();
+    });
+    acts.append(upBtn, dnBtn, delBtn);
+    row.append(ord, thumb, meta, acts);
+    list.append(row);
+  });
+}
+
+function syncPrimaryFilePreview() {
+  selectedFile = selectedFiles[0]?.file || null;
+  if (!selectedFile) return;
+  try {
+    const vid = $('previewVideo');
+    vid.src = URL.createObjectURL(selectedFile);
+    vid.muted = true; vid.hidden = false; $('emptyStage').hidden = true;
+    vid.addEventListener('loadedmetadata', () => {
+      try {
+        vid.currentTime = 0.001;
+        vid.play().then(() => setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; refreshFaceZone(); }, 110)).catch(() => { vid.muted = false; });
+      } catch {}
+    }, { once: true });
+    vid.load();
+  } catch {}
+}
+
+async function handleVideoFilesSelected(fileList, append = false) {
+  const arr = [...(fileList || [])];
+  if (!arr.length) return;
+  const isVideoFile = (f) => (f.type || '').startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv|avi)$/i.test(f.name || '');
+  const valid = arr.filter(isVideoFile);
+  if (!valid.length) {
+    $('errorMsg').textContent = 'Formato inválido: selecione apenas arquivos de vídeo (MP4, MOV, WebM).';
+    $('errorMsg').hidden = false;
+    return;
+  }
+  const tooBig = valid.find((f) => (f.size || 0) > 550 * 1024 * 1024);
+  if (tooBig) {
+    $('errorMsg').textContent = `O arquivo "${tooBig.name}" excede o limite de 550 MB.`;
+    $('errorMsg').hidden = false;
+    return;
+  }
+  $('errorMsg').hidden = true;
+  if (!append) selectedFiles = [];
+
+  for (const f of valid) {
+    const meta = await probeLocalVideoMeta(f);
+    selectedFiles.push({
+      file: f,
+      name: f.name || `video_${selectedFiles.length + 1}.mp4`,
+      sizeMB: (f.size || 0) / (1024 * 1024),
+      duration: meta.duration,
+      thumbUrl: meta.thumbUrl,
+    });
+  }
+
+  videoUnlocked = true; currentJobId = ''; cachedVideoBlob = null; currentCaptions = []; currentTakeRanges = [];
   flowStage = 'transcribe'; activePreviewCaptionIdx = -1; lastCineFiredIdx = -1; pendingCardBrollIdx = -1;
   clearMediaPreview();
   $('reviewCard').hidden = true;
   if ($('goExportBtn')) $('goExportBtn').disabled = true;
   if ($('syncTimelineBox')) $('syncTimelineBox').hidden = true;
   $('generateBtn').textContent = '1. Transcrever & Abrir Central de Edição →';
-  $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
-  $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto!';
-  try {
-    const vid = $('previewVideo'); vid.src = URL.createObjectURL(f); vid.muted = true; vid.hidden = false; $('emptyStage').hidden = true;
-    vid.addEventListener('loadedmetadata', () => { try { vid.currentTime = 0.001; vid.play().then(() => setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; refreshFaceZone(); }, 110)).catch(() => { vid.muted = false; }); } catch {} }, { once: true });
-    vid.load();
-  } catch {}
-  $('liveOverlay').hidden = false; $('resultBox').hidden = true; $('errorMsg').hidden = true; $('generateBtn').disabled = false;
-  goToStep(2);
+  $('liveOverlay').hidden = false; $('resultBox').hidden = true; $('generateBtn').disabled = false;
+
+  syncPrimaryFilePreview();
+  renderVideoQueue();
+  document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
+    const ps = Number(pill.dataset.step);
+    pill.disabled = ps > 1 && !videoUnlocked;
+  });
+
+  // Se selecionou apenas 1 vídeo do zero, avança direto para Etapa 2; se múltiplos ou adicionando, fica na Etapa 1 para organizar
+  if (!append && selectedFiles.length === 1) {
+    goToStep(2);
+  }
 }
 
-$('videoFile')?.addEventListener('change', (e) => handleVideoFileSelected(e.target.files?.[0]));
+$('videoFile')?.addEventListener('change', (e) => {
+  const files = e.target.files;
+  const app = appendVideoMode;
+  appendVideoMode = false;
+  handleVideoFilesSelected(files, app);
+  e.target.value = '';
+});
+$('addMoreVideosBtn')?.addEventListener('click', () => { appendVideoMode = true; $('videoFile')?.click(); });
+$('clearVideosBtn')?.addEventListener('click', () => { selectedFiles = []; currentTakeRanges = []; renderVideoQueue(); });
+$('step1NextBtn')?.addEventListener('click', () => { if (selectedFiles.length) goToStep(2); });
 
 (() => {
   const box = $('uploadBox');
@@ -941,8 +1109,8 @@ $('videoFile')?.addEventListener('change', (e) => handleVideoFileSelected(e.targ
   ['dragenter', 'dragover'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add('is-dragover'); }));
   ['dragleave', 'drop'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.remove('is-dragover'); }));
   box.addEventListener('drop', (e) => {
-    const f = [...(e.dataTransfer?.files || [])].find((x) => (x.type || '').startsWith('video/'));
-    if (f) handleVideoFileSelected(f);
+    const files = [...(e.dataTransfer?.files || [])];
+    if (files.length) handleVideoFilesSelected(files, selectedFiles.length > 0);
   });
 })();
 
@@ -1008,10 +1176,29 @@ function renderSyncTimeline() {
   const maxEnd = Math.max(
     1,
     ...currentCaptions.map((c) => Number(c.e || 0)),
+    ...currentTakeRanges.map((t) => Number(t.e || 0)),
     ...selectedBrolls.map((b) => Number(b.end || 0)),
     Number($('previewVideo')?.duration || 0)
   );
   const pct = (v) => Math.max(0, Math.min(100, (Number(v || 0) / maxEnd) * 100));
+
+  // Faixa 0: Vídeos / Takes (quando múltiplos vídeos)
+  if (currentTakeRanges.length > 1) {
+    const rTk = document.createElement('div'); rTk.className = 'stl-row';
+    currentTakeRanges.forEach((tk, idx) => {
+      const b = document.createElement('div'); b.className = 'stl-block is-take';
+      const left = pct(tk.s), width = Math.max(4, pct(tk.e) - left);
+      b.style.left = left.toFixed(2) + '%'; b.style.width = width.toFixed(2) + '%';
+      b.textContent = `🎬 Take ${idx + 1}`;
+      b.title = `${tk.filename} (${fmtMMSS(tk.s)}–${fmtMMSS(tk.e)})`;
+      b.addEventListener('click', () => {
+        const vid = $('previewVideo');
+        if (vid) vid.currentTime = Number(tk.s || 0);
+      });
+      rTk.append(b);
+    });
+    tracks.append(rTk);
+  }
 
   // Faixa 1: Blocos de Fala / Legenda
   const rCap = document.createElement('div'); rCap.className = 'stl-row';
@@ -1336,13 +1523,16 @@ async function safeJson(res) {
   try { return JSON.parse(txt); } catch { throw new Error(`Servidor ocupado (HTTP ${res.status}).`); }
 }
 
-function uploadWithProgress(file) {
+function uploadWithProgress(filesOrFile) {
+  const list = Array.isArray(filesOrFile) ? filesOrFile.map((x) => x.file || x) : [filesOrFile];
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/upload', true);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = Math.min(25, Math.max(5, Math.round((e.loaded / e.total) * 25)));
-        $('progressText').textContent = `Enviando vídeo… (${Math.round((e.loaded / e.total) * 100)}%)`;
+        $('progressText').textContent = list.length > 1
+          ? `Enviando ${list.length} vídeos… (${Math.round((e.loaded / e.total) * 100)}%)`
+          : `Enviando vídeo… (${Math.round((e.loaded / e.total) * 100)}%)`;
         $('progressPct').textContent = pct + '%'; $('progressFill').style.width = pct + '%';
       }
     };
@@ -1351,7 +1541,9 @@ function uploadWithProgress(file) {
       catch { reject(new Error(`Resposta inválida (${xhr.status}).`)); }
     };
     xhr.onerror = () => reject(new Error('Falha de rede.'));
-    const fd = new FormData(); fd.append('video', file, file.name || 'video.mp4'); xhr.send(fd);
+    const fd = new FormData();
+    list.forEach((file, idx) => fd.append('video', file, file.name || `video_${idx + 1}.mp4`));
+    xhr.send(fd);
   });
 }
 
@@ -1379,12 +1571,12 @@ function buildRenderPayload() {
     main_font: $('fontSelect')?.value || '', small_font: $('smallFontSelect')?.value || '',
     caption_lines: selectedLines, zoom: false, studio_audio: $('studioAudioToggle').checked,
     color_grade: !!$('colorGradeToggle')?.checked,
-    compositions: selectedCompositions.map((c) => ({ ...c, media: (c.media || []).map((m) => ({ id: m.id })) })),
-    brolls: selectedBrolls.map((b) => ({
+    compositions: selectedCompositions.filter((c) => c.confirmed || c.type === 'split-composition').map((c) => ({ ...c, media: (c.media || []).map((m) => ({ id: m.id })) })),
+    brolls: selectedBrolls.filter((b) => b.confirmed).map((b) => ({
       id: b.id, layout: b.layout, start: b.start, end: b.end,
       x: b.x, y: b.y, scale: b.scale, aspect: b.aspect, rotation: b.rotation, margin: b.margin, radius: b.radius,
     })),
-    cards: selectedCards.map((c) => ({
+    cards: selectedCards.filter((c) => c.confirmed).map((c) => ({
       id: c.id, anim: c.anim, start: c.start, end: c.end,
       x: c.x, y: c.y, scale: c.scale, rotation: c.rotation, margin: c.margin,
     })),
@@ -1431,10 +1623,14 @@ async function runOneClickPipeline(mode) {
     }
     $('progressText').textContent = mode === 'auto' ? '🤖 Modo Automático: enviando vídeo…' : '⚡ Modo Rápido: enviando vídeo…';
     $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
-    const up = await uploadWithProgress(selectedFile); currentJobId = up.job_id;
+    const up = await uploadWithProgress(selectedFiles.length ? selectedFiles : [selectedFile]); currentJobId = up.job_id;
+    currentTakeRanges = up.take_ranges || [];
+    if (up.source_url && selectedFiles.length > 1 && $('previewVideo')) {
+      $('previewVideo').src = up.source_url; $('previewVideo').load();
+    }
     const tr = await safeJson(await fetch('/api/transcribe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: currentJobId, cuts: true, rhythm: 'natural' }),
+      body: JSON.stringify({ job_id: currentJobId, cuts: $('cutsToggle')?.checked ?? true, rhythm: selectedRhythm || 'natural' }),
     }));
     if (tr.error) throw new Error(tr.error);
     while (true) {
@@ -1470,7 +1666,11 @@ $('generateBtn').addEventListener('click', async () => {
   try {
     if (flowStage === 'transcribe') {
       $('progressText').textContent = 'Enviando vídeo…'; $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
-      const up = await uploadWithProgress(selectedFile); currentJobId = up.job_id;
+      const up = await uploadWithProgress(selectedFiles.length ? selectedFiles : [selectedFile]); currentJobId = up.job_id;
+      currentTakeRanges = up.take_ranges || [];
+      if (up.source_url && selectedFiles.length > 1 && $('previewVideo')) {
+        $('previewVideo').src = up.source_url; $('previewVideo').load();
+      }
       const tr = await safeJson(await fetch('/api/transcribe', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_id: currentJobId, cuts: $('cutsToggle').checked, rhythm: selectedRhythm }),

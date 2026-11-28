@@ -209,6 +209,62 @@ def probe_video(video_path):
     return {"width": w, "height": h, "duration": dur, "has_audio": has_audio}
 
 
+def concat_videos(take_paths, take_names, out_path, hw=None):
+    """Concatenate multiple video takes into one normalized MP4 and return take_ranges."""
+    ffmpeg, _ = find_ffmpeg()
+    infos = [probe_video(p) for p in take_paths]
+    base_w = max(360, int(infos[0].get("width") or 1080))
+    base_h = max(360, int(infos[0].get("height") or 1920))
+    # Cap target size on low-RAM containers so concat stays fast and stable
+    max_side = 720 if (hw and hw.get("ram_gb", 8.0) <= 1.2) else 1080
+    if max(base_w, base_h) > max_side:
+        scale_r = max_side / max(base_w, base_h)
+        base_w = int(round(base_w * scale_r))
+        base_h = int(round(base_h * scale_r))
+    base_w = base_w if base_w % 2 == 0 else base_w - 1
+    base_h = base_h if base_h % 2 == 0 else base_h - 1
+
+    cmd = [ffmpeg, "-y"]
+    filter_parts = []
+    concat_inputs = []
+    take_ranges = []
+    cur_t = 0.0
+
+    for i, (tp, info) in enumerate(zip(take_paths, infos)):
+        dur = max(0.1, float(info.get("duration") or 0.0))
+        take_ranges.append({
+            "index": i,
+            "filename": take_names[i] if i < len(take_names) else tp.name,
+            "s": round(cur_t, 3),
+            "e": round(cur_t + dur, 3),
+            "duration": round(dur, 3),
+        })
+        cur_t += dur
+        cmd += ["-i", str(tp)]
+        filter_parts.append(
+            f"[{i}:v]scale={base_w}:{base_h}:force_original_aspect_ratio=decrease,"
+            f"pad={base_w}:{base_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30,format=yuv420p[v{i}]"
+        )
+        if info.get("has_audio"):
+            filter_parts.append(f"[{i}:a]aresample=44100:async=1,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]")
+        else:
+            filter_parts.append(f"anullsrc=r=44100:cl=stereo:d={dur:.3f}[a{i}]")
+        concat_inputs.append(f"[v{i}][a{i}]")
+
+    filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(take_paths)}:v=1:a=1[outv][outa]")
+    cmd += [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+        str(out_path),
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if res.returncode != 0:
+        raise RuntimeError(f"Erro ao unir múltiplos vídeos: {(res.stderr or '')[-300:]}")
+    return take_ranges
+
+
 def _transcribe_worker_subprocess(audio_input, model_name, device, compute_type, cpu_threads, beam, language):
     """Run Whisper in an isolated subprocess so OS reclaims 100% of C++ RAM on exit."""
     import sys
@@ -1226,25 +1282,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         s_lo = max(65, int(target_scale * 0.95))
         return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{in_ms},0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_tag}"
 
-    def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None, is_cine=False):
+    def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None, is_cine=False, eff_cfg=None, eff_acc_ass=None, eff_fx=None):
+        ecfg = eff_cfg or cfg
+        eacc = eff_acc_ass or accent_ass
+        efx = eff_fx or active_fx
         if is_glow:
             if not is_main_tok and not is_cine:
-                return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\alpha&HFF&"
+                return f"\\fn{ecfg['small_font']}\\fs{s_size}\\b{ecfg['small_bold']}\\i{ecfg['small_italic']}\\alpha&HFF&"
             msz = main_sz_override or m_size
             gb = cine_glow_bord if (is_cine and cine_glow) else glow_bord
             gbl = cine_glow_blur if (is_cine and cine_glow) else glow_blur
-            gc = cine_fg_ass if is_cine else accent_ass
-            return f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}\\1c{gc}\\3c{gc}\\4c&HFF000000&\\bord{gb}\\shad0\\blur{gbl}"
+            gc = cine_fg_ass if is_cine else eacc
+            return f"\\fn{ecfg['main_font']}\\fs{msz}\\b{ecfg['main_bold']}\\i{ecfg['main_italic']}\\1c{gc}\\3c{gc}\\4c&HFF000000&\\bord{gb}\\shad0\\blur{gbl}"
         if is_main_tok or is_cine:
             base_sz = main_sz_override or (m_size if is_main_tok else int(s_size * (cine_sc_pct / 100.0)))
-            fg_c = "&H00FFFFFF&" if active_fx == "pill" else (cine_fg_ass if is_cine else accent_ass)
-            b_flag = -1 if (is_cine and cine_bold) else cfg["main_bold"]
-            return f"\\fn{cfg['main_font']}\\fs{base_sz}\\b{b_flag}\\i{cfg['main_italic']}\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
-        return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
+            fg_c = "&H00FFFFFF&" if efx == "pill" else (cine_fg_ass if is_cine else eacc)
+            b_flag = -1 if (is_cine and cine_bold) else ecfg["main_bold"]
+            return f"\\fn{ecfg['main_font']}\\fs{base_sz}\\b{b_flag}\\i{ecfg['main_italic']}\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
+        return f"\\fn{ecfg['small_font']}\\fs{s_size}\\b{ecfg['small_bold']}\\i{ecfg['small_italic']}\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none", cine_local_set=None, fx_local_set=None, card_gfx_cfg=None, card_accent_ass=None, card_in_anim=None, card_out_anim=None):
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none", cine_local_set=None, fx_local_set=None, card_gfx_cfg=None, card_accent_ass=None, card_in_anim=None, card_out_anim=None, card_cfg=None):
         if not tokens:
             return
+        ecfg = card_cfg or cfg
         m_set = set(main_local_set or [])
         c_set = set(cine_local_set or [])
         fx_set = set(fx_local_set) if fx_local_set else set(m_set | c_set)
@@ -1261,7 +1321,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         est_w = 0.0
         for idx, w in enumerate(tokens):
             is_m = idx in m_set
-            txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
+            txt = w["w"].upper() if (is_m and ecfg["upper"]) else w["w"]
             est_w += _measure(txt, is_main=is_m, custom_sz=(inline_m_sz if is_m else s_size))
         est_w += eff_sp_px * max(0, len(tokens) - 1)
         fit_pct = min(100, max(54, int((max_w / max(est_w, 1.0)) * 100)))
@@ -1331,17 +1391,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for idx, w in enumerate(tokens):
             is_m = idx in m_set
             is_c = idx in c_set
-            txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
+            txt = w["w"].upper() if (is_m and ecfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
             rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=(is_m or is_c))
             if (has_main and not solo_main) or (is_m and row_fx == "pill") or is_c:
-                fg_chunks.append(f"{{{_inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz, is_cine=is_c)}{rev}}}{txt}")
+                fg_chunks.append(f"{{{_inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz, is_cine=is_c, eff_cfg=ecfg, eff_acc_ass=eff_accent_ass, eff_fx=row_fx)}{rev}}}{txt}")
             else:
                 fg_chunks.append(f"{{{rev}}}{txt}")
 
         style_name = "Main" if solo_main else "Small"
         layer_id = 3 if c_set else (2 if has_main else 1)
-        fg_text = _join_row(fg_chunks, _inline_switch(False, is_glow=False)) if (has_main and not solo_main) else " ".join(fg_chunks)
+        fg_text = _join_row(fg_chunks, _inline_switch(False, is_glow=False, eff_cfg=ecfg, eff_acc_ass=eff_accent_ass, eff_fx=row_fx)) if (has_main and not solo_main) else " ".join(fg_chunks)
         events.append(f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an{an_code}{motion}\\blur0.7}}{fg_text}")
 
     def _split_two_balanced(tokens, m_idx):
@@ -1415,6 +1475,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         fx_set_all = {int(i) for i in (c.get("fx_indices") or []) if 0 <= int(i) < len(words)} or m_set_all
         card_gfx = c.get("gfx_cfg") if isinstance(c.get("gfx_cfg"), dict) else None
         card_acc_ass = _hex_to_ass_bgr(c["accent_color"]) if c.get("accent_color") else None
+        card_cfg = resolve_caption_model(c["style_id"]) if c.get("style_id") else None
+        eff_req_lines = 1 if (card_cfg or cfg).get("force_single_line") else req_lines
 
         if fullscreen_mode == "on" or bool(c.get("fullscreen")):
             events.append(f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&H42&\\bord0\\shad0}}m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}")
@@ -1442,17 +1504,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 row_hs.append(_row_visual_h(rtok, rm, int(m_size * sc_inline)))
                 cursor += cnt
             for (rtok, rm, rc, rf, sc_inline), ry in zip(rows_data, _stack_rows_y(row_hs, pos_y, fx_extra)):
-                _emit_mixed_line(rtok, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=rm, inline_main_scale=sc_inline, row_fx=cap_fx, cine_local_set=rc, fx_local_set=rf, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+                _emit_mixed_line(rtok, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=rm, inline_main_scale=sc_inline, row_fx=cap_fx, cine_local_set=rc, fx_local_set=rf, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
             continue
 
-        if req_lines == 1 or len(words) == 1:
+        if eff_req_lines == 1 or len(words) == 1:
             [ry] = _stack_rows_y([_row_visual_h(words, m_set_all, int(m_size * 0.88))], pos_y, 0)
-            _emit_mixed_line(words, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx, cine_local_set=cine_set_all, fx_local_set=fx_set_all, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            _emit_mixed_line(words, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx, cine_local_set=cine_set_all, fx_local_set=fx_set_all, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
             continue
 
-        before, main_w, after = words[:main_idx], [words[main_idx]], words[main_idx + 1:]
+        # Keep contiguous highlighted expression together as main_w when possible
+        m_sorted = sorted(m_set_all)
+        is_contig = len(m_sorted) > 1 and (m_sorted[-1] - m_sorted[0] == len(m_sorted) - 1) and len(m_sorted) <= 4
+        m_lo = m_sorted[0] if m_sorted else main_idx
+        m_hi = m_sorted[-1] if is_contig else m_lo
+        before, main_w, after = words[:m_lo], words[m_lo:m_hi + 1], words[m_hi + 1:]
 
-        if req_lines >= 3 and before and after:
+        if eff_req_lines >= 3 and before and after:
             orphan_before = (len(before) == 1 and len(before[0]["w"]) <= 4 and len(after) >= 2)
             orphan_after = (len(after) == 1 and len(after[0]["w"]) <= 4 and len(before) >= 2)
             if orphan_before or orphan_after:
@@ -1462,45 +1529,48 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 f1, f2 = {i for i in fx_set_all if i < len(r1)}, {i - len(r1) for i in fx_set_all if i >= len(r1)}
                 s1, s2 = (0.92 if m1 else 1.0), (0.92 if m2 else 1.0)
                 ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
-                _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-                _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+                _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+                _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
             else:
-                mb, ma = {i for i in m_set_all if i < len(before)}, {i - (main_idx + 1) for i in m_set_all if i > main_idx}
-                cb, ca = {i for i in cine_set_all if i < len(before)}, {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
-                fb, fa = {i for i in fx_set_all if i < len(before)}, {i - (main_idx + 1) for i in fx_set_all if i > main_idx}
-                cm = {0} if main_idx in cine_set_all else set()
-                fm = {0} if main_idx in fx_set_all else set()
-                ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
-                _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, inline_main_scale=0.94 if mb else 1.0, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-                _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-                _emit_mixed_line(after, pos_x, ys[2], cap_s, cap_e, t0s, t1s, main_local_set=ma, inline_main_scale=0.94 if ma else 1.0, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-        elif req_lines == 2:
+                mb, ma = {i for i in m_set_all if i < len(before)}, {i - (m_hi + 1) for i in m_set_all if i > m_hi}
+                cb, ca = {i for i in cine_set_all if i < len(before)}, {i - (m_hi + 1) for i in cine_set_all if i > m_hi}
+                fb, fa = {i for i in fx_set_all if i < len(before)}, {i - (m_hi + 1) for i in fx_set_all if i > m_hi}
+                mm = set(range(len(main_w)))
+                cm = {i - m_lo for i in cine_set_all if m_lo <= i <= m_hi}
+                fm = {i - m_lo for i in fx_set_all if m_lo <= i <= m_hi}
+                ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, mm, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
+                _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, inline_main_scale=0.94 if mb else 1.0, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+                _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=mm, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+                _emit_mixed_line(after, pos_x, ys[2], cap_s, cap_e, t0s, t1s, main_local_set=ma, inline_main_scale=0.94 if ma else 1.0, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+        elif eff_req_lines == 2:
             r1, r2 = _split_two_balanced(words, main_idx)
             m1, m2 = {i for i in m_set_all if i < len(r1)}, {i - len(r1) for i in m_set_all if i >= len(r1)}
             c1, c2 = {i for i in cine_set_all if i < len(r1)}, {i - len(r1) for i in cine_set_all if i >= len(r1)}
             f1, f2 = {i for i in fx_set_all if i < len(r1)}, {i - len(r1) for i in fx_set_all if i >= len(r1)}
             s1, s2 = (0.94 if m1 else 1.0), (0.94 if m2 else 1.0)
             ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
-            _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-            _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+            _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
         elif before:
             mb = {i for i in m_set_all if i < len(before)}
             cb = {i for i in cine_set_all if i < len(before)}
             fb = {i for i in fx_set_all if i < len(before)}
-            cm = {0} if main_idx in cine_set_all else set()
-            fm = {0} if main_idx in fx_set_all else set()
-            ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size)], pos_y, fx_extra)
-            _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-            _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            mm = set(range(len(main_w)))
+            cm = {i - m_lo for i in cine_set_all if m_lo <= i <= m_hi}
+            fm = {i - m_lo for i in fx_set_all if m_lo <= i <= m_hi}
+            ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, mm, m_size)], pos_y, fx_extra)
+            _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+            _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=mm, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
         else:
-            ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
-            ca = {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
-            fa = {i - (main_idx + 1) for i in fx_set_all if i > main_idx}
-            cm = {0} if main_idx in cine_set_all else set()
-            fm = {0} if main_idx in fx_set_all else set()
-            ys = _stack_rows_y([_row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
-            _emit_mixed_line(main_w, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
-            _emit_mixed_line(after, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            ma = {i - (m_hi + 1) for i in m_set_all if i > m_hi}
+            ca = {i - (m_hi + 1) for i in cine_set_all if i > m_hi}
+            fa = {i - (m_hi + 1) for i in fx_set_all if i > m_hi}
+            mm = set(range(len(main_w)))
+            cm = {i - m_lo for i in cine_set_all if m_lo <= i <= m_hi}
+            fm = {i - m_lo for i in fx_set_all if m_lo <= i <= m_hi}
+            ys = _stack_rows_y([_row_visual_h(main_w, mm, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
+            _emit_mixed_line(main_w, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mm, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
+            _emit_mixed_line(after, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass, card_cfg=card_cfg)
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 

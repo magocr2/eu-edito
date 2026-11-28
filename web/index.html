@@ -112,14 +112,24 @@
           <h1>Edição profissional, <em>pronta para postar</em></h1>
           <p>Selecione seu vídeo e escolha se quer edição <b>Automática</b>, <b>Modo Rápido</b> ou <b>Personalizada</b>.</p>
         </div>
-        <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeo</h2></div>
+        <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeos</h2></div>
         <label class="upload-box" id="uploadBox">
-          <input type="file" id="videoFile" accept="video/*" hidden>
+          <input type="file" id="videoFile" accept="video/*" multiple hidden>
           <span class="upload-icon">🎬</span>
-          <strong id="uploadTitle">Escolher vídeo do celular ou computador</strong>
-          <small id="uploadSub">Toque ou arraste seu vídeo (MP4, MOV, WebM)</small>
+          <strong id="uploadTitle">Escolher um ou mais vídeos (takes)</strong>
+          <small id="uploadSub">Toque ou arraste seus vídeos (MP4, MOV, WebM)</small>
         </label>
-        <!-- Nenhum botão "Avançar" aqui — ao selecionar vídeo vai direto para etapa 2 -->
+        <div id="videoQueueBox" class="video-queue-box" hidden>
+          <div class="vq-head">
+            <strong id="videoQueueTitle">Vídeos na sequência (0)</strong>
+            <div class="vq-head-btns">
+              <button type="button" id="addMoreVideosBtn" class="mini-pill-btn">＋ Adicionar</button>
+              <button type="button" id="clearVideosBtn" class="mini-pill-btn">Limpar</button>
+            </div>
+          </div>
+          <div id="videoQueueList" class="vq-list"></div>
+          <button type="button" id="step1NextBtn" class="primary-btn" style="margin-top:10px">Avançar para Decupagem →</button>
+        </div>
       </section>
 
       <!-- ETAPA 2: Decupagem + Modos Rápidos -->
