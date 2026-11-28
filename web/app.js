@@ -47,9 +47,10 @@ function stageRefs() {
 }
 
 function goToStep(step) {
-  const s = Math.max(1, Math.min(7, Number(step) || 1));
+  const s = Math.max(1, Math.min(6, Number(step) || 1));
   if (s > 1 && !videoUnlocked) return;
   currentStep = s;
+  // Preview aparece da etapa 2 em diante (não na etapa 1)
   if ($('previewCard')) $('previewCard').hidden = (s === 1 || !videoUnlocked);
 
   document.querySelectorAll('.wizard-step').forEach((sec) => { sec.hidden = Number(sec.dataset.step) !== s; });
@@ -60,11 +61,18 @@ function goToStep(step) {
     pill.classList.toggle('is-done', videoUnlocked && ps < s);
   });
 
-  const inFinal = (s === 7);
-  setStickyVisible(inFinal && !$('resultBox').hidden ? ($('reviewCard') && !$('reviewCard').hidden) : inFinal);
-  if (s !== 7 && $('resultBox').hidden) clearMediaPreview();
+  // Sticky CTA aparece na etapa 6 (últimas opções) ou quando há resultado/revisão
+  const inFinal = (s === 6);
+  if ($('resultBox') && !$('resultBox').hidden) {
+    setStickyVisible(false);
+  } else if ($('reviewCard') && !$('reviewCard').hidden) {
+    setStickyVisible(true);
+  } else {
+    setStickyVisible(inFinal);
+  }
+  if (s !== 6 && $('resultBox').hidden) clearMediaPreview();
   if ($('pvStageHint')) {
-    $('pvStageHint').textContent = s === 7 ? 'Prévia de legendas, B-rolls e composições' : 'Arraste a legenda ou use A-/A+';
+    $('pvStageHint').textContent = s === 6 ? 'Prévia de legendas, B-rolls e composições' : 'Arraste a legenda ou use A-/A+';
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -393,7 +401,7 @@ async function refreshFaceZone() {
 function syncGuidesAndOverlap() {
   const fb = $('pvFaceBox'), cb = $('pvCapBox'), alertBox = $('brollOverlapAlert');
   const item = getPosItemByTarget(activePosTarget);
-  const editing = !!item && !item.confirmed && currentStep === 7;
+  const editing = !!item && !item.confirmed && currentStep === 6;
   const bl = $('pvBrollLayer'), cs = $('pvCardStage');
   bl?.classList.remove('is-overlap-warn'); cs?.classList.remove('is-overlap-warn');
   if (!item) { if (fb) fb.hidden = true; if (cb) cb.hidden = true; if (alertBox) alertBox.hidden = true; return; }
@@ -437,7 +445,7 @@ function updatePosStudioUI() {
   if ($('posAspectSel')) $('posAspectSel').value = item.aspect || '16/9';
   if ($('posScaleRange')) { $('posScaleRange').value = sc; $('posScaleVal').textContent = sc + '%'; }
   if ($('posXRange')) { $('posXRange').value = x; $('posXVal').textContent = x + '%'; }
-  if ($('posYRange')) { $('posYRange').value = y; $('posYVal').textContent = y + '%'; }
+  if ($('posYRange')) { $('posYRange').value = y; $('posYVal2').textContent = y + '%'; }
   if ($('posMarginRange')) { $('posMarginRange').value = mg; $('posMarginVal').textContent = mg + '%'; }
   if ($('posRotRange')) { $('posRotRange').value = rot; $('posRotVal').textContent = rot + '°'; }
   if ($('posRadiusRange')) { $('posRadiusRange').value = rad; $('posRadiusVal').textContent = rad + 'px'; }
@@ -864,7 +872,7 @@ $('previewVideo')?.addEventListener('timeupdate', () => {
       }
     }
   }
-  if (currentStep === 7 && (!activePosTarget || getPosItemByTarget(activePosTarget)?.confirmed)) {
+  if (currentStep === 6 && (!activePosTarget || getPosItemByTarget(activePosTarget)?.confirmed)) {
     const matchWindow = (arr) => arr.findIndex((it) => {
       const s = parseFloat(it.start); if (isNaN(s)) return false;
       const e = isNaN(parseFloat(it.end)) ? s + 3.5 : parseFloat(it.end);
@@ -891,13 +899,13 @@ $('videoFile').addEventListener('change', (e) => {
   $('reviewCard').hidden = true; $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto!';
-  if ($('step1Nav')) $('step1Nav').hidden = false;
   try {
     const vid = $('previewVideo'); vid.src = URL.createObjectURL(f); vid.muted = true; vid.hidden = false; $('emptyStage').hidden = true;
     vid.addEventListener('loadedmetadata', () => { try { vid.currentTime = 0.001; vid.play().then(() => setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; refreshFaceZone(); }, 110)).catch(() => { vid.muted = false; }); } catch {} }, { once: true });
     vid.load();
   } catch {}
   $('liveOverlay').hidden = false; $('resultBox').hidden = true; $('errorMsg').hidden = true; $('generateBtn').disabled = false;
+  // Vai direto para etapa 2 (escolha de modelo) ao selecionar vídeo
   goToStep(2);
 });
 

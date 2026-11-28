@@ -460,3 +460,18 @@ body {
 .sz-top { position: absolute; top: 0; left: 0; right: 0; height: 14%; background: rgba(239,68,68,0.16); border-bottom: 1px dashed rgba(239,68,68,0.6); font-size: 10px; color: #fca5a5; display: grid; place-items: end center; padding-bottom: 4px; }
 .sz-right { position: absolute; right: 6px; bottom: 23%; display: flex; flex-direction: column; gap: 8px; background: rgba(239,68,68,0.16); border: 1px dashed rgba(239,68,68,0.6); border-radius: 10px; padding: 6px 4px; font-size: 12px; }
 .sz-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 22%; background: rgba(239,68,68,0.16); border-top: 1px dashed rgba(239,68,68,0.6); font-size: 10px; color: #fca5a5; display: grid; place-items: center; }
+
+
+/* ---- Advanced details/summary accordion ---- */
+.adv-details { border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; overflow: hidden; }
+.adv-summary {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  font-size: 12.5px; font-weight: 700; color: var(--muted); cursor: pointer; list-style: none;
+  background: rgba(255,255,255,0.03);
+}
+.adv-summary::-webkit-details-marker { display: none; }
+.adv-details[open] .adv-summary { color: var(--text); border-bottom: 1px solid rgba(255,255,255,0.08); }
+.adv-details > div { padding: 12px 14px 14px; }
+
+/* ---- Step hint text ---- */
+.step-hint { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
