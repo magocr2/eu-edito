@@ -17,6 +17,9 @@ let selectedBrolls = [];
 let selectedCards = [];
 let activePreviewCompIdx = -1;
 let activePreviewBrollIdx = -1;
+let activePreviewCardIdx = -1;
+let activePosTarget = null; // { kind: 'broll'|'comp'|'card', idx: number }
+let detectedFaceZone = { x: 24, y: 12, w: 52, h: 42, detected: false };
 let activePreviewCaptionIdx = -1;
 let pendingCompUploadIdx = -1;
 let lastCineFiredIdx = -1;
@@ -341,32 +344,169 @@ $('cineReplayBtn')?.addEventListener('click', () => syncOverlay(false, false, tr
 
 /* ---------- Step 7 Compositions, Quick B-rolls & Cards ---------- */
 function clearMediaPreview() {
-  activePreviewCompIdx = -1; activePreviewBrollIdx = -1;
+  activePreviewCompIdx = -1; activePreviewBrollIdx = -1; activePreviewCardIdx = -1;
   const r = stageRefs(); r.wrap?.classList.remove('split-top', 'split-bottom');
   if (r.brollVid) { try { r.brollVid.pause(); } catch {} r.brollVid.hidden = true; r.brollVid.removeAttribute('src'); }
   if (r.brollImg) { r.brollImg.hidden = true; r.brollImg.removeAttribute('src'); }
-  if (r.brollLayer) r.brollLayer.hidden = true;
+  if (r.brollLayer) { r.brollLayer.hidden = true; r.brollLayer.classList.remove('is-editable', 'is-overlap-warn'); }
+  const brh = r.brollLayer?.querySelector('.pv-resize-handle'); if (brh) brh.hidden = true;
   if (r.splitStage) r.splitStage.hidden = true;
-  if (r.cardStage) { r.cardStage.hidden = true; r.cardStage.replaceChildren(); }
+  if (r.cardStage) { r.cardStage.hidden = true; r.cardStage.classList.remove('is-editable', 'is-overlap-warn'); r.cardStage.replaceChildren(); }
+  if ($('pvFaceBox')) $('pvFaceBox').hidden = true;
+  if ($('pvCapBox')) $('pvCapBox').hidden = true;
   if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = true;
 }
-$('clearPreviewMediaBtn')?.addEventListener('click', clearMediaPreview);
+$('clearPreviewMediaBtn')?.addEventListener('click', () => { activePosTarget = null; if ($('brollPosStudio')) $('brollPosStudio').hidden = true; clearMediaPreview(); });
 
-function previewCompositionInStage(idx) {
+function getPosItemByTarget(tgt) {
+  if (!tgt) return null;
+  if (tgt.kind === 'broll' && selectedBrolls[tgt.idx]) return selectedBrolls[tgt.idx];
+  if (tgt.kind === 'comp' && selectedCompositions[tgt.idx]) return selectedCompositions[tgt.idx];
+  if (tgt.kind === 'card' && selectedCards[tgt.idx]) return selectedCards[tgt.idx];
+  return null;
+}
+
+function getAllPlacedBoxes(excludeTgt) {
+  const wrap = $('previewWrap');
+  const boxes = [];
+  selectedBrolls.forEach((b, i) => {
+    if (excludeTgt?.kind === 'broll' && excludeTgt.idx === i) return;
+    if (b.x != null && b.y != null) { const c = PV.computeBoxCss(wrap, b); boxes.push({ x: c.leftPct, y: c.topPct, w: c.widthPct, h: c.heightPct }); }
+  });
+  selectedCompositions.forEach((c, i) => {
+    if (excludeTgt?.kind === 'comp' && excludeTgt.idx === i) return;
+    if (c.type !== 'split-composition') { const css = PV.computeBoxCss(wrap, c); boxes.push({ x: css.leftPct, y: css.topPct, w: css.widthPct, h: css.heightPct }); }
+  });
+  selectedCards.forEach((c, i) => {
+    if (excludeTgt?.kind === 'card' && excludeTgt.idx === i) return;
+    if (c.x != null && c.y != null) { const css = PV.computeBoxCss(wrap, c, 1.0); boxes.push({ x: css.leftPct, y: css.topPct, w: css.widthPct, h: css.heightPct }); }
+  });
+  return boxes;
+}
+
+async function refreshFaceZone() {
+  const vid = $('previewVideo');
+  if (vid && !vid.hidden && vid.readyState >= 2) detectedFaceZone = await PV.detectVideoFaceZone(vid);
+  syncGuidesAndOverlap();
+}
+
+function syncGuidesAndOverlap() {
+  const fb = $('pvFaceBox'), cb = $('pvCapBox'), alertBox = $('brollOverlapAlert');
+  const item = getPosItemByTarget(activePosTarget);
+  const editing = !!item && !item.confirmed && currentStep === 7;
+  const bl = $('pvBrollLayer'), cs = $('pvCardStage');
+  bl?.classList.remove('is-overlap-warn'); cs?.classList.remove('is-overlap-warn');
+  if (!item) { if (fb) fb.hidden = true; if (cb) cb.hidden = true; if (alertBox) alertBox.hidden = true; return; }
+  const capY = Number($('posY')?.value || 74);
+  if (fb) {
+    fb.hidden = !editing;
+    fb.style.left = detectedFaceZone.x.toFixed(1) + '%'; fb.style.top = detectedFaceZone.y.toFixed(1) + '%';
+    fb.style.width = detectedFaceZone.w.toFixed(1) + '%'; fb.style.height = detectedFaceZone.h.toFixed(1) + '%';
+  }
+  if (cb) {
+    cb.hidden = !editing;
+    cb.style.left = '10%'; cb.style.top = Math.max(0, capY - 8) + '%'; cb.style.width = '80%'; cb.style.height = '16%';
+  }
+  const wrap = $('previewWrap');
+  const intrinsic = activePosTarget.kind === 'card' ? 1.0 : (activePosTarget.kind === 'comp' && item.type === 'editorial-card' ? 0.52 : undefined);
+  const boxCss = PV.computeBoxCss(wrap, item, intrinsic);
+  const warn = PV.computeOverlapWarnings({ x: boxCss.leftPct, y: boxCss.topPct, w: boxCss.widthPct, h: boxCss.heightPct }, detectedFaceZone, capY);
+  const showWarn = warn.hasOverlap && !item.ignoreOverlap;
+  if (alertBox) { alertBox.hidden = !showWarn; if ($('brollOverlapText')) $('brollOverlapText').textContent = warn.message; }
+  const stageEl = (activePosTarget.kind === 'broll' || (activePosTarget.kind === 'comp' && item.type === 'floating-media')) ? bl : cs;
+  if (showWarn && stageEl && !stageEl.hidden) stageEl.classList.add('is-overlap-warn');
+}
+
+function updatePosStudioUI() {
+  const studio = $('brollPosStudio');
+  const item = getPosItemByTarget(activePosTarget);
+  if (!studio || !item) { if (studio) studio.hidden = true; return; }
+  studio.hidden = false;
+  const kind = activePosTarget.kind;
+  const label = kind === 'broll' ? `🎞️ B${activePosTarget.idx + 1} · ${item.name || 'B-roll'}` : (kind === 'card' ? `🖼️ C${activePosTarget.idx + 1} · ${item.name || 'Card'}` : `✨ Comp ${activePosTarget.idx + 1}`);
+  if ($('posStudioLabel')) $('posStudioLabel').textContent = label;
+  const badge = $('posStatusBadge');
+  if (badge) { badge.textContent = item.confirmed ? 'Confirmado ✓' : 'Ajustando'; badge.classList.toggle('is-confirmed', !!item.confirmed); }
+  const isAspectItem = kind === 'broll' || (kind === 'comp' && item.type === 'floating-media');
+  if ($('posAspectRow')) $('posAspectRow').style.gridTemplateColumns = isAspectItem ? '' : '1fr';
+  if ($('posAspectSel')?.parentElement) $('posAspectSel').parentElement.hidden = !isAspectItem;
+  if ($('posRadiusRow')) $('posRadiusRow').hidden = (kind === 'card');
+  const x = Math.round(Number(item.x ?? 8)), y = Math.round(Number(item.y ?? 10));
+  const sc = Math.round(Number(item.scale ?? (kind === 'card' ? 34 : 42)));
+  const mg = Math.round(Number(item.margin ?? 4)), rot = Math.round(Number(item.rotation ?? 0)), rad = Math.round(Number(item.radius ?? 22));
+  if ($('posAspectSel')) $('posAspectSel').value = item.aspect || '16/9';
+  if ($('posScaleRange')) { $('posScaleRange').value = sc; $('posScaleVal').textContent = sc + '%'; }
+  if ($('posXRange')) { $('posXRange').value = x; $('posXVal').textContent = x + '%'; }
+  if ($('posYRange')) { $('posYRange').value = y; $('posYVal').textContent = y + '%'; }
+  if ($('posMarginRange')) { $('posMarginRange').value = mg; $('posMarginVal').textContent = mg + '%'; }
+  if ($('posRotRange')) { $('posRotRange').value = rot; $('posRotVal').textContent = rot + '°'; }
+  if ($('posRadiusRange')) { $('posRadiusRange').value = rad; $('posRadiusVal').textContent = rad + 'px'; }
+  $('posGrid9')?.querySelectorAll('button').forEach((btn) => {
+    btn.classList.toggle('is-active', Math.abs(Number(btn.dataset.ax) - x) <= 6 && Math.abs(Number(btn.dataset.ay) - y) <= 6);
+  });
+}
+
+function renderActiveTargetPreview(editable = false) {
+  if (!activePosTarget) return;
+  if (activePosTarget.kind === 'broll') previewBrollInStage(activePosTarget.idx, editable);
+  else if (activePosTarget.kind === 'comp') previewCompositionInStage(activePosTarget.idx, editable);
+  else if (activePosTarget.kind === 'card') previewCardInStage(activePosTarget.idx, editable);
+}
+
+function openPosStudio(kind, idx) {
+  activePosTarget = { kind, idx };
+  const item = getPosItemByTarget(activePosTarget);
+  if (!item) return;
+  if (kind === 'broll' && !['custom', 'top', 'bottom', 'full'].includes(item.layout)) item.layout = 'custom';
+  else if (kind === 'broll' && ['top', 'bottom', 'full'].includes(item.layout)) item.layout = 'custom';
+  if (kind === 'card') item.anim = 'custom';
+  if (item.x == null || item.y == null) {
+    const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(activePosTarget), detectedFaceZone, Number($('posY')?.value || 74), item);
+    item.x = slot.x; item.y = slot.y;
+  }
+  item.scale = item.scale ?? (kind === 'card' ? 34 : 42);
+  item.margin = item.margin ?? 4;
+  item.rotation = item.rotation ?? 0;
+  item.aspect = item.aspect || '16/9';
+  item.radius = item.radius ?? 22;
+  item.confirmed = false;
+  updatePosStudioUI();
+  renderActiveTargetPreview(true);
+  if ($('brollList')) renderBrollList();
+  if ($('cardList')) renderCardList();
+  refreshFaceZone();
+}
+
+function previewCompositionInStage(idx, editable = false) {
   const c = selectedCompositions[idx]; if (!c) return;
-  activePreviewCompIdx = idx; PV.renderCompositionStage(c, stageRefs());
+  activePreviewCompIdx = idx; activePreviewBrollIdx = -1; activePreviewCardIdx = -1;
+  PV.renderCompositionStage(c, stageRefs());
+  const bl = $('pvBrollLayer'), cs = $('pvCardStage');
+  const isFloat = c.type === 'floating-media';
+  if (isFloat && bl && !bl.hidden) {
+    bl.classList.toggle('is-editable', editable && !c.confirmed);
+    const rh = bl.querySelector('.pv-resize-handle'); if (rh) rh.hidden = !(editable && !c.confirmed);
+  } else if (cs && !cs.hidden) {
+    cs.classList.toggle('is-editable', editable && !c.confirmed && c.type !== 'split-composition');
+    if (editable && !c.confirmed && !cs.querySelector('.pv-resize-handle')) {
+      const h = document.createElement('button'); h.type = 'button'; h.className = 'pv-resize-handle'; h.dataset.resize = 'card'; h.textContent = '⤡';
+      cs.appendChild(h);
+    }
+  }
   if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
+  syncGuidesAndOverlap();
 }
 
 function createDefaultComposition(type) {
+  const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(null), detectedFaceZone, Number($('posY')?.value || 74), { scale: type === 'editorial-card' ? 74 : 42, aspect: '16/9', margin: 4 });
   const base = {
     type, start: '', end: '', title: '', subtitle: '', tag: '', labels: [], media: [],
     bg_color: '#FFFFFF', accent_color: '#F472B6', text_color: '#111827',
-    x: 8, y: 12, scale: 42, aspect: 'landscape', radius: 22, shadow: 55,
+    x: slot.x, y: slot.y, scale: 42, aspect: '16/9', radius: 22, shadow: 55, rotation: 0, margin: 4, confirmed: false, ignoreOverlap: false,
     stack_count: 3, stack_gap: 14, orientation: 'vertical', split_ratio: 50, gap: 10, highlight_pane: 'a',
     anim_in: 'scale-in', anim_out: 'fade-out', anim_dur: 0.34, anim_intensity: 1.0,
   };
-  if (type === 'editorial-card') { base.title = 'Ponto principal'; base.subtitle = 'Explicação clara ao espectador.'; base.tag = 'DESTAQUE'; base.scale = 74; base.y = 18; base.anim_in = 'slide-up'; }
+  if (type === 'editorial-card') { base.title = 'Ponto principal'; base.subtitle = 'Explicação clara ao espectador.'; base.tag = 'DESTAQUE'; base.scale = 74; base.x = 50; base.y = 18; base.anim_in = 'slide-up'; }
   if (type === 'stacked-cards') { base.title = 'Etapas'; base.labels = ['Etapa 1', 'Etapa 2', 'Etapa 3', 'Etapa 4']; base.anim_in = 'stagger'; base.y = 14; }
   if (type === 'visual-storytelling') { base.title = 'Como Funciona'; base.tag = 'ANÁLISE'; base.bg_color = '#0F172A'; base.text_color = '#F8FAFC'; base.accent_color = '#38BDF8'; base.labels = ['Principal', 'Detalhe A', 'Detalhe B']; base.anim_in = 'stagger'; }
   if (type === 'split-composition') { base.anim_in = 'reveal'; base.accent_color = '#22C55E'; }
@@ -395,6 +535,7 @@ function renderCompList() {
     card.innerHTML = `
       <div class="comp-card-head">
         <strong>${idx + 1}. ${names[comp.type] || comp.type}</strong>
+        ${!isSplit ? `<button type="button" class="media-preview-btn" data-act="pos">📍 Posicionar</button>` : ''}
         <button type="button" class="media-preview-btn" data-act="pv">👁️ Prévia</button>
         <button type="button" class="media-del" data-act="del">✕</button>
       </div>
@@ -410,15 +551,19 @@ function renderCompList() {
       <div class="row-2"><label class="field"><span>Cor destaque</span><input type="color" data-k="accent_color" value="${comp.accent_color}"></label><label class="field"><span>${isCardText ? 'Fundo Card' : 'Cantos (px)'}</span>${isCardText ? `<input type="color" data-k="bg_color" value="${comp.bg_color}">` : `<input type="range" min="0" max="40" step="2" data-k="radius" value="${comp.radius}">`}</label></div>
       <div class="row-2"><label class="field"><span>Entrada</span><select data-k="anim_in">${['fade-in', 'scale-in', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'pop', 'reveal', 'stagger', 'none'].map((a) => `<option value="${a}" ${comp.anim_in === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label><label class="field"><span>Saída</span><select data-k="anim_out">${['fade-out', 'scale-in', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'reveal', 'none'].map((a) => `<option value="${a}" ${comp.anim_out === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label></div>
     `;
+    card.querySelector('[data-act="pos"]')?.addEventListener('click', () => openPosStudio('comp', idx));
     card.querySelector('[data-act="pv"]')?.addEventListener('click', () => previewCompositionInStage(idx));
-    card.querySelector('[data-act="del"]')?.addEventListener('click', () => { selectedCompositions.splice(idx, 1); clearMediaPreview(); renderCompList(); markDirtyAfterRender(); });
+    card.querySelector('[data-act="del"]')?.addEventListener('click', () => { selectedCompositions.splice(idx, 1); if (activePosTarget?.kind === 'comp' && activePosTarget.idx === idx) { activePosTarget = null; $('brollPosStudio').hidden = true; } clearMediaPreview(); renderCompList(); markDirtyAfterRender(); });
     card.querySelector('[data-act="up"]')?.addEventListener('click', () => { pendingCompUploadIdx = idx; $('compMediaInput')?.click(); });
     card.querySelectorAll('[data-k]').forEach((inp) => {
       const ev = (inp.tagName === 'SELECT' || inp.type === 'color') ? 'change' : 'input';
       inp.addEventListener(ev, () => {
         const k = inp.dataset.k;
         comp[k] = (inp.type === 'range' || inp.type === 'number') ? (inp.value === '' ? '' : Number(inp.value)) : inp.value;
-        previewCompositionInStage(idx); markDirtyAfterRender();
+        comp.confirmed = false;
+        previewCompositionInStage(idx, activePosTarget?.kind === 'comp' && activePosTarget.idx === idx);
+        if (activePosTarget?.kind === 'comp' && activePosTarget.idx === idx) updatePosStudioUI();
+        markDirtyAfterRender();
       });
     });
     list.append(card);
@@ -441,41 +586,125 @@ $('compMediaInput')?.addEventListener('change', async (e) => {
 function renderBrollList() {
   const list = $('brollList'); if (!list) return; list.replaceChildren();
   selectedBrolls.forEach((b, idx) => {
-    const row = document.createElement('div'); row.className = 'media-item';
+    const row = document.createElement('div');
+    const isEditing = activePosTarget?.kind === 'broll' && activePosTarget.idx === idx && !b.confirmed;
+    row.className = 'media-item' + (isEditing ? ' is-editing' : '');
     const lbl = document.createElement('span'); lbl.className = 'media-name'; lbl.textContent = `🎞️ B${idx + 1} · ${b.name}`;
+    if (b.layout === 'custom') {
+      const stBadge = document.createElement('span');
+      stBadge.className = 'media-pos-badge' + (b.confirmed ? '' : ' is-pending');
+      stBadge.textContent = b.confirmed ? `✓ ${Math.round(b.x)}%,${Math.round(b.y)}%` : 'Ajuste';
+      lbl.append(' ', stBadge);
+    }
     const sel = document.createElement('select'); sel.className = 'media-sel';
-    [['auto', 'Automático'], ['top', 'Topo (c/ máscara)'], ['bottom', 'Baixo (c/ máscara)'], ['pip-rounded', 'Janela Canto'], ['center-frame', 'Quadro Central'], ['full', 'Tela cheia']].forEach(([v, t]) => {
+    [['custom', 'Posição Manual'], ['auto', 'Automático'], ['top', 'Topo (c/ máscara)'], ['bottom', 'Baixo (c/ máscara)'], ['pip-rounded', 'Janela Canto'], ['center-frame', 'Quadro Central'], ['full', 'Tela cheia']].forEach(([v, t]) => {
       const o = document.createElement('option'); o.value = v; o.textContent = t; if (b.layout === v) o.selected = true; sel.append(o);
     });
-    sel.addEventListener('change', () => { b.layout = sel.value; previewBrollInStage(idx); markDirtyAfterRender(); });
+    sel.addEventListener('change', () => {
+      b.layout = sel.value;
+      if (b.layout === 'custom') openPosStudio('broll', idx);
+      else { if (activePosTarget?.kind === 'broll' && activePosTarget.idx === idx && $('brollPosStudio')) $('brollPosStudio').hidden = true; previewBrollInStage(idx); renderBrollList(); }
+      markDirtyAfterRender();
+    });
+    const posBtn = document.createElement('button'); posBtn.type = 'button'; posBtn.className = 'media-preview-btn'; posBtn.textContent = '📍'; posBtn.title = 'Posicionar na tela';
+    posBtn.addEventListener('click', () => openPosStudio('broll', idx));
     const pvBtn = document.createElement('button'); pvBtn.type = 'button'; pvBtn.className = 'media-preview-btn'; pvBtn.textContent = '👁️';
-    pvBtn.addEventListener('click', () => previewBrollInStage(idx));
+    pvBtn.addEventListener('click', () => previewBrollInStage(idx, false));
     const del = document.createElement('button'); del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
-    del.addEventListener('click', () => { selectedBrolls.splice(idx, 1); clearMediaPreview(); renderBrollList(); markDirtyAfterRender(); });
-    row.append(lbl, pvBtn, sel, del); list.append(row);
+    del.addEventListener('click', () => {
+      selectedBrolls.splice(idx, 1);
+      if (activePosTarget?.kind === 'broll' && activePosTarget.idx === idx) { activePosTarget = null; if ($('brollPosStudio')) $('brollPosStudio').hidden = true; }
+      clearMediaPreview(); renderBrollList(); markDirtyAfterRender();
+    });
+    const times = document.createElement('div'); times.className = 'media-times';
+    times.innerHTML = `<span>Início:</span><input type="number" step="0.5" min="0" class="media-time-in" value="${b.start ?? ''}" placeholder="Auto"><span>Fim:</span><input type="number" step="0.5" min="0" class="media-time-in" value="${b.end ?? ''}" placeholder="Auto">`;
+    const [inS, inE] = times.querySelectorAll('input');
+    inS.addEventListener('input', () => { b.start = inS.value === '' ? '' : Number(inS.value); markDirtyAfterRender(); });
+    inE.addEventListener('input', () => { b.end = inE.value === '' ? '' : Number(inE.value); markDirtyAfterRender(); });
+    row.append(lbl, posBtn, pvBtn, sel, del, times); list.append(row);
   });
 }
 
-function previewBrollInStage(idx) {
+function previewBrollInStage(idx, editable = false) {
   const b = selectedBrolls[idx]; if (!b) return;
-  activePreviewBrollIdx = idx; const bl = $('pvBrollLayer'); if (!bl) return;
-  bl.dataset.layout = b.layout || 'top'; bl.hidden = false; bl.style.cssText = '';
+  activePreviewBrollIdx = idx; activePreviewCompIdx = -1; activePreviewCardIdx = -1;
+  const bl = $('pvBrollLayer'); if (!bl) return;
+  const cs = $('pvCardStage'); if (cs) { cs.hidden = true; cs.replaceChildren(); }
+  bl.hidden = false; bl.style.cssText = '';
   $('previewWrap')?.classList.toggle('split-top', b.layout === 'top');
   $('previewWrap')?.classList.toggle('split-bottom', b.layout === 'bottom');
+  if (b.layout === 'custom' || (b.x != null && b.y != null && !['top', 'bottom', 'full', 'auto'].includes(b.layout))) {
+    bl.dataset.layout = 'custom-floating';
+    const box = PV.computeBoxCss($('previewWrap'), b);
+    bl.style.left = box.leftPct.toFixed(2) + '%';
+    bl.style.top = box.topPct.toFixed(2) + '%';
+    bl.style.width = box.widthPct + '%';
+    bl.style.aspectRatio = box.aspectCss;
+    bl.style.borderRadius = (Number(b.radius ?? 22)) + 'px';
+    bl.style.transform = Math.abs(box.rotDeg) > 0.25 ? `rotate(${box.rotDeg}deg)` : '';
+    bl.style.boxShadow = '0 12px 28px rgba(0,0,0,0.65)';
+  } else {
+    bl.dataset.layout = b.layout || 'top';
+  }
+  const canEdit = editable && !b.confirmed && !['top', 'bottom', 'full'].includes(b.layout);
+  bl.classList.toggle('is-editable', canEdit);
+  const rh = bl.querySelector('.pv-resize-handle'); if (rh) rh.hidden = !canEdit;
   if (b.isImage) { $('pvBrollVid').hidden = true; $('pvBrollImg').src = b.previewUrl; $('pvBrollImg').hidden = false; }
   else { $('pvBrollImg').hidden = true; $('pvBrollVid').src = b.previewUrl; $('pvBrollVid').hidden = false; $('pvBrollVid').play?.().catch(() => {}); }
   if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
+  syncGuidesAndOverlap();
+}
+
+function previewCardInStage(idx, editable = false) {
+  const c = selectedCards[idx]; if (!c) return;
+  activePreviewCardIdx = idx; activePreviewBrollIdx = -1; activePreviewCompIdx = -1;
+  const bl = $('pvBrollLayer'); if (bl) bl.hidden = true;
+  const cs = $('pvCardStage'); if (!cs) return;
+  cs.hidden = false; cs.className = 'pv-card-stage'; cs.style.cssText = ''; cs.replaceChildren();
+  const img = document.createElement('img'); img.src = c.url; img.alt = c.name || 'Card';
+  cs.appendChild(img);
+  if (c.x != null && c.y != null) {
+    const ratio = (img.naturalWidth && img.naturalHeight) ? (img.naturalHeight / img.naturalWidth) : 1.0;
+    const box = PV.computeBoxCss($('previewWrap'), c, ratio);
+    cs.style.left = box.leftPct.toFixed(2) + '%';
+    cs.style.top = box.topPct.toFixed(2) + '%';
+    cs.style.width = box.widthPct + '%';
+    cs.style.transform = Math.abs(box.rotDeg) > 0.25 ? `rotate(${box.rotDeg}deg)` : '';
+  } else {
+    cs.dataset.anim = c.anim || 'side-right';
+  }
+  const canEdit = editable && !c.confirmed;
+  cs.classList.toggle('is-editable', canEdit);
+  if (canEdit) {
+    const h = document.createElement('button'); h.type = 'button'; h.className = 'pv-resize-handle'; h.dataset.resize = 'card'; h.textContent = '⤡';
+    cs.appendChild(h);
+  }
+  if ($('clearPreviewMediaBtn')) $('clearPreviewMediaBtn').hidden = false;
+  syncGuidesAndOverlap();
 }
 
 function renderCardList() {
   const list = $('cardList'); if (!list) return; list.replaceChildren();
   selectedCards.forEach((c, idx) => {
-    const row = document.createElement('div'); row.className = 'media-item';
+    const row = document.createElement('div');
+    const isEditing = activePosTarget?.kind === 'card' && activePosTarget.idx === idx && !c.confirmed;
+    row.className = 'media-item' + (isEditing ? ' is-editing' : '');
     const img = document.createElement('img'); img.className = 'media-thumb'; img.src = c.url; img.alt = c.name;
     const lbl = document.createElement('span'); lbl.className = 'media-name'; lbl.textContent = `C${idx + 1} · ${c.name}`;
+    if (c.x != null) {
+      const bdg = document.createElement('span'); bdg.className = 'media-pos-badge' + (c.confirmed ? '' : ' is-pending');
+      bdg.textContent = c.confirmed ? `✓ ${Math.round(c.x)}%,${Math.round(c.y)}%` : 'Ajuste';
+      lbl.append(' ', bdg);
+    }
+    const posBtn = document.createElement('button'); posBtn.type = 'button'; posBtn.className = 'media-preview-btn'; posBtn.textContent = '📍'; posBtn.title = 'Posicionar card';
+    posBtn.addEventListener('click', () => openPosStudio('card', idx));
     const del = document.createElement('button'); del.type = 'button'; del.className = 'media-del'; del.textContent = '✕';
-    del.addEventListener('click', () => { selectedCards.splice(idx, 1); clearMediaPreview(); renderCardList(); markDirtyAfterRender(); });
-    row.append(img, lbl, del); list.append(row);
+    del.addEventListener('click', () => {
+      selectedCards.splice(idx, 1);
+      if (activePosTarget?.kind === 'card' && activePosTarget.idx === idx) { activePosTarget = null; if ($('brollPosStudio')) $('brollPosStudio').hidden = true; }
+      clearMediaPreview(); renderCardList(); markDirtyAfterRender();
+    });
+    row.append(img, lbl, posBtn, del); list.append(row);
   });
 }
 
@@ -484,10 +713,18 @@ $('brollFile')?.addEventListener('change', async (e) => {
     try {
       const fd = new FormData(); fd.append('broll', f, f.name);
       const data = await safeJson(await fetch('/api/upload_broll', { method: 'POST', body: fd }));
-      if (data.broll_id) selectedBrolls.push({ id: data.broll_id, name: f.name, layout: 'top', start: '', end: '', previewUrl: URL.createObjectURL(f), isImage: (f.type || '').startsWith('image/') });
+      if (data.broll_id) {
+        const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(null), detectedFaceZone, Number($('posY')?.value || 74), { scale: 42, aspect: '16/9', margin: 4 });
+        selectedBrolls.push({
+          id: data.broll_id, name: f.name, layout: 'custom', start: '', end: '',
+          previewUrl: URL.createObjectURL(f), isImage: (f.type || '').startsWith('image/'),
+          x: slot.x, y: slot.y, scale: 42, aspect: '16/9', rotation: 0, margin: 4, radius: 22, confirmed: false, ignoreOverlap: false,
+        });
+      }
     } catch {}
   }
-  e.target.value = ''; renderBrollList(); if (selectedBrolls.length) previewBrollInStage(selectedBrolls.length - 1);
+  e.target.value = ''; renderBrollList();
+  if (selectedBrolls.length) openPosStudio('broll', selectedBrolls.length - 1);
 });
 
 $('cardFile')?.addEventListener('change', async (e) => {
@@ -495,11 +732,95 @@ $('cardFile')?.addEventListener('change', async (e) => {
     try {
       const fd = new FormData(); fd.append('card', f, f.name); fd.append('remove_bg', '1');
       const data = await safeJson(await fetch('/api/upload_card', { method: 'POST', body: fd }));
-      if (data.card_id) selectedCards.push({ id: data.card_id, name: f.name, url: data.url, anim: 'side-right' });
+      if (data.card_id) {
+        const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(null), detectedFaceZone, Number($('posY')?.value || 74), { scale: 34, aspect: '1/1', margin: 4 });
+        selectedCards.push({ id: data.card_id, name: f.name, url: data.url, anim: 'custom', start: '', end: '', x: slot.x, y: slot.y, scale: 34, rotation: 0, margin: 4, confirmed: false, ignoreOverlap: false });
+      }
     } catch {}
   }
   e.target.value = ''; renderCardList();
+  if (selectedCards.length) openPosStudio('card', selectedCards.length - 1);
 });
+
+/* Positioning Studio Controls + Interactive Drag/Resize */
+(function initBrollPosStudio() {
+  const applyChange = (fn) => {
+    const item = getPosItemByTarget(activePosTarget); if (!item) return;
+    fn(item);
+    item.confirmed = false;
+    updatePosStudioUI();
+    renderActiveTargetPreview(true);
+    if (activePosTarget.kind === 'comp') renderCompList();
+    else if (activePosTarget.kind === 'broll') renderBrollList();
+    else renderCardList();
+    markDirtyAfterRender();
+  };
+  $('posGrid9')?.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => applyChange((it) => { it.x = Number(btn.dataset.ax); it.y = Number(btn.dataset.ay); }));
+  });
+  $('posAspectSel')?.addEventListener('change', () => applyChange((it) => { it.aspect = $('posAspectSel').value; }));
+  $('posScaleRange')?.addEventListener('input', () => applyChange((it) => { it.scale = Number($('posScaleRange').value); }));
+  $('posXRange')?.addEventListener('input', () => applyChange((it) => { it.x = Number($('posXRange').value); }));
+  $('posYRange')?.addEventListener('input', () => applyChange((it) => { it.y = Number($('posYRange').value); }));
+  $('posMarginRange')?.addEventListener('input', () => applyChange((it) => { it.margin = Number($('posMarginRange').value); }));
+  $('posRotRange')?.addEventListener('input', () => applyChange((it) => { it.rotation = Number($('posRotRange').value); }));
+  $('posRadiusRange')?.addEventListener('input', () => applyChange((it) => { it.radius = Number($('posRadiusRange').value); }));
+  $('posRotResetBtn')?.addEventListener('click', () => applyChange((it) => { it.rotation = 0; }));
+  $('posDetectFaceBtn')?.addEventListener('click', async () => { await refreshFaceZone(); flash(detectedFaceZone.detected ? 'Rosto detectado e protegido!' : 'Área de rosto padrão aplicada.'); });
+  $('brollIgnoreWarnBtn')?.addEventListener('click', () => {
+    const it = getPosItemByTarget(activePosTarget); if (!it) return;
+    it.ignoreOverlap = true; syncGuidesAndOverlap();
+  });
+  $('posSmartSafeBtn')?.addEventListener('click', () => applyChange((it) => {
+    it.ignoreOverlap = false;
+    const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(activePosTarget), detectedFaceZone, Number($('posY')?.value || 74), it);
+    it.x = slot.x; it.y = slot.y;
+  }));
+  $('confirmBrollPosBtn')?.addEventListener('click', () => {
+    const it = getPosItemByTarget(activePosTarget); if (!it) return;
+    it.confirmed = true;
+    updatePosStudioUI();
+    renderActiveTargetPreview(false);
+    renderBrollList(); renderCardList(); renderCompList();
+    flash('Posição salva para este elemento!');
+  });
+
+  // Drag to move & corner handle to resize directly on previewWrap
+  let dragMode = null, sx = 0, sy = 0, startX = 0, startY = 0, startSc = 42;
+  const onDown = (e) => {
+    const item = getPosItemByTarget(activePosTarget); if (!item || item.confirmed) return;
+    const stageEl = e.target.closest('#pvBrollLayer.is-editable, #pvCardStage.is-editable');
+    if (!stageEl) return;
+    e.preventDefault(); e.stopPropagation();
+    dragMode = e.target.closest('.pv-resize-handle') ? 'resize' : 'move';
+    sx = e.clientX; sy = e.clientY;
+    startX = Number(item.x ?? 8); startY = Number(item.y ?? 10); startSc = Number(item.scale ?? 42);
+  };
+  $('pvBrollLayer')?.addEventListener('pointerdown', onDown);
+  $('pvCardStage')?.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointermove', (e) => {
+    if (!dragMode) return;
+    const wrap = $('previewWrap'), item = getPosItemByTarget(activePosTarget);
+    if (!wrap || !item) return;
+    const r = wrap.getBoundingClientRect();
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (dragMode === 'resize') {
+      item.scale = Math.round(Math.max(18, Math.min(88, startSc + ((dx + dy * 0.5) / Math.max(120, r.width)) * 100)));
+    } else {
+      const box = PV.computeBoxCss(wrap, item);
+      const spanX = Math.max(12, 100 - box.widthPct - 2 * box.marginPct);
+      const spanY = Math.max(12, 100 - box.heightPct - 2 * box.marginPct);
+      item.x = Math.round(Math.max(0, Math.min(100, startX + ((dx / Math.max(120, r.width)) * 100 / spanX) * 100)));
+      item.y = Math.round(Math.max(0, Math.min(100, startY + ((dy / Math.max(160, r.height)) * 100 / spanY) * 100)));
+    }
+    item.confirmed = false;
+    updatePosStudioUI();
+    renderActiveTargetPreview(true);
+    markDirtyAfterRender();
+  });
+  const endDrag = () => { if (dragMode) { dragMode = null; renderBrollList(); renderCardList(); } };
+  window.addEventListener('pointerup', endDrag); window.addEventListener('pointercancel', endDrag);
+})();
 
 $('cutsToggle')?.addEventListener('change', () => { $('rhythmBox').hidden = !$('cutsToggle').checked; });
 $('rhythmGrid')?.querySelectorAll('.res-pill').forEach((btn) => {
@@ -543,14 +864,23 @@ $('previewVideo')?.addEventListener('timeupdate', () => {
       }
     }
   }
-  if (selectedCompositions.length && currentStep === 7) {
-    const ci = selectedCompositions.findIndex((c) => {
-      const s = parseFloat(c.start); if (isNaN(s)) return false;
-      const e = isNaN(parseFloat(c.end)) ? s + 3.5 : parseFloat(c.end);
+  if (currentStep === 7 && (!activePosTarget || getPosItemByTarget(activePosTarget)?.confirmed)) {
+    const matchWindow = (arr) => arr.findIndex((it) => {
+      const s = parseFloat(it.start); if (isNaN(s)) return false;
+      const e = isNaN(parseFloat(it.end)) ? s + 3.5 : parseFloat(it.end);
       return t >= s && t <= e;
     });
-    if (ci >= 0 && activePreviewCompIdx !== ci) previewCompositionInStage(ci);
-    else if (ci < 0 && selectedCompositions.some((c) => c.start !== '') && activePreviewCompIdx >= 0) clearMediaPreview();
+    const ci = matchWindow(selectedCompositions);
+    const bi = matchWindow(selectedBrolls);
+    const ki = matchWindow(selectedCards);
+    if (ci >= 0) { if (activePreviewCompIdx !== ci) previewCompositionInStage(ci, false); }
+    else if (bi >= 0) { if (activePreviewBrollIdx !== bi) previewBrollInStage(bi, false); }
+    else if (ki >= 0) { if (activePreviewCardIdx !== ki) previewCardInStage(ki, false); }
+    else if (
+      (selectedCompositions.some((c) => c.start !== '') && activePreviewCompIdx >= 0) ||
+      (selectedBrolls.some((b) => b.start !== '') && activePreviewBrollIdx >= 0) ||
+      (selectedCards.some((k) => k.start !== '') && activePreviewCardIdx >= 0)
+    ) clearMediaPreview();
   }
 });
 
@@ -564,7 +894,7 @@ $('videoFile').addEventListener('change', (e) => {
   if ($('step1Nav')) $('step1Nav').hidden = false;
   try {
     const vid = $('previewVideo'); vid.src = URL.createObjectURL(f); vid.muted = true; vid.hidden = false; $('emptyStage').hidden = true;
-    vid.addEventListener('loadedmetadata', () => { try { vid.currentTime = 0.001; vid.play().then(() => setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; }, 80)).catch(() => { vid.muted = false; }); } catch {} }, { once: true });
+    vid.addEventListener('loadedmetadata', () => { try { vid.currentTime = 0.001; vid.play().then(() => setTimeout(() => { vid.pause(); vid.muted = false; vid.currentTime = 0.001; refreshFaceZone(); }, 110)).catch(() => { vid.muted = false; }); } catch {} }, { once: true });
     vid.load();
   } catch {}
   $('liveOverlay').hidden = false; $('resultBox').hidden = true; $('errorMsg').hidden = true; $('generateBtn').disabled = false;
@@ -721,8 +1051,14 @@ $('generateBtn').addEventListener('click', async () => {
           caption_lines: selectedLines, zoom: $('zoomToggle').checked, studio_audio: $('studioAudioToggle').checked,
           color_grade: !!$('colorGradeToggle')?.checked,
           compositions: selectedCompositions.map((c) => ({ ...c, media: (c.media || []).map((m) => ({ id: m.id })) })),
-          brolls: selectedBrolls.map((b) => ({ id: b.id, layout: b.layout, start: b.start, end: b.end })),
-          cards: selectedCards.map((c) => ({ id: c.id, anim: c.anim })),
+          brolls: selectedBrolls.map((b) => ({
+            id: b.id, layout: b.layout, start: b.start, end: b.end,
+            x: b.x, y: b.y, scale: b.scale, aspect: b.aspect, rotation: b.rotation, margin: b.margin, radius: b.radius,
+          })),
+          cards: selectedCards.map((c) => ({
+            id: c.id, anim: c.anim, start: c.start, end: c.end,
+            x: c.x, y: c.y, scale: c.scale, rotation: c.rotation, margin: c.margin,
+          })),
           resolution: selectedResolution,
         }),
       });

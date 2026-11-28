@@ -1632,6 +1632,29 @@ def render_video(
         next_in_idx += 1
         extra_inputs += ["-loop", "1", "-i", str(bmask_png)]
 
+    def _aspect_h_ratio(mode: str) -> float:
+        m = (mode or "16/9").strip().lower()
+        return {
+            "landscape": 9.0 / 16.0,
+            "16/9": 9.0 / 16.0,
+            "4/3": 0.75,
+            "square": 1.0,
+            "1/1": 1.0,
+            "portrait": 1.45,
+            "9/16": 16.0 / 9.0,
+            "vertical": 16.0 / 9.0,
+        }.get(m, 9.0 / 16.0)
+
+    def _safe_xy_expr(x_pct: float, y_pct: float, margin_pct: float = 4.0):
+        mx = int(round(w_even * max(0.0, min(18.0, float(margin_pct))) / 100.0))
+        my = int(round(h_even * max(0.0, min(18.0, float(margin_pct))) / 100.0))
+        xf = max(0.0, min(1.0, float(x_pct) / 100.0))
+        yf = max(0.0, min(1.0, float(y_pct) / 100.0))
+        return (
+            f"{mx}+max(0,({w_even}-w-{2 * mx}))*{xf:.4f}",
+            f"{my}+max(0,({h_even}-h-{2 * my}))*{yf:.4f}",
+        )
+
     # Support rich Professional Composition Models (floating-media, editorial-card, stacked-cards, visual-storytelling, split-composition)
     comp_list = list(compositions or [])
     comp_stages = []
@@ -1648,27 +1671,28 @@ def render_video(
         bg_hex = comp.get("bg_color") or "#FFFFFF"
         acc_hex = comp.get("accent_color") or "#F472B6"
         txt_hex = comp.get("text_color") or "#111827"
-        rad = int(comp.get("radius") or 24)
-        sh_pct = int(comp.get("shadow") or 55)
+        rad = int(comp.get("radius") if comp.get("radius") is not None else 24)
+        sh_pct = int(comp.get("shadow") if comp.get("shadow") is not None else 55)
+        comp_rot = max(-30.0, min(30.0, float(comp.get("rotation") or 0.0)))
+        comp_marg = float(comp.get("margin") if comp.get("margin") is not None else 4.0)
         media_list = list(comp.get("media") or [])
 
         if ctype == "editorial-card":
             m_src = media_list[0].get("path") if (media_list and media_list[0].get("path")) else None
             c_png = Path(out_path).parent / f"edcard_{ci_m}_{uuid.uuid4().hex[:6]}.png"
-            card_w = max(240, int(w_even * (float(comp.get("scale") or 74) / 100.0)))
+            card_w = max(220, int(w_even * (float(comp.get("scale") or 74) / 100.0)))
             card_w -= card_w % 2
             build_editorial_card_png(
                 m_src, c_png, card_w=card_w,
                 title=comp.get("title") or "", subtitle=comp.get("subtitle") or "",
                 tag=comp.get("tag") or "", bg_hex=bg_hex, accent_hex=acc_hex, text_hex=txt_hex,
-                radius=rad, shadow_pct=sh_pct,
+                radius=rad, shadow_pct=sh_pct, angle_deg=comp_rot,
             )
             temp_artifacts.append(c_png)
             c_idx = next_in_idx
             next_in_idx += 1
             extra_inputs += ["-loop", "1", "-i", str(c_png)]
-            tx = f"(W-w)*{float(comp.get('x', 50))/100.0:.2f}"
-            ty = f"{int(h_even * float(comp.get('y', 18))/100.0)}"
+            tx, ty = _safe_xy_expr(float(comp.get("x", 50)), float(comp.get("y", 18)), comp_marg)
             comp_stages.append(("overlay_png", c_idx, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty))
         elif ctype in ("stacked-cards", "visual-storytelling"):
             angles = (-4.5, 3.5, -1.5, 2.5) if ctype == "stacked-cards" else (-2.0, 2.0, 0.0, 0.0)
@@ -1694,7 +1718,7 @@ def render_video(
                     subtitle=(comp.get("subtitle") or "") if li == 0 else "",
                     tag=(comp.get("tag") or "") if li == 0 else (sub_lbl if not is_story_main else ""),
                     bg_hex=bg_hex, accent_hex=acc_hex, text_hex=txt_hex,
-                    radius=rad, shadow_pct=sh_pct, angle_deg=angles[li % len(angles)],
+                    radius=rad, shadow_pct=sh_pct, angle_deg=angles[li % len(angles)] + comp_rot * 0.5,
                 )
                 temp_artifacts.append(c_png)
                 c_idx = next_in_idx
@@ -1713,7 +1737,7 @@ def render_video(
                 comp_stages.append(("overlay_png", c_idx, cs + st_delay, max(1.0, cd - st_delay), in_k, anim_out, anim_dur, anim_int, tx, ty))
         elif ctype == "floating-media":
             aspect_mode = (comp.get("aspect") or "landscape").lower()
-            h_ratio = 0.56 if aspect_mode == "landscape" else (1.0 if aspect_mode == "square" else 1.45)
+            h_ratio = _aspect_h_ratio(aspect_mode)
             for fi, mitem in enumerate(media_list[:4]):
                 mp = mitem.get("path")
                 if not mp or not Path(mp).exists():
@@ -1722,17 +1746,16 @@ def render_video(
                 m_idx = next_in_idx
                 next_in_idx += 1
                 extra_inputs += (["-loop", "1", "-i", str(mp)] if is_img else ["-i", str(mp)])
-                sc_p = float(comp.get("scale") or 40) / 100.0
-                bw = max(160, int(w_even * sc_p))
-                bh = max(140, int(bw * h_ratio))
+                sc_p = max(16.0, min(92.0, float(comp.get("scale") or 40))) / 100.0
+                bw = max(120, int(w_even * sc_p))
+                bh = max(96, int(bw * h_ratio))
                 bw -= bw % 2
                 bh -= bh % 2
                 st_delay = fi * 0.20 if anim_in == "stagger" else 0.0
-                px_pct = min(82.0, float(comp.get("x", 6)) + fi * 14.0)
-                py_pct = min(72.0, float(comp.get("y", 8)) + fi * 16.0)
-                tx = f"{int(w_even * px_pct / 100.0)}"
-                ty = f"{int(h_even * py_pct / 100.0)}"
-                comp_stages.append(("floating", m_idx, is_img, bw, bh, rad, cs + st_delay, max(1.0, cd - st_delay), anim_in, anim_out, anim_dur, anim_int, tx, ty))
+                px_pct = max(0.0, min(100.0, float(comp.get("x", 6)) + fi * 14.0))
+                py_pct = max(0.0, min(100.0, float(comp.get("y", 8)) + fi * 16.0))
+                tx, ty = _safe_xy_expr(px_pct, py_pct, comp_marg)
+                comp_stages.append(("floating", m_idx, is_img, bw, bh, rad, comp_rot, cs + st_delay, max(1.0, cd - st_delay), anim_in, anim_out, anim_dur, anim_int, tx, ty))
         elif ctype == "split-composition" and media_list:
             mp = media_list[0].get("path")
             if mp and Path(mp).exists():
@@ -1781,7 +1804,10 @@ def render_video(
             layout = (b.get("layout") or "auto").lower()
             if layout == "auto":
                 layout = auto_b_cycle[bi % len(auto_b_cycle)]
-            if layout == "full":
+            has_custom_xy = (b.get("x") is not None and b.get("y") is not None)
+            if layout == "custom" or (has_custom_xy and layout in ("floating", "pip-rounded", "center-frame")):
+                framed_brolls.append((bi, b_idx, "custom", bs, be, b_dur, strip_i, b))
+            elif layout == "full":
                 fc_parts.append(
                     f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS,"
                     f"scale={w_even}:{h_even}:force_original_aspect_ratio=increase:flags={scale_flags},crop={w_even}:{h_even},format=rgba,"
@@ -1790,14 +1816,24 @@ def render_video(
                 fc_parts.append(f"{cur_v}[vb{bi}]overlay=0:0:enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbf{bi}]")
                 cur_v = f"[vbf{bi}]"
             elif layout in ("pip-rounded", "center-frame", "triptych-strips"):
-                framed_brolls.append((bi, b_idx, layout, bs, be, b_dur, strip_i))
+                framed_brolls.append((bi, b_idx, layout, bs, be, b_dur, strip_i, b))
                 if layout == "triptych-strips":
                     strip_i += 1
             else:
                 split_brolls.append((bi, b_idx, layout, bs, be, b_dur))
 
-        for bi, b_idx, lay, bs, be, b_dur, s_ord in framed_brolls:
-            if lay == "pip-rounded":
+        for bi, b_idx, lay, bs, be, b_dur, s_ord, b_cfg in framed_brolls:
+            b_rot = 0.0
+            if lay == "custom":
+                sc_p = max(16.0, min(92.0, float(b_cfg.get("scale") if b_cfg.get("scale") is not None else 42.0))) / 100.0
+                bw = max(120, int(w_even * sc_p))
+                bh = max(96, int(bw * _aspect_h_ratio(b_cfg.get("aspect") or "16/9")))
+                rad = max(0, min(60, int(b_cfg.get("radius") if b_cfg.get("radius") is not None else 22)))
+                marg = float(b_cfg.get("margin") if b_cfg.get("margin") is not None else 4.0)
+                b_rot = max(-30.0, min(30.0, float(b_cfg.get("rotation") or 0.0)))
+                tx, ty = _safe_xy_expr(float(b_cfg.get("x") if b_cfg.get("x") is not None else 8.0), float(b_cfg.get("y") if b_cfg.get("y") is not None else 10.0), marg)
+                ox, oy = motion_overlay_expr((b_cfg.get("anim_in") or "scale-in").lower(), (b_cfg.get("anim_out") or "fade-out").lower(), 0.28, 1.0, bs, be, tx, ty, w_even, h_even)
+            elif lay == "pip-rounded":
                 bw, bh, rad = max(160, int(w_even * 0.38)), max(160, int(h_even * 0.22)), 26
                 ox, oy = f"{int(w_even * 0.05)}", f"{int(h_even * 0.07)}"
             elif lay == "center-frame":
@@ -1812,21 +1848,29 @@ def render_video(
                 oy = f"{int(h_even * (0.09 + (s_ord % 3) * 0.17))}"
             bw -= bw % 2
             bh -= bh % 2
-            rmask = ensure_rounded_mask(Path(out_path).parent / f"rmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
-            temp_artifacts.append(rmask)
-            rmask_idx = next_in_idx
-            next_in_idx += 1
-            extra_inputs += ["-loop", "1", "-i", str(rmask)]
-            fc_parts.append(f"[{rmask_idx}:v]trim=duration={b_dur:.3f},setpts=PTS-STARTPTS[rm{bi}]")
+            rad_expr = f"{b_rot * 3.14159265 / 180.0:.5f}"
+            rot_f = f",rotate={rad_expr}:c=none:ow='rotw({rad_expr})':oh='roth({rad_expr})'" if abs(b_rot) > 0.25 else ""
             fc_parts.append(
                 f"[{b_idx}:v]trim=start=0:end={b_dur:.3f},setpts=PTS-STARTPTS,"
                 f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={bw}:{bh},format=rgba[vbr_{bi}]"
             )
-            fc_parts.append(
-                f"[vbr_{bi}][rm{bi}]alphamerge=shortest=1,"
-                f"fade=t=in:st=0:d=0.22:alpha=1,fade=t=out:st={max(0.1, b_dur-0.22):.3f}:d=0.22:alpha=1,"
-                f"setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vbfrm{bi}]"
-            )
+            if rad > 0:
+                rmask = ensure_rounded_mask(Path(out_path).parent / f"rmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+                temp_artifacts.append(rmask)
+                rmask_idx = next_in_idx
+                next_in_idx += 1
+                extra_inputs += ["-loop", "1", "-i", str(rmask)]
+                fc_parts.append(f"[{rmask_idx}:v]trim=duration={b_dur:.3f},setpts=PTS-STARTPTS[rm{bi}]")
+                fc_parts.append(
+                    f"[vbr_{bi}][rm{bi}]alphamerge=shortest=1,"
+                    f"fade=t=in:st=0:d=0.22:alpha=1,fade=t=out:st={max(0.1, b_dur-0.22):.3f}:d=0.22:alpha=1"
+                    f"{rot_f},setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vbfrm{bi}]"
+                )
+            else:
+                fc_parts.append(
+                    f"[vbr_{bi}]fade=t=in:st=0:d=0.22:alpha=1,fade=t=out:st={max(0.1, b_dur-0.22):.3f}:d=0.22:alpha=1"
+                    f"{rot_f},setpts=PTS-STARTPTS+{bs:.3f}/TB,setsar=1[vbfrm{bi}]"
+                )
             fc_parts.append(f"{cur_v}[vbfrm{bi}]overlay=x='{ox}':y='{oy}':enable='between(t,{bs:.3f},{be:.3f})':eof_action=pass[vbf_{bi}]")
             cur_v = f"[vbf_{bi}]"
 
@@ -1869,30 +1913,45 @@ def render_video(
             cs = max(0.0, float(c["start"]))
             cd = max(1.4, min(6.0, float(c.get("dur") or 3.2)))
             ce = cs + cd
-            # Cubic smoothstep easing for both entry (0.34s) and exit (0.34s)
-            tin = f"min(1,max(0,(t-{cs:.3f})/0.34))"
-            tout = f"min(1,max(0,({ce:.3f}-t)/0.34))"
-            ein = f"({tin}*{tin}*(3-2*{tin}))"
-            eout = f"({tout}*{tout}*(3-2*{tout}))"
-            cramp = f"({ein}*{eout})"
-            bob = f"7*sin(3.0*(t-{cs:.3f})+{ci*1.1:.1f})"
             canim = (c.get("anim") or "auto").lower()
-            if canim in ("auto", "behind-peek"):
-                canim = auto_c_cycle[ci % len(auto_c_cycle)]
-            slot_dy = (ci % 3) * int(h_even * 0.13)
-            if canim == "side-left":
-                cx = f"-w+(w+{margin})*{cramp}"
-                cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
-            elif canim == "corner-top":
-                cx = f"{margin}" if ci % 2 == 1 else f"{w_even}-w-{margin}"
-                cy = f"-h+(h+{int(h_even * 0.11)})*{cramp}+{bob}"
+            has_c_xy = (c.get("x") is not None and c.get("y") is not None)
+            c_rot = max(-30.0, min(30.0, float(c.get("rotation") or 0.0)))
+            c_rad_expr = f"{c_rot * 3.14159265 / 180.0:.5f}"
+            c_rot_f = f",rotate={c_rad_expr}:c=none:ow='rotw({c_rad_expr})':oh='roth({c_rad_expr})'" if abs(c_rot) > 0.25 else ""
+            if has_c_xy or canim == "custom":
+                c_w = max(120, int(w_even * max(16.0, min(85.0, float(c.get("scale") if c.get("scale") is not None else 34.0))) / 100.0))
+                c_w -= c_w % 2
+                c_marg = float(c.get("margin") if c.get("margin") is not None else 4.0)
+                tx, ty = _safe_xy_expr(float(c.get("x") if c.get("x") is not None else 88.0), float(c.get("y") if c.get("y") is not None else 18.0), c_marg)
+                if canim in ("custom", "none"):
+                    cx, cy = tx, ty
+                else:
+                    cx, cy = tx, f"({ty})+4*sin(2.6*(t-{cs:.3f}))"
             else:
-                cx = f"{w_even}-(w+{margin})*{cramp}"
-                cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
+                c_w = cw_target
+                # Cubic smoothstep easing for both entry (0.34s) and exit (0.34s)
+                tin = f"min(1,max(0,(t-{cs:.3f})/0.34))"
+                tout = f"min(1,max(0,({ce:.3f}-t)/0.34))"
+                ein = f"({tin}*{tin}*(3-2*{tin}))"
+                eout = f"({tout}*{tout}*(3-2*{tout}))"
+                cramp = f"({ein}*{eout})"
+                bob = f"7*sin(3.0*(t-{cs:.3f})+{ci*1.1:.1f})"
+                if canim in ("auto", "behind-peek"):
+                    canim = auto_c_cycle[ci % len(auto_c_cycle)]
+                slot_dy = (ci % 3) * int(h_even * 0.13)
+                if canim == "side-left":
+                    cx = f"-w+(w+{margin})*{cramp}"
+                    cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
+                elif canim == "corner-top":
+                    cx = f"{margin}" if ci % 2 == 1 else f"{w_even}-w-{margin}"
+                    cy = f"-h+(h+{int(h_even * 0.11)})*{cramp}+{bob}"
+                else:
+                    cx = f"{w_even}-(w+{margin})*{cramp}"
+                    cy = f"{int(h_even * 0.20) + slot_dy}+{bob}"
             fc_parts.append(
-                f"[{c_idx}:v]trim=duration={cd:.3f},scale={cw_target}:-2:flags={scale_flags},format=rgba,"
-                f"fade=t=in:st=0:d=0.30:alpha=1,fade=t=out:st={max(0.1, cd-0.30):.3f}:d=0.30:alpha=1,"
-                f"setpts=PTS-STARTPTS+{cs:.3f}/TB[vcard{ci}]"
+                f"[{c_idx}:v]trim=duration={cd:.3f},scale={c_w}:-2:flags={scale_flags},format=rgba,"
+                f"fade=t=in:st=0:d=0.30:alpha=1,fade=t=out:st={max(0.1, cd-0.30):.3f}:d=0.30:alpha=1"
+                f"{c_rot_f},setpts=PTS-STARTPTS+{cs:.3f}/TB[vcard{ci}]"
             )
             fc_parts.append(f"{cur_v}[vcard{ci}]overlay=x='{cx}':y='{cy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vc{ci}]")
             cur_v = f"[vc{ci}]"
@@ -1914,26 +1973,34 @@ def render_video(
                 fc_parts.append(f"{cur_v}[vcmp{csi}]overlay=x='{ox}':y='{oy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vcmpout{csi}]")
                 cur_v = f"[vcmpout{csi}]"
             elif kind == "floating":
-                _, m_idx, is_img, bw, bh, rad, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty = st
+                _, m_idx, is_img, bw, bh, rad, comp_rot, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty = st
                 ce = cs + cd
                 fd_in = 0.05 if anim_in == "none" else min(0.45, max(0.18, anim_dur))
                 fd_out = 0.05 if anim_out == "none" else min(0.45, max(0.18, anim_dur))
-                rmask = ensure_rounded_mask(Path(out_path).parent / f"cmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
-                temp_artifacts.append(rmask)
-                rm_idx = next_in_idx
-                next_in_idx += 1
-                extra_inputs += ["-loop", "1", "-i", str(rmask)]
+                rot_rad = f"{comp_rot * 3.14159265 / 180.0:.5f}"
+                rot_f = f",rotate={rot_rad}:c=none:ow='rotw({rot_rad})':oh='roth({rot_rad})'" if abs(comp_rot) > 0.25 else ""
                 ox, oy = motion_overlay_expr(anim_in, anim_out, anim_dur, anim_int, cs, ce, tx, ty, w_even, h_even)
-                fc_parts.append(f"[{rm_idx}:v]trim=duration={cd:.3f},setpts=PTS-STARTPTS[crm{csi}]")
                 fc_parts.append(
                     f"[{m_idx}:v]trim=start=0:end={cd:.3f},setpts=PTS-STARTPTS,"
                     f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags={scale_flags},crop={bw}:{bh},format=rgba[cflt{csi}]"
                 )
-                fc_parts.append(
-                    f"[cflt{csi}][crm{csi}]alphamerge=shortest=1,"
-                    f"fade=t=in:st=0:d={fd_in:.2f}:alpha=1,fade=t=out:st={max(0.1, cd - fd_out):.3f}:d={fd_out:.2f}:alpha=1,"
-                    f"setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[cflta{csi}]"
-                )
+                if rad > 0:
+                    rmask = ensure_rounded_mask(Path(out_path).parent / f"cmask_{bw}x{bh}_r{rad}.png", bw, bh, radius=rad)
+                    temp_artifacts.append(rmask)
+                    rm_idx = next_in_idx
+                    next_in_idx += 1
+                    extra_inputs += ["-loop", "1", "-i", str(rmask)]
+                    fc_parts.append(f"[{rm_idx}:v]trim=duration={cd:.3f},setpts=PTS-STARTPTS[crm{csi}]")
+                    fc_parts.append(
+                        f"[cflt{csi}][crm{csi}]alphamerge=shortest=1,"
+                        f"fade=t=in:st=0:d={fd_in:.2f}:alpha=1,fade=t=out:st={max(0.1, cd - fd_out):.3f}:d={fd_out:.2f}:alpha=1"
+                        f"{rot_f},setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[cflta{csi}]"
+                    )
+                else:
+                    fc_parts.append(
+                        f"[cflt{csi}]fade=t=in:st=0:d={fd_in:.2f}:alpha=1,fade=t=out:st={max(0.1, cd - fd_out):.3f}:d={fd_out:.2f}:alpha=1"
+                        f"{rot_f},setpts=PTS-STARTPTS+{cs:.3f}/TB,setsar=1[cflta{csi}]"
+                    )
                 fc_parts.append(f"{cur_v}[cflta{csi}]overlay=x='{ox}':y='{oy}':enable='between(t,{cs:.3f},{ce:.3f})':eof_action=pass[vcmpout{csi}]")
                 cur_v = f"[vcmpout{csi}]"
             elif kind == "split":

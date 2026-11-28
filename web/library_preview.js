@@ -334,13 +334,15 @@
     if (type === 'floating-media' && brollLayer) {
       const m0 = media[0];
       if (!m0 || !m0.previewUrl) return;
-      const asp = comp.aspect === 'square' ? 1.0 : (comp.aspect === 'portrait' ? 1.4 : 0.62);
+      const box = computeBoxCss(wrap, comp);
       brollLayer.dataset.layout = 'custom-floating';
-      brollLayer.style.left = (Number(comp.x) ?? 8) + '%';
-      brollLayer.style.top = (Number(comp.y) ?? 9) + '%';
-      brollLayer.style.width = (Number(comp.scale) || 40) + '%';
-      brollLayer.style.height = Math.round((Number(comp.scale) || 40) * asp * 0.65) + '%';
+      brollLayer.style.cssText = '';
+      brollLayer.style.left = box.leftPct.toFixed(2) + '%';
+      brollLayer.style.top = box.topPct.toFixed(2) + '%';
+      brollLayer.style.width = box.widthPct + '%';
+      brollLayer.style.aspectRatio = box.aspectCss;
       brollLayer.style.borderRadius = (Number(comp.radius) ?? 22) + 'px';
+      brollLayer.style.transform = Math.abs(box.rotDeg) > 0.25 ? `rotate(${box.rotDeg}deg)` : '';
       const sh = (Number(comp.shadow) ?? 60) / 100;
       brollLayer.style.boxShadow = `0 12px 28px rgba(0,0,0,${(0.75 * sh).toFixed(2)})`;
       brollLayer.hidden = false;
@@ -353,48 +355,176 @@
     if (cardStage) {
       cardStage.hidden = false;
       cardStage.className = `pv-card-stage comp-${type}`;
-      cardStage.style.left = type === 'editorial-card' ? ((100 - Math.min(88, Number(comp.scale) || 74)) / 2) + '%' : (Number(comp.x) ?? 8) + '%';
-      cardStage.style.top = (Number(comp.y) ?? 15) + '%';
-      cardStage.style.width = type === 'editorial-card' ? Math.min(88, Number(comp.scale) || 74) + '%' : '84%';
+      cardStage.style.cssText = '';
+      const box = computeBoxCss(wrap, comp, type === 'editorial-card' ? 0.52 : 0.72);
+      cardStage.style.left = (type === 'editorial-card' ? box.leftPct : (Number(comp.x) ?? 8)).toFixed(2) + '%';
+      cardStage.style.top = (type === 'editorial-card' ? box.topPct : (Number(comp.y) ?? 15)).toFixed(2) + '%';
+      cardStage.style.width = (type === 'editorial-card' ? Math.min(88, Number(comp.scale) || 74) : 84) + '%';
+      const rotC = Math.max(-30, Math.min(30, Number(comp.rotation) || 0));
+      if (type === 'editorial-card' && Math.abs(rotC) > 0.25) cardStage.style.transform = `rotate(${rotC}deg)`;
 
       const maxCnt = type === 'stacked-cards' ? Math.max(2, Math.min(4, Number(comp.stack_count) || media.length || 3)) : 3;
       const items = (type === 'editorial-card') ? [media[0] || {}] : (media.length ? media.slice(0, maxCnt) : [{}, {}]);
       const labels = Array.isArray(comp.labels) ? comp.labels : [];
       items.forEach((mItem, idx) => {
-        const box = document.createElement('div');
-        box.className = 'pv-ed-card' + (type === 'stacked-cards' ? ` stack-${idx}` : (type === 'visual-storytelling' ? ` story-${idx}` : ''));
+        const boxEl = document.createElement('div');
+        boxEl.className = 'pv-ed-card' + (type === 'stacked-cards' ? ` stack-${idx}` : (type === 'visual-storytelling' ? ` story-${idx}` : ''));
         if (type === 'stacked-cards' && idx > 0) {
           const gapV = Math.max(4, Math.min(24, Number(comp.stack_gap) || 14));
-          box.style.marginLeft = Math.min(40, idx * (gapV * 0.9)) + '%';
-          box.style.marginTop = (-16 + Math.round(gapV * 0.4)) + 'px';
+          boxEl.style.marginLeft = Math.min(40, idx * (gapV * 0.9)) + '%';
+          boxEl.style.marginTop = (-16 + Math.round(gapV * 0.4)) + 'px';
         }
-        box.style.background = comp.bg_color || '#FFFFFF';
-        box.style.color = comp.text_color || '#111827';
-        box.style.borderRadius = (Number(comp.radius) ?? 20) + 'px';
+        boxEl.style.background = comp.bg_color || '#FFFFFF';
+        boxEl.style.color = comp.text_color || '#111827';
+        boxEl.style.borderRadius = (Number(comp.radius) ?? 20) + 'px';
         const sh = (Number(comp.shadow) ?? 55) / 100;
-        box.style.boxShadow = `0 12px 28px rgba(0,0,0,${(0.58 * sh).toFixed(2)})`;
+        boxEl.style.boxShadow = `0 12px 28px rgba(0,0,0,${(0.58 * sh).toFixed(2)})`;
         if (idx === 0 && comp.tag) {
-          const tg = document.createElement('span'); tg.className = 'pv-ed-tag'; tg.style.background = comp.accent_color || '#F472B6'; tg.textContent = comp.tag; box.appendChild(tg);
+          const tg = document.createElement('span'); tg.className = 'pv-ed-tag'; tg.style.background = comp.accent_color || '#F472B6'; tg.textContent = comp.tag; boxEl.appendChild(tg);
         } else if (idx > 0 && labels[idx]) {
-          const tg = document.createElement('span'); tg.className = 'pv-ed-tag'; tg.style.background = comp.accent_color || '#38BDF8'; tg.textContent = labels[idx]; box.appendChild(tg);
+          const tg = document.createElement('span'); tg.className = 'pv-ed-tag'; tg.style.background = comp.accent_color || '#38BDF8'; tg.textContent = labels[idx]; boxEl.appendChild(tg);
         }
-        if (idx === 0 && comp.title) { const h = document.createElement('strong'); h.className = 'pv-ed-title'; h.textContent = comp.title; box.appendChild(h); }
+        if (idx === 0 && comp.title) { const h = document.createElement('strong'); h.className = 'pv-ed-title'; h.textContent = comp.title; boxEl.appendChild(h); }
         if (mItem && mItem.previewUrl) {
           const im = document.createElement('img'); im.src = mItem.previewUrl; im.className = 'pv-ed-media';
           im.style.borderRadius = Math.max(8, Math.round((Number(comp.radius) ?? 20) * 0.6)) + 'px';
-          box.appendChild(im);
+          boxEl.appendChild(im);
         }
-        if (idx === 0 && comp.subtitle) { const p = document.createElement('small'); p.className = 'pv-ed-sub'; p.textContent = comp.subtitle; box.appendChild(p); }
-        cardStage.appendChild(box);
+        if (idx === 0 && comp.subtitle) { const p = document.createElement('small'); p.className = 'pv-ed-sub'; p.textContent = comp.subtitle; boxEl.appendChild(p); }
+        cardStage.appendChild(boxEl);
         const delayMs = (comp.anim_in === 'stagger' || type !== 'editorial-card') ? idx * 140 : 0;
-        animateElementInOut(box, comp.anim_in || 'slide-up', comp.anim_out || 'fade-out', dur, inten, false, delayMs);
+        animateElementInOut(boxEl, comp.anim_in || 'slide-up', comp.anim_out || 'fade-out', dur, inten, false, delayMs);
       });
     }
+  }
+
+  function aspectHRatio(aspect) {
+    const a = String(aspect || '16/9').toLowerCase();
+    if (a === '4/3') return 0.75;
+    if (a === '1/1' || a === 'square') return 1.0;
+    if (a === '9/16' || a === 'vertical') return 16 / 9;
+    if (a === 'portrait') return 1.45;
+    return 9 / 16;
+  }
+
+  function aspectRatioCSS(aspect) {
+    const a = String(aspect || '16/9').toLowerCase();
+    if (a === '4/3') return '4 / 3';
+    if (a === '1/1' || a === 'square') return '1 / 1';
+    if (a === '9/16' || a === 'vertical') return '9 / 16';
+    if (a === 'portrait') return '2 / 3';
+    return '16 / 9';
+  }
+
+  function computeBoxCss(wrapEl, item, intrinsicHRatio) {
+    const wrapW = Math.max(120, wrapEl?.clientWidth || 208);
+    const wrapH = Math.max(160, wrapEl?.clientHeight || 370);
+    const wPct = Math.max(16, Math.min(92, Number(item?.scale ?? 42)));
+    const hRatio = Number.isFinite(intrinsicHRatio) && intrinsicHRatio > 0 ? intrinsicHRatio : aspectHRatio(item?.aspect);
+    const hPct = Math.min(90, wPct * hRatio * (wrapW / wrapH));
+    const marginPct = Math.max(0, Math.min(18, Number(item?.margin ?? 4)));
+    const xPct = Math.max(0, Math.min(100, Number(item?.x ?? 8)));
+    const yPct = Math.max(0, Math.min(100, Number(item?.y ?? 10)));
+    const rotDeg = Math.max(-30, Math.min(30, Number(item?.rotation ?? 0)));
+    const leftPct = marginPct + Math.max(0, 100 - wPct - 2 * marginPct) * (xPct / 100);
+    const topPct = marginPct + Math.max(0, 100 - hPct - 2 * marginPct) * (yPct / 100);
+    return { leftPct, topPct, widthPct: wPct, heightPct: hPct, marginPct, aspectCss: aspectRatioCSS(item?.aspect), rotDeg };
+  }
+
+  async function detectVideoFaceZone(videoEl) {
+    const fallback = { x: 24, y: 12, w: 52, h: 42, detected: false };
+    if (!videoEl || videoEl.hidden || videoEl.readyState < 2 || !videoEl.videoWidth) return fallback;
+    try {
+      if (typeof window.FaceDetector === 'function') {
+        const det = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 2 });
+        const faces = await det.detect(videoEl);
+        if (faces && faces.length) {
+          const b = faces[0].boundingBox;
+          const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+          const padX = b.width * 0.28, padY = b.height * 0.28;
+          return {
+            x: Math.max(0, ((b.x - padX) / vw) * 100),
+            y: Math.max(0, ((b.y - padY) / vh) * 100),
+            w: Math.min(92, ((b.width + padX * 2) / vw) * 100),
+            h: Math.min(72, ((b.height + padY * 2) / vh) * 100),
+            detected: true,
+          };
+        }
+      }
+      const cv = document.createElement('canvas');
+      cv.width = 64; cv.height = 64;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return fallback;
+      ctx.drawImage(videoEl, 0, 0, 64, 64);
+      const data = ctx.getImageData(0, 0, 64, 64).data;
+      let minX = 64, maxX = 0, minY = 64, maxY = 0, hits = 0;
+      for (let py = 4; py < 44; py++) {
+        for (let px = 12; px < 52; px++) {
+          const i = (py * 64 + px) * 4;
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const isSkin = r > 75 && g > 45 && b > 25 && r > g && r > b && (r - Math.min(g, b)) > 16 && (r - g) > 8;
+          if (isSkin) {
+            hits++;
+            if (px < minX) minX = px;
+            if (px > maxX) maxX = px;
+            if (py < minY) minY = py;
+            if (py > maxY) maxY = py;
+          }
+        }
+      }
+      if (hits >= 18) {
+        const fx = Math.max(4, (minX / 64) * 100 - 8);
+        const fy = Math.max(4, (minY / 64) * 100 - 8);
+        const fw = Math.min(82, ((maxX - minX + 1) / 64) * 100 + 16);
+        const fh = Math.min(62, ((maxY - minY + 1) / 64) * 100 + 16);
+        return { x: fx, y: fy, w: Math.max(28, fw), h: Math.max(24, fh), detected: true };
+      }
+    } catch {}
+    return fallback;
+  }
+
+  function boxesOverlap(a, b) {
+    return a.x < (b.x + b.w) && (a.x + a.w) > b.x && a.y < (b.y + b.h) && (a.y + a.h) > b.y;
+  }
+
+  function computeOverlapWarnings(itemBox, faceBox, capPosY) {
+    const capBand = { x: 10, y: Math.max(0, Number(capPosY || 74) - 9), w: 80, h: 18 };
+    const faceHit = !!(faceBox && boxesOverlap(itemBox, faceBox));
+    const capHit = boxesOverlap(itemBox, capBand);
+    const parts = [];
+    if (faceHit) parts.push('cobrindo o rosto');
+    if (capHit) parts.push('sobrepondo a legenda');
+    return {
+      faceOverlap: faceHit,
+      capOverlap: capHit,
+      hasOverlap: faceHit || capHit,
+      message: parts.length ? `⚠️ Atenção: este elemento está ${parts.join(' e ')}.` : '',
+    };
+  }
+
+  function pickSmartSafeSlot(wrapEl, existingBoxes, faceBox, capPosY, itemCfg) {
+    const candidates = [
+      [100, 0], [0, 0], [100, 46], [0, 46], [100, 100], [0, 100], [50, 0], [50, 100],
+    ];
+    let best = { x: 100, y: 0, score: 9999 };
+    for (const [cx, cy] of candidates) {
+      const css = computeBoxCss(wrapEl, { ...itemCfg, x: cx, y: cy });
+      const b = { x: css.leftPct, y: css.topPct, w: css.widthPct, h: css.heightPct };
+      const w = computeOverlapWarnings(b, faceBox, capPosY);
+      let score = (w.faceOverlap ? 100 : 0) + (w.capOverlap ? 60 : 0);
+      for (const ex of (existingBoxes || [])) {
+        if (boxesOverlap(b, ex)) score += 35;
+      }
+      if (score === 0) return { x: cx, y: cy };
+      if (score < best.score) best = { x: cx, y: cy, score };
+    }
+    return { x: best.x, y: best.y };
   }
 
   global.EuEditoPreview = {
     EXAMPLES, STYLE_DEFAULTS, FONT_CSS_MAP,
     animateElementInOut, triggerCinematicDim, injectGraphicEffect,
     buildCaptionHtmlFromData, renderCompositionStage,
+    computeBoxCss, aspectRatioCSS, detectVideoFaceZone, computeOverlapWarnings, pickSmartSafeSlot,
   };
 })(window);

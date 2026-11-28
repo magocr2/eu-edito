@@ -62,7 +62,11 @@
           <div id="pvBrollLayer" class="pv-broll-layer" hidden>
             <img id="pvBrollImg" alt="" hidden>
             <video id="pvBrollVid" playsinline webkit-playsinline muted loop hidden></video>
+            <button type="button" class="pv-resize-handle" data-resize="broll" hidden aria-label="Redimensionar B-roll">⤡</button>
           </div>
+
+          <div id="pvFaceBox" class="pv-guide-box pv-guide-face" hidden><span>👤 Rosto protegido</span></div>
+          <div id="pvCapBox" class="pv-guide-box pv-guide-cap" hidden><span>💬 Área legenda</span></div>
 
           <div id="pvCardStage" class="pv-card-stage" hidden>
             <img id="pvCardImg" alt="Card visual">
@@ -510,6 +514,74 @@
         <input type="file" id="compMediaInput" accept="video/*,image/*" multiple hidden>
         <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
         <input type="file" id="cardFile" accept="image/*" multiple hidden>
+
+        <section id="brollPosStudio" class="pos-studio" hidden>
+          <div class="pos-studio-head">
+            <strong id="posStudioLabel">🎞️ Ajustar posição</strong>
+            <span id="posStatusBadge" class="pos-badge">Em edição</span>
+            <button type="button" id="posDetectFaceBtn" class="mini-pill-btn">👤 Rosto</button>
+          </div>
+          <div id="brollOverlapAlert" class="overlap-alert" hidden>
+            <span id="brollOverlapText"></span>
+            <button type="button" id="brollIgnoreWarnBtn" class="mini-warn-btn">Ignorar alerta</button>
+          </div>
+          <div class="pos-studio-body">
+            <div class="align-grid9" id="posGrid9" aria-label="Alinhamento rápido">
+              <button type="button" data-ax="0" data-ay="0" title="Topo Esquerda">↖</button>
+              <button type="button" data-ax="50" data-ay="0" title="Topo Centro">↑</button>
+              <button type="button" data-ax="100" data-ay="0" title="Topo Direita">↗</button>
+              <button type="button" data-ax="0" data-ay="50" title="Meio Esquerda">←</button>
+              <button type="button" data-ax="50" data-ay="50" title="Centro">✦</button>
+              <button type="button" data-ax="100" data-ay="50" title="Meio Direita">→</button>
+              <button type="button" data-ax="0" data-ay="100" title="Base Esquerda">↙</button>
+              <button type="button" data-ax="50" data-ay="100" title="Base Centro">↓</button>
+              <button type="button" data-ax="100" data-ay="100" title="Base Direita">↘</button>
+            </div>
+            <div class="pos-sliders">
+              <div class="row-2" id="posAspectRow">
+                <label class="field"><span>Proporção</span>
+                  <select id="posAspectSel">
+                    <option value="16/9">Horizontal (16:9)</option>
+                    <option value="4/3">Retrato Largo (4:3)</option>
+                    <option value="1/1">Quadrado (1:1)</option>
+                    <option value="9/16">Vertical (9:16)</option>
+                  </select>
+                </label>
+                <label class="field"><span>Tamanho (<em id="posScaleVal">42%</em>)</span>
+                  <input type="range" id="posScaleRange" min="18" max="88" step="2" value="42">
+                </label>
+              </div>
+              <div class="row-2">
+                <label class="field"><span>Posição X (<em id="posXVal">8%</em>)</span>
+                  <input type="range" id="posXRange" min="0" max="100" step="1" value="8">
+                </label>
+                <label class="field"><span>Posição Y (<em id="posYVal">10%</em>)</span>
+                  <input type="range" id="posYRange" min="0" max="100" step="1" value="10">
+                </label>
+              </div>
+              <div class="row-2">
+                <label class="field"><span>Margem (<em id="posMarginVal">4%</em>)</span>
+                  <input type="range" id="posMarginRange" min="0" max="14" step="1" value="4">
+                </label>
+                <label class="field"><span>Rotação (<em id="posRotVal">0°</em>)</span>
+                  <input type="range" id="posRotRange" min="-25" max="25" step="1" value="0">
+                </label>
+              </div>
+              <div class="row-2" id="posRadiusRow">
+                <label class="field"><span>Cantos (<em id="posRadiusVal">22px</em>)</span>
+                  <input type="range" id="posRadiusRange" min="0" max="40" step="2" value="22">
+                </label>
+                <label class="field"><span>Inclinação</span>
+                  <button type="button" id="posRotResetBtn" class="mini-pill-btn" style="margin-top:4px">↺ Zerar 0°</button>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="pos-studio-foot">
+            <button type="button" id="posSmartSafeBtn" class="secondary-btn">✨ Posição segura</button>
+            <button type="button" id="confirmBrollPosBtn" class="primary-btn pos-confirm-btn">✓ CONFIRMAR B-ROLL</button>
+          </div>
+        </section>
 
         <div id="compList" class="media-queue"></div>
         <div id="brollList" class="media-queue"></div>

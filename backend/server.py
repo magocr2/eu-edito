@@ -303,6 +303,23 @@ def _run_render_pipeline(job_id, opts):
         raw_brolls = list(opts.get("brolls") or [])
         if not raw_brolls and opts.get("broll_id"):
             raw_brolls = [{"id": opts["broll_id"], "layout": opts.get("broll_layout", "auto")}]
+        def _broll_payload(b_obj, b_path, st_val, dur_val):
+            return {
+                "path": b_path,
+                "layout": b_obj.get("layout", "auto"),
+                "start": st_val,
+                "dur": dur_val,
+                "x": b_obj.get("x"),
+                "y": b_obj.get("y"),
+                "scale": b_obj.get("scale"),
+                "aspect": b_obj.get("aspect"),
+                "rotation": b_obj.get("rotation"),
+                "margin": b_obj.get("margin"),
+                "radius": b_obj.get("radius"),
+                "anim_in": b_obj.get("anim_in"),
+                "anim_out": b_obj.get("anim_out"),
+            }
+
         broll_items = []
         b_slot_idx = 0
         for b in raw_brolls[:5]:
@@ -315,26 +332,36 @@ def _run_render_pipeline(job_id, opts):
             if exp_s not in (None, "") and float(exp_s) >= 0.0:
                 s_t = float(exp_s)
                 e_t = float(exp_e) if (exp_e not in (None, "") and float(exp_e) > s_t + 0.5) else (s_t + 3.5)
-                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": s_t, "dur": e_t - s_t})
+                broll_items.append(_broll_payload(b, bp, s_t, e_t - s_t))
                 continue
             marked = [c for c in captions if c.get("broll_id") == bid or (len(raw_brolls) == 1 and c.get("broll"))]
             if marked:
                 for mc in marked:
-                    broll_items.append({
-                        "path": bp,
-                        "layout": b.get("layout", "auto"),
-                        "start": float(mc["s"]),
-                        "dur": max(2.2, min(4.8, float(mc["e"]) - float(mc["s"]) + 0.8)),
-                    })
+                    broll_items.append(_broll_payload(b, bp, float(mc["s"]), max(2.2, min(4.8, float(mc["e"]) - float(mc["s"]) + 0.8))))
             elif fallback_slots:
                 st_t = float(fallback_slots[min(b_slot_idx, len(fallback_slots) - 1)])
                 b_slot_idx += 1
-                broll_items.append({"path": bp, "layout": b.get("layout", "auto"), "start": st_t, "dur": 3.5})
+                broll_items.append(_broll_payload(b, bp, st_t, 3.5))
 
         # Resolve multiple floating Cards (supporting 1 or many at the same moment or spread automatically)
         raw_cards = list(opts.get("cards") or [])
         if not raw_cards and opts.get("card_id"):
             raw_cards = [{"id": opts["card_id"], "anim": opts.get("card_anim", "auto")}]
+
+        def _card_payload(c_obj, c_path, st_val, dur_val):
+            return {
+                "path": c_path,
+                "anim": c_obj.get("anim", "auto"),
+                "start": st_val,
+                "dur": dur_val,
+                "x": c_obj.get("x"),
+                "y": c_obj.get("y"),
+                "scale": c_obj.get("scale"),
+                "rotation": c_obj.get("rotation"),
+                "margin": c_obj.get("margin"),
+                "radius": c_obj.get("radius"),
+            }
+
         card_items = []
         c_slot_idx = 1 if len(fallback_slots) > 1 else 0
         for crd in raw_cards[:6]:
@@ -342,22 +369,24 @@ def _run_render_pipeline(job_id, opts):
             cp = (JOBS_DIR / "_cards" / cid) if cid else None
             if not cp or not cp.exists():
                 continue
+            exp_cs = crd.get("start")
+            exp_ce = crd.get("end")
+            if exp_cs not in (None, "") and float(exp_cs) >= 0.0:
+                cs_t = float(exp_cs)
+                ce_t = float(exp_ce) if (exp_ce not in (None, "") and float(exp_ce) > cs_t + 0.5) else (cs_t + 3.2)
+                card_items.append(_card_payload(crd, cp, cs_t, ce_t - cs_t))
+                continue
             marked_c = [
                 c for c in captions
                 if cid in (c.get("card_ids") or []) or (len(raw_cards) == 1 and c.get("card"))
             ]
             if marked_c:
                 for mc in marked_c:
-                    card_items.append({
-                        "path": cp,
-                        "anim": crd.get("anim", "auto"),
-                        "start": float(mc["s"]),
-                        "dur": max(2.0, min(4.5, float(mc["e"]) - float(mc["s"]) + 0.8)),
-                    })
+                    card_items.append(_card_payload(crd, cp, float(mc["s"]), max(2.0, min(4.5, float(mc["e"]) - float(mc["s"]) + 0.8))))
             elif fallback_slots:
                 st_t = float(fallback_slots[min(c_slot_idx, len(fallback_slots) - 1)])
                 c_slot_idx += 1
-                card_items.append({"path": cp, "anim": crd.get("anim", "auto"), "start": st_t, "dur": 3.2})
+                card_items.append(_card_payload(crd, cp, st_t, 3.2))
 
         # B-rolls & Cards already resolved above; skip duplicate motion resolution block
         _set_job(job_id, status="rendering", progress=78, message=f"Renderizando vídeo em alta qualidade ({out_w}x{out_h})…")
