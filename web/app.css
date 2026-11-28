@@ -84,6 +84,8 @@ body {
 .phone-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .empty-stage { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,0.28); font-size: 12px; pointer-events: none; }
 .pv-fullscreen-bg { position: absolute; inset: 0; z-index: 1; background: rgba(4, 6, 10, 0.72); pointer-events: none; }
+.pv-cine-dim { position: absolute; inset: 0; z-index: 3; background: #000; opacity: 0; pointer-events: none; }
+.live-overlay .is-cine-spot { position: relative; z-index: 8; color: #ffffff !important; font-weight: 800 !important; }
 .pv-layered-bg {
   position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); z-index: 2;
   font-family: 'CreatoExtraBold', sans-serif; font-weight: 800; font-size: 38px;
@@ -155,17 +157,41 @@ body {
 }
 .live-overlay.align-left { left: 10%; transform: translate(0, -50%) scale(calc(var(--cap-scale, 1) * var(--cap-fit, 1))); align-items: flex-start; text-align: left; }
 .live-overlay.align-right { left: auto; right: 10%; transform: translate(0, -50%) scale(calc(var(--cap-scale, 1) * var(--cap-fit, 1))); align-items: flex-end; text-align: right; }
-.live-overlay small { display: block; font-size: 12px; color: var(--text-col, #fff); line-height: 1.12; white-space: nowrap; }
+.live-overlay small { display: block; font-size: 12px; color: var(--text-col, #fff); line-height: 1.15; white-space: nowrap; }
 .live-overlay strong, .live-overlay em {
   display: inline-block; font-size: 19px; font-weight: 800; position: relative;
-  color: var(--accent, #ffffff); line-height: 1.06; white-space: nowrap;
+  color: var(--accent, #ffffff); line-height: 1.12; white-space: nowrap;
   text-shadow: 0 0 14px var(--accent, rgba(255,255,255,0.45)), 0 2px 8px rgba(0,0,0,0.55);
 }
+.live-overlay { word-spacing: var(--cap-ws, normal); }
 .live-overlay.is-one-line { flex-direction: row !important; flex-wrap: nowrap !important; justify-content: center; align-items: baseline; gap: 5px; max-width: none !important; width: max-content !important; }
-.live-overlay.is-two-line .row-wrap, .live-overlay .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 4px; white-space: nowrap; }
+.live-overlay.is-two-line .row-wrap, .live-overlay .row-wrap { display: flex; align-items: baseline; justify-content: center; gap: 5px; white-space: nowrap; }
 .live-overlay.is-bold small, .live-overlay.is-bold strong { font-weight: 800 !important; }
 
-/* 6 Caption Models Styling */
+/* All 17 Recovered + New Caption Models */
+.live-overlay.style-classic small { font-family: 'CreatoDisplay', sans-serif; font-weight: 400; }
+.live-overlay.style-classic strong { font-family: 'CreatoExtraBold', sans-serif; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-9 small { font-family: 'CreatoLight', sans-serif; font-weight: 300; }
+.live-overlay.style-clean-9 strong { font-family: 'CreatoExtraBold', sans-serif; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-10 { flex-direction: row !important; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 5px; width: 86%; }
+.live-overlay.style-clean-10 small, .live-overlay.style-clean-10 strong { display: inline; font-family: 'CreatoDisplay', sans-serif; font-size: 12px; }
+.live-overlay.style-clean-10 strong { font-size: 15px; color: var(--accent, #a375fa); }
+.live-overlay.style-clean-11 small { font-family: 'CreatoLight', sans-serif; }
+.live-overlay.style-clean-11 strong { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; font-weight: 400; font-size: 24px; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-15 small { font-family: 'CreatoDisplay', sans-serif; }
+.live-overlay.style-clean-15 strong { font-family: 'CreatoExtraBold', sans-serif; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-lavish small, .live-overlay.style-clean-lavish strong { font-family: 'Lavish', Georgia, serif; }
+.live-overlay.style-clean-lavish strong { font-size: 23px; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-clean small { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; }
+.live-overlay.style-clean strong { font-family: 'CreatoMedium', sans-serif; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-12 small { font-family: 'DMSans', sans-serif; }
+.live-overlay.style-clean-12 strong { font-family: 'DMSans', sans-serif; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-clean-13 small { font-family: 'AppleGaramond', Georgia, serif; font-style: italic; }
+.live-overlay.style-clean-13 strong { font-family: 'CreatoMedium', sans-serif; text-transform: uppercase; color: var(--accent, #ffffff); }
+.live-overlay.style-model-07 small { font-family: 'Geist', sans-serif; }
+.live-overlay.style-model-07 strong { font-family: 'AppleGaramondBold', Georgia, serif; font-style: italic; font-size: 24px; text-transform: uppercase; color: var(--accent, #ffd66c); }
+.live-overlay.style-clean-14 small { font-family: 'CreatoDisplay', sans-serif; }
+.live-overlay.style-clean-14 strong { font-family: 'AppleGaramondBold', Georgia, serif; font-style: italic; font-size: 24px; color: var(--accent, #ffdfc4); }
 .live-overlay.style-big-word small { font-family: 'CreatoDisplay', sans-serif; font-size: 11px; }
 .live-overlay.style-big-word strong { font-family: 'CreatoExtraBold', sans-serif; font-size: 27px; text-transform: uppercase; color: var(--accent, #facc15); }
 .live-overlay.style-editorial-serif small { font-family: 'CreatoDisplay', sans-serif; font-size: 11.5px; }
@@ -178,7 +204,25 @@ body {
 .live-overlay.style-clean-dynamic strong { font-family: 'DMSans', sans-serif; font-weight: 800; font-size: 17px; color: var(--accent, #22c55e); }
 .live-overlay.style-highlight-words small { font-family: 'CreatoDisplay', sans-serif; }
 .live-overlay.style-highlight-words strong { font-family: 'CreatoExtraBold', sans-serif; font-size: 20px; text-transform: uppercase; color: var(--accent, #facc15); }
-.live-overlay.has-fx-pill strong, .live-overlay.has-fx-bar strong { color: #fff !important; text-shadow: 0 2px 6px rgba(0,0,0,0.45) !important; z-index: 2; padding: 3px 11px; }
+.live-overlay.has-fx-pill strong, .live-overlay.has-fx-bar strong, .live-overlay.has-fx-hand-mark strong { color: #fff !important; text-shadow: 0 2px 6px rgba(0,0,0,0.45) !important; z-index: 2; padding: 3px 11px; }
+.hl-bar-bg.is-hand { border-radius: 4px 10px 6px 9px; transform: rotate(-1.5deg); opacity: 0.88; }
+.hl-svg-underline { position: absolute; height: 9px; pointer-events: none; overflow: visible; }
+.hl-svg-underline path { fill: none; stroke-linecap: round; stroke-dasharray: 160; stroke-dashoffset: 160; animation: hlCircleDraw .38s ease forwards; }
+.cat-tabs { display: grid; gap: 6px; margin-bottom: 10px; }
+.cat-tabs-3 { grid-template-columns: repeat(3, 1fr); }
+.cat-tabs-4 { grid-template-columns: repeat(4, 1fr); }
+.cat-tab { padding: 8px 4px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: #08120d; color: var(--muted); font-size: 10.5px; font-weight: 700; cursor: pointer; text-align: center; }
+.cat-tab.is-active { background: rgba(34,197,94,0.16); color: var(--green-bright); border-color: var(--green-bright); }
+.ms-ul2 { border-bottom: 3px double #4ade80; padding-bottom: 1px; color: #fff !important; }
+.ms-strike-d { text-decoration: line-through; text-decoration-color: #ef4444; color: #fff !important; }
+.ms-top { border-top: 2.5px solid #38bdf8; padding-top: 1px; color: #fff !important; }
+.ms-circle-open { border: 1.5px dashed #facc15; border-radius: 50%; padding: 1px 7px; color: #fde047 !important; }
+.ms-ring { border: 2px double #38bdf8; border-radius: 50%; padding: 1px 7px; color: #7dd3fc !important; }
+.ms-hand-c { border: 1.5px solid #f472b6; border-radius: 45% 55% 48% 52%; padding: 1px 7px; color: #f9a8d4 !important; }
+.ms-hand-u { border-bottom: 2px wavy #facc15; padding-bottom: 1px; color: #fff !important; }
+.ms-hand-m { background: rgba(244,114,182,0.85); color: #fff !important; padding: 1px 7px; border-radius: 4px; }
+.cap-chip-cine { border: 1px solid rgba(250,204,21,0.35); background: rgba(250,204,21,0.08); color: #fde047; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 7px; cursor: pointer; }
+.cap-chip-cine.is-on { background: rgba(250,204,21,0.32); border-color: #facc15; color: #fff; }
 .live-overlay.has-custom-font strong { font-family: var(--main-font) !important; font-style: var(--main-style, normal) !important; font-weight: 800 !important; }
 .live-overlay.has-custom-small-font small { font-family: var(--small-font) !important; font-style: var(--small-style, normal) !important; font-weight: var(--small-weight, 400) !important; }
 

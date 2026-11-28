@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Eu Edito">
-  <title>Eu Edito · Biblioteca Visual Profissional</title>
+  <title>Eu Edito · Biblioteca Visual Completa</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/assets/icon.svg">
   <link rel="apple-touch-icon" href="/assets/icon.svg">
@@ -20,7 +20,7 @@
         <img src="/assets/icon.svg" alt="Eu Edito" width="36" height="36">
         <div>
           <strong>EU EDITO</strong>
-          <small>ESTÚDIO VISUAL · PRÉVIA AO VIVO</small>
+          <small>BIBLIOTECA VISUAL · PRÉVIA AO VIVO</small>
         </div>
       </div>
       <button type="button" id="installBtn" class="install-pill" hidden>📲 Instalar</button>
@@ -34,15 +34,15 @@
     <nav id="wizardStepper" class="wizard-stepper" aria-label="Etapas de edição">
       <button type="button" class="ws-pill is-active" data-step="1"><span>1</span>Vídeo</button>
       <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Legendas</button>
-      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Estilo</button>
+      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Tipografia</button>
       <button type="button" class="ws-pill" data-step="4" disabled><span>4</span>Gráficos</button>
-      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Movimento</button>
+      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Ênfase &amp; Mov.</button>
       <button type="button" class="ws-pill" data-step="6" disabled><span>6</span>Cortes</button>
-      <button type="button" class="ws-pill" data-step="7" disabled><span>7</span>Composições</button>
+      <button type="button" class="ws-pill" data-step="7" disabled><span>7</span>B-rolls &amp; Cards</button>
     </nav>
 
     <main class="feed">
-      <!-- PRÉVIA SINCRONIZADA (oculta apenas na Etapa 1) -->
+      <!-- PRÉVIA SINCRONIZADA (oculta na Etapa 1) -->
       <section id="previewCard" class="card preview-card" hidden>
         <div class="pv-top-bar">
           <span class="pv-title">Prévia em Tempo Real</span>
@@ -52,20 +52,18 @@
           <video id="previewVideo" playsinline webkit-playsinline preload="auto" controls hidden></video>
           <div id="emptyStage" class="empty-stage"><span>Prévia do vídeo</span></div>
           <div id="pvFullscreenBg" class="pv-fullscreen-bg" hidden></div>
+          <div id="pvCineDim" class="pv-cine-dim" hidden></div>
 
-          <!-- Split Composition Stage (divisão livre sem Antes/Depois) -->
           <div id="pvSplitStage" class="pv-split-stage" data-orient="vertical" hidden>
             <div class="pv-split-pane pv-split-a"></div>
             <div class="pv-split-pane pv-split-b"></div>
           </div>
 
-          <!-- B-roll / Floating Media Layer -->
           <div id="pvBrollLayer" class="pv-broll-layer" hidden>
             <img id="pvBrollImg" alt="" hidden>
             <video id="pvBrollVid" playsinline webkit-playsinline muted loop hidden></video>
           </div>
 
-          <!-- Editorial Cards / Stacked Cards / Storytelling Stage -->
           <div id="pvCardStage" class="pv-card-stage" hidden>
             <img id="pvCardImg" alt="Card visual">
           </div>
@@ -78,24 +76,24 @@
 
           <button type="button" id="safeZoneBtn" class="sz-btn">📱 Área segura</button>
           <span id="resTag" class="res-tag">1080p HD</span>
-          <div id="previewQuickCtrl" class="pv-quick-ctrl" title="Arraste para altura ou pinça / A- A+">
+          <div id="previewQuickCtrl" class="pv-quick-ctrl" title="Arraste para altura ou A-/A+">
             <button type="button" id="pvSizeDown" aria-label="Diminuir">A-</button>
             <span id="pvLiveBadge">↕ Pinça</span>
             <button type="button" id="pvSizeUp" aria-label="Aumentar">A+</button>
           </div>
 
           <div id="pvLayeredBg" class="pv-layered-bg" hidden>COMPARAM</div>
-          <div id="liveOverlay" class="live-overlay style-highlight-words">
-            <small>só que eu</small><strong>FARIA DIFERENTE</strong><small>agora mesmo</small>
+          <div id="liveOverlay" class="live-overlay style-classic">
+            <small>só que eu</small><strong>FARIA DIFERENTE</strong>
           </div>
         </div>
       </section>
 
-      <!-- ETAPA 1: Selecionar Vídeo -->
+      <!-- ETAPA 1: Vídeo -->
       <section class="card wizard-step" data-step="1">
         <div class="hero-card" style="padding: 4px 0 14px">
-          <h1>Edição visual profissional, <em>pronta para postar</em></h1>
-          <p>Escolha seu vídeo para aplicar legendas editoriais, gráficos desenhados e composições ao vivo.</p>
+          <h1>Edição visual completa, <em>pronta para postar</em></h1>
+          <p>Todos os modelos tradicionais recuperados + novos estilos dinâmicos, gráficos desenhados e destaque cinematográfico.</p>
         </div>
         <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeo</h2></div>
         <label class="upload-box" id="uploadBox">
@@ -109,75 +107,118 @@
         </div>
       </section>
 
-      <!-- ETAPA 2: Biblioteca de Legendas (6 modelos distintos das referências) -->
+      <!-- ETAPA 2: Biblioteca de Legendas Unificada (17 modelos em 3 categorias claras) -->
       <section class="card wizard-step" data-step="2" hidden>
-        <div class="step-head"><span class="badge">2</span><h2>Biblioteca · Legendas</h2></div>
-        <p class="review-hint">Modelos com identidades visuais próprias inspiradas no resultado final profissional.</p>
+        <div class="step-head"><span class="badge">2</span><h2>Biblioteca · Legendas (17 modelos)</h2></div>
+        <div class="cat-tabs cat-tabs-3" id="catTabs">
+          <button type="button" class="cat-tab is-active" data-cat="traditional">🏛️ Tradicionais (7)</button>
+          <button type="button" class="cat-tab" data-cat="dynamic">⚡ Dinâmicas (7)</button>
+          <button type="button" class="cat-tab" data-cat="highlight">✨ Destaques (3)</button>
+        </div>
+
         <div class="style-grid" id="styleGrid">
-          <button type="button" class="style-pill" data-style="big-word">
-            <span class="mini-sample ms-big"><small>o segredo</small><b style="font-size:15px;color:#facc15">TUDO</b></span>
-            <strong>Big Word</strong>
-            <small class="pill-sub">Palavra gigante + contraste</small>
+          <!-- Tradicionais & Profissionais (Originais recuperados) -->
+          <button type="button" class="style-pill is-active" data-cat="traditional" data-style="classic">
+            <span class="mini-sample"><small>só que eu</small> <b>FARIA DIFERENTE</b></span>
+            <strong>Impacto Bold</strong><small class="pill-sub">Clássico Original</small>
           </button>
-          <button type="button" class="style-pill" data-style="editorial-serif">
-            <span class="mini-sample ms-serif"><small>o vídeo</small><b>PERFEITO</b></span>
-            <strong>Editorial Serif</strong>
-            <small class="pill-sub">Serifada + tela cheia</small>
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean-9">
+            <span class="mini-sample"><small>leitura limpa e</small> <b>fluida</b></span>
+            <strong>Minimalista Suave</strong><small class="pill-sub">Creato Light · Original</small>
           </button>
-          <button type="button" class="style-pill" data-style="layered-type">
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean-10">
+            <span class="mini-sample"><small>se eu fosse</small> <b style="color:#a375fa">começar</b></span>
+            <strong>Apoio &amp; Destaque Inline</strong><small class="pill-sub">Linha contínua · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean-11">
+            <span class="mini-sample ms-serif"><small>elegância e</small> <i>sofisticação</i></span>
+            <strong>Editorial Garamond</strong><small class="pill-sub">Corte seco · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean-15">
+            <span class="mini-sample"><small>uma forma de</small> <b>imaginar</b></span>
+            <strong>Entrada e Pausa</strong><small class="pill-sub">Ritmo limpo · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean-lavish">
+            <span class="mini-sample ms-lavish"><small>Essa</small> <b>CAMPANHA</b></span>
+            <strong>Lavish Elegance</strong><small class="pill-sub">Display serif · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="traditional" data-style="clean">
+            <span class="mini-sample ms-serif"><i>composição</i> <b>seguidores</b></span>
+            <strong>Composições Brancas</strong><small class="pill-sub">Itálico apoio · Original</small>
+          </button>
+
+          <!-- Legendas Dinâmicas (Novos + Dinâmicos recuperados) -->
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="big-word" hidden>
+            <span class="mini-sample"><small>muda</small> <b style="font-size:14px;color:#facc15">TUDO</b></span>
+            <strong>Big Word</strong><small class="pill-sub">Contraste gigante</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="editorial-serif" hidden>
+            <span class="mini-sample ms-serif"><small>o vídeo</small> <b>PERFEITO</b></span>
+            <strong>Editorial Serif</strong><small class="pill-sub">Acima do rosto</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="layered-type" hidden>
             <span class="mini-sample ms-layer"><em class="ms-echo">COMPARAM</em><b style="position:relative;z-index:2">preço</b></span>
-            <strong>Layered Typography</strong>
-            <small class="pill-sub">Camadas + profundidade</small>
+            <strong>Layered Typography</strong><small class="pill-sub">Camadas de profundidade</small>
           </button>
-          <button type="button" class="style-pill" data-style="pink-highlight">
-            <span class="mini-sample ms-pink"><small>mas a</small><b class="ms-pink-pill">verdade</b></span>
-            <strong>Pink Highlight</strong>
-            <small class="pill-sub">Branco + destaque rosa</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="pink-highlight" hidden>
+            <span class="mini-sample"><small>mas a</small> <b class="ms-bar">verdade</b></span>
+            <strong>Pink Highlight</strong><small class="pill-sub">Branco + destaque rosa</small>
           </button>
-          <button type="button" class="style-pill" data-style="clean-dynamic">
-            <span class="mini-sample ms-clean"><small>clara e</small><b style="color:#4ade80">direta</b></span>
-            <strong>Clean Dynamic</strong>
-            <small class="pill-sub">Educativo &amp; empresarial</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-dynamic" hidden>
+            <span class="mini-sample"><small>clara e</small> <b style="color:#4ade80">direta</b></span>
+            <strong>Clean Dynamic</strong><small class="pill-sub">Educativo &amp; pro</small>
           </button>
-          <button type="button" class="style-pill is-active" data-style="highlight-words">
-            <span class="mini-sample ms-hi"><small>eu</small><b style="color:#facc15">FARIA DIFERENTE</b></span>
-            <strong>Highlight Words</strong>
-            <small class="pill-sub">Hierarquia + negrito real</small>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-12" hidden>
+            <span class="mini-sample"><small>ritmo</small> <b>EM MOVIMENTO</b></span>
+            <strong>Keyframe Motion DM</strong><small class="pill-sub">DM Sans pop · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="dynamic" data-style="clean-13" hidden>
+            <span class="mini-sample ms-serif"><i>deslize</i> <b>CURIOSIDADE</b></span>
+            <strong>Entrada Lateral Serif</strong><small class="pill-sub">Deslize lateral · Original</small>
+          </button>
+
+          <!-- Legendas com Destaque de Palavras -->
+          <button type="button" class="style-pill" data-cat="highlight" data-style="highlight-words" hidden>
+            <span class="mini-sample"><small>eu</small> <b style="color:#facc15">FARIA DIFERENTE</b></span>
+            <strong>Highlight Words</strong><small class="pill-sub">Cor + escala + negrito</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="highlight" data-style="model-07" hidden>
+            <span class="mini-sample ms-serif"><small>disputar a</small> <b style="color:#ffd66c">ATENÇÃO</b></span>
+            <strong>Foco Neon Serif</strong><small class="pill-sub">Garamond neon · Original</small>
+          </button>
+          <button type="button" class="style-pill" data-cat="highlight" data-style="clean-14" hidden>
+            <span class="mini-sample ms-serif"><small>Você</small> <b style="color:#ffdfc4">comemorou</b></span>
+            <strong>Editorial Destaque</strong><small class="pill-sub">Pêssego suave · Original</small>
           </button>
         </div>
+
         <div class="step-nav">
           <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
-          <button type="button" class="primary-btn" data-next="3">Próximo: Tipografia &amp; Cores →</button>
+          <button type="button" class="primary-btn" data-next="3">Próximo: Tipografia &amp; Espaço →</button>
         </div>
       </section>
 
-      <!-- ETAPA 3: Personalização Tipográfica Completa -->
+      <!-- ETAPA 3: Tipografia, Alinhamento & Espaçamento Proporcional -->
       <section class="card wizard-step" data-step="3" hidden>
-        <div class="step-head"><span class="badge">3</span><h2>Personalização Tipográfica</h2></div>
+        <div class="step-head"><span class="badge">3</span><h2>Tipografia, Cores &amp; Espaçamento</h2></div>
         <div class="row-2">
           <div class="field">
             <span class="color-head"><label for="customColorToggle">Cor destaque</label><input type="checkbox" id="customColorToggle" checked></span>
-            <input type="color" id="accentColor" value="#FACC15" aria-label="Cor de destaque">
+            <input type="color" id="accentColor" value="#22C55E" aria-label="Cor de destaque">
           </div>
           <div class="field">
             <label for="textColor">Cor texto base</label>
-            <input type="color" id="textColor" value="#FFFFFF" aria-label="Cor do texto base">
+            <input type="color" id="textColor" value="#FFFFFF" aria-label="Cor texto base">
           </div>
         </div>
 
         <div class="row-2" style="margin-top:9px">
-          <label class="field">
-            <span>Altura (<b id="posYVal">74%</b>)</span>
-            <input type="range" id="posY" min="16" max="86" value="74">
-          </label>
-          <label class="field">
-            <span>Tamanho (<b id="capScaleVal">100%</b>)</span>
-            <input type="range" id="capScale" min="65" max="135" step="5" value="100">
-          </label>
+          <label class="field"><span>Altura (<b id="posYVal">74%</b>)</span><input type="range" id="posY" min="14" max="86" value="74"></label>
+          <label class="field"><span>Tamanho (<b id="capScaleVal">100%</b>)</span><input type="range" id="capScale" min="65" max="135" step="5" value="100"></label>
         </div>
 
         <div class="res-section">
-          <span class="res-label">Alinhamento horizontal</span>
+          <span class="res-label">Alinhamento do bloco</span>
           <div class="res-grid" id="alignGrid">
             <button type="button" class="res-pill" data-align="left"><strong>Esquerda</strong></button>
             <button type="button" class="res-pill is-active" data-align="center"><strong>Centro</strong></button>
@@ -216,44 +257,20 @@
         </div>
 
         <label class="toggle-row" style="margin-top:9px">
-          <div>
-            <strong>Negrito real em toda a legenda</strong>
-            <small>Destaques já usam peso Bold real da fonte</small>
-          </div>
+          <div><strong>Negrito real em toda a legenda</strong><small>Usa o peso Bold real da fonte escolhida</small></div>
           <span class="switch"><input type="checkbox" id="boldToggle"><span class="slider"></span></span>
         </label>
 
-        <details class="adv-box">
-          <summary>Ajustes finos (Espaçamento, Contorno, Sombra &amp; Tela Cheia)</summary>
-          <div class="row-2" style="margin-top:8px">
-            <label class="field">
-              <span>Espaço letras (<b id="letterSpVal">0</b>)</span>
-              <input type="range" id="letterSpacing" min="-2" max="14" step="1" value="0">
-            </label>
-            <label class="field">
-              <span>Entrelinha (<b id="lineSpVal">1.0x</b>)</span>
-              <input type="range" id="lineSpacing" min="0.75" max="1.45" step="0.05" value="1.0">
-            </label>
+        <div class="props-panel" style="margin-top:8px">
+          <div class="row-2">
+            <label class="field"><span>Entrelinha (<b id="lineSpVal">1.0x</b>)</span><input type="range" id="lineSpacing" min="0.75" max="1.45" step="0.05" value="1.0"></label>
+            <label class="field"><span>Espaço palavras (<b id="wordSpVal">1.0x</b>)</span><input type="range" id="wordSpacing" min="0.7" max="1.8" step="0.1" value="1.0"></label>
           </div>
           <div class="row-2" style="margin-top:8px">
-            <label class="field">
-              <span>Contorno (<b id="outlineValTxt">0.8</b>)</span>
-              <input type="range" id="outlineVal" min="0" max="4" step="0.2" value="0.8">
-            </label>
-            <label class="field">
-              <span>Sombra (<b id="shadowValTxt">2.0</b>)</span>
-              <input type="range" id="shadowVal" min="0" max="6" step="0.5" value="2.0">
-            </label>
+            <label class="field"><span>Espaço letras (<b id="letterSpVal">0</b>)</span><input type="range" id="letterSpacing" min="-2" max="14" step="1" value="0"></label>
+            <label class="field"><span>Contorno / Sombra</span><div class="row-2"><input type="range" id="outlineVal" min="0" max="4" step="0.2" value="0.8"><input type="range" id="shadowVal" min="0" max="6" step="0.5" value="2.0"></div></label>
           </div>
-          <label class="field" style="margin-top:8px">
-            <span>Fundo Editorial em Tela Cheia</span>
-            <select id="fullscreenMode">
-              <option value="auto">Automático (frases curtas de impacto)</option>
-              <option value="on">Sempre com fundo escuro editorial</option>
-              <option value="off">Desativado</option>
-            </select>
-          </label>
-        </details>
+        </div>
 
         <div class="step-nav">
           <button type="button" class="secondary-btn" data-prev="2">← Legendas</button>
@@ -261,100 +278,77 @@
         </div>
       </section>
 
-      <!-- ETAPA 4: Biblioteca · Efeitos Gráficos Editáveis -->
+      <!-- ETAPA 4: Efeitos Gráficos Organizados em 4 Categorias -->
       <section class="card wizard-step" data-step="4" hidden>
-        <div class="step-head"><span class="badge">4</span><h2>Biblioteca · Efeitos Gráficos</h2></div>
+        <div class="step-head"><span class="badge">4</span><h2>Efeitos Gráficos (4 Categorias)</h2></div>
+        <div class="cat-tabs cat-tabs-4" id="gfxCatTabs">
+          <button type="button" class="cat-tab is-active" data-gcat="lines">➖ Linhas</button>
+          <button type="button" class="cat-tab" data-gcat="circles">⭕ Circulares</button>
+          <button type="button" class="cat-tab" data-gcat="handdrawn">✏️ Desenhados</button>
+          <button type="button" class="cat-tab" data-gcat="arrows">➡️ Setas</button>
+        </div>
+
         <div class="style-grid" id="highlightFxGrid">
-          <button type="button" class="style-pill is-active" data-fx="auto">
-            <span class="mini-sample">Auto do <b>modelo</b></span>
-            <strong>Automático</strong>
-            <small class="pill-sub">Segue o estilo escolhido</small>
-          </button>
-          <button type="button" class="style-pill" data-fx="underline">
-            <span class="mini-sample">palavra <b class="ms-ul">sublinhada</b></span>
-            <strong>Animated Underline</strong>
-            <small class="pill-sub">Linha progressiva abaixo</small>
-          </button>
-          <button type="button" class="style-pill" data-fx="circle">
-            <span class="mini-sample"><b class="ms-circle">Círculo</b> traçado</span>
-            <strong>Circle Highlight</strong>
-            <small class="pill-sub">Completo ou aberto</small>
-          </button>
-          <button type="button" class="style-pill" data-fx="strike">
-            <span class="mini-sample"><b class="ms-strike">Riscado</b> no texto</span>
-            <strong>Strike Through</strong>
-            <small class="pill-sub">Horizontal ou diagonal</small>
-          </button>
-          <button type="button" class="style-pill" data-fx="arrow">
-            <span class="mini-sample"><span style="color:#f472b6">↪</span> <b>Seta desenhada</b></span>
-            <strong>Drawn Arrow</strong>
-            <small class="pill-sub">Curva, reta ou angular</small>
-          </button>
-          <button type="button" class="style-pill" data-fx="pill">
-            <span class="mini-sample"><b class="ms-bar">Faixa</b> destaque</span>
-            <strong>Highlight Bar</strong>
-            <small class="pill-sub">Fundo arredondado</small>
-          </button>
+          <!-- Categoria A: Linhas e traçados -->
+          <button type="button" class="style-pill is-active" data-gcat="lines" data-fx="auto"><span class="mini-sample">Auto do <b>modelo</b></span><strong>Automático</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="none"><span class="mini-sample">Sem traço</span><strong>Nenhum</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline"><span class="mini-sample"><b class="ms-ul">Sublinhado</b></span><strong>Animated Underline</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline-double"><span class="mini-sample"><b class="ms-ul2">Duplo</b></span><strong>Sublinhado Duplo</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike"><span class="mini-sample"><b class="ms-strike">Riscado</b></span><strong>Strike Horizontal</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike-diag"><span class="mini-sample"><b class="ms-strike-d">Diagonal</b></span><strong>Strike Diagonal</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="top-bar-line"><span class="mini-sample"><b class="ms-top">Linha Topo</b></span><strong>Linha Superior</strong></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="pill"><span class="mini-sample"><b class="ms-bar">Faixa</b></span><strong>Faixa Highlight</strong></button>
+
+          <!-- Categoria B: Circulares -->
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle" hidden><span class="mini-sample"><b class="ms-circle">360°</b></span><strong>Circle Highlight</strong></button>
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-open" hidden><span class="mini-sample"><b class="ms-circle-open">Aberto</b></span><strong>Círculo Incompleto</strong></button>
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-ring" hidden><span class="mini-sample"><b class="ms-ring">Anel</b></span><strong>Anel Duplo</strong></button>
+
+          <!-- Categoria C: Desenhados à mão -->
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-circle" hidden><span class="mini-sample"><b class="ms-hand-c">À mão</b></span><strong>Círculo à Mão</strong></button>
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-underline" hidden><span class="mini-sample"><b class="ms-hand-u">Caneta</b></span><strong>Sublinhado Manual</strong></button>
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-mark" hidden><span class="mini-sample"><b class="ms-hand-m">Grifo</b></span><strong>Grifo Pincel</strong></button>
+
+          <!-- Categoria D: Setas e direcionadores -->
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-curved" hidden><span class="mini-sample"><span style="color:#f472b6">↪</span> <b>Curva</b></span><strong>Seta Curva</strong></button>
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-straight" hidden><span class="mini-sample"><span style="color:#38bdf8">→</span> <b>Reta</b></span><strong>Seta Reta</strong></button>
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-angled" hidden><span class="mini-sample"><span style="color:#facc15">↳</span> <b>Angular</b></span><strong>Seta Angular</strong></button>
         </div>
 
         <div id="gfxPropsBox" class="props-panel">
           <div class="row-2">
-            <label class="field"><span>Cor do efeito</span><input type="color" id="gfxColor" value="#FACC15"></label>
+            <label class="field"><span>Cor do traço</span><input type="color" id="gfxColor" value="#FACC15"></label>
             <label class="field"><span>Espessura (<b id="gfxThickVal">4.5</b>)</span><input type="range" id="gfxThickness" min="2" max="10" step="0.5" value="4.5"></label>
           </div>
           <div class="row-2" style="margin-top:8px">
-            <label class="field"><span>Tamanho/Comp. (<b id="gfxLenVal">100%</b>)</span><input type="range" id="gfxLength" min="60" max="135" step="5" value="100"></label>
-            <label class="field"><span>Duração (<b id="gfxDurVal">0.38s</b>)</span><input type="range" id="gfxDur" min="0.18" max="0.85" step="0.04" value="0.38"></label>
+            <label class="field"><span>Comprimento/Tam. (<b id="gfxLenVal">100%</b>)</span><input type="range" id="gfxLength" min="60" max="135" step="5" value="100"></label>
+            <label class="field"><span>Velocidade desenho (<b id="gfxDurVal">0.38s</b>)</span><input type="range" id="gfxDur" min="0.18" max="0.85" step="0.04" value="0.38"></label>
           </div>
           <div class="row-2" style="margin-top:8px">
-            <label class="field" id="gfxDirWrap">
-              <span>Direção / Lado</span>
+            <label class="field"><span>Posição vertical (<b id="gfxPosYVal">0px</b>)</span><input type="range" id="gfxPosY" min="-20" max="20" step="2" value="0"></label>
+            <label class="field"><span>Direção</span>
               <select id="gfxDirection">
-                <option value="ltr">Esquerda → Direita</option>
-                <option value="rtl">Direita → Esquerda</option>
-                <option value="left">Seta da Esquerda</option>
-                <option value="right">Seta da Direita</option>
-                <option value="up">Seta de Cima</option>
-                <option value="down">Seta de Baixo</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Variação / Forma</span>
-              <select id="gfxVariant">
-                <option value="complete">Círculo Completo / Reta</option>
-                <option value="open">Círculo Incompleto (Aberto)</option>
-                <option value="horizontal">Strike Horizontal</option>
-                <option value="diagonal">Strike Diagonal</option>
-                <option value="curved">Seta Curva</option>
-                <option value="straight">Seta Reta</option>
-                <option value="angled">Seta Angular</option>
+                <option value="ltr">Esq → Dir</option><option value="rtl">Dir → Esq</option>
+                <option value="left">Seta Esquerda</option><option value="right">Seta Direita</option>
+                <option value="up">Seta Cima</option><option value="down">Seta Baixo</option>
               </select>
             </label>
           </div>
           <div class="row-2" style="margin-top:8px">
-            <label class="field">
-              <span>Saída do traço</span>
-              <select id="gfxAnimOut">
-                <option value="fade-out">Fade Out suave</option>
-                <option value="none">Corte direto</option>
-              </select>
-            </label>
-            <div class="field" style="justify-content:center">
-              <button type="button" id="gfxReplayBtn" class="media-preview-btn" style="padding:10px">▶ Rever traço</button>
-            </div>
+            <label class="field"><span>Saída</span><select id="gfxAnimOut"><option value="fade-out">Fade Out suave</option><option value="none">Corte direto</option></select></label>
+            <div class="field" style="justify-content:center"><button type="button" id="gfxReplayBtn" class="media-preview-btn" style="padding:10px">▶ Rever traço</button></div>
           </div>
         </div>
 
         <div class="step-nav">
-          <button type="button" class="secondary-btn" data-prev="3">← Estilo</button>
-          <button type="button" class="primary-btn" data-next="5">Próximo: Linhas &amp; Movimento →</button>
+          <button type="button" class="secondary-btn" data-prev="3">← Tipografia</button>
+          <button type="button" class="primary-btn" data-next="5">Próximo: Linhas &amp; Ênfase →</button>
         </div>
       </section>
 
-      <!-- ETAPA 5: Quebra Inteligente + Animações Reutilizáveis -->
+      <!-- ETAPA 5: Quebra de Linhas, Movimento & Destaque Cinematográfico Independente -->
       <section class="card wizard-step" data-step="5" hidden>
-        <div class="step-head"><span class="badge">5</span><h2>Quebra Inteligente &amp; Animações</h2></div>
-        <p class="review-hint">A quebra automática considera contexto, ritmo da fala e pausas para nunca isolar palavras soltas.</p>
+        <div class="step-head"><span class="badge">5</span><h2>Linhas, Animação &amp; Holofote</h2></div>
         <div class="res-grid" id="linesGrid">
           <button type="button" class="res-pill" data-lines="1"><strong>1 linha</strong><small>Compacta</small></button>
           <button type="button" class="res-pill" data-lines="2"><strong>2 linhas</strong><small>Equilibrada</small></button>
@@ -363,34 +357,22 @@
 
         <div class="props-panel" style="margin-top:10px">
           <div class="row-2">
-            <label class="field">
-              <span>Animação de Entrada</span>
+            <label class="field"><span>Entrada</span>
               <select id="animInSelect">
                 <option value="">Padrão do modelo</option>
-                <option value="fade-in">Fade In</option>
-                <option value="scale-in">Scale In</option>
-                <option value="slide-up">Slide Up</option>
-                <option value="slide-down">Slide Down</option>
-                <option value="slide-left">Slide Left</option>
-                <option value="slide-right">Slide Right</option>
-                <option value="pop">Pop</option>
-                <option value="reveal">Reveal</option>
-                <option value="draw">Draw</option>
-                <option value="stagger">Stagger</option>
-                <option value="none">Corte direto</option>
+                <option value="fade-in">Fade In</option><option value="scale-in">Scale In</option>
+                <option value="slide-up">Slide Up</option><option value="slide-down">Slide Down</option>
+                <option value="slide-left">Slide Left</option><option value="slide-right">Slide Right</option>
+                <option value="pop">Pop</option><option value="reveal">Reveal</option>
+                <option value="draw">Draw</option><option value="stagger">Stagger</option><option value="none">Corte direto</option>
               </select>
             </label>
-            <label class="field">
-              <span>Animação de Saída</span>
+            <label class="field"><span>Saída</span>
               <select id="animOutSelect">
-                <option value="fade-out">Fade Out</option>
-                <option value="scale-in">Scale Out</option>
-                <option value="slide-up">Slide Up</option>
-                <option value="slide-down">Slide Down</option>
-                <option value="slide-left">Slide Left</option>
-                <option value="slide-right">Slide Right</option>
-                <option value="reveal">Reveal Out</option>
-                <option value="none">Corte direto</option>
+                <option value="fade-out">Fade Out</option><option value="scale-in">Scale Out</option>
+                <option value="slide-up">Slide Up</option><option value="slide-down">Slide Down</option>
+                <option value="slide-left">Slide Left</option><option value="slide-right">Slide Right</option>
+                <option value="reveal">Reveal Out</option><option value="none">Corte direto</option>
               </select>
             </label>
           </div>
@@ -398,16 +380,46 @@
             <label class="field"><span>Duração (<b id="animDurVal">0.28s</b>)</span><input type="range" id="animDur" min="0.14" max="0.75" step="0.02" value="0.28"></label>
             <label class="field"><span>Intensidade (<b id="animIntVal">1.0x</b>)</span><input type="range" id="animIntensity" min="0.4" max="1.5" step="0.1" value="1.0"></label>
           </div>
-          <button type="button" id="animReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px">▶ Visualizar Entrada + Saída na Prévia</button>
+          <button type="button" id="animReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px">▶ Visualizar Entrada + Saída</button>
+        </div>
+
+        <!-- RECURSO INDEPENDENTE: Destaque Cinematográfico de Palavras -->
+        <div id="cineBox" class="props-panel" style="margin-top:10px;border-color:rgba(250,204,21,0.35)">
+          <div class="step-head" style="margin-bottom:6px"><span class="badge" style="background:linear-gradient(135deg,#fde047,#eab308)">🎬</span><h2 style="font-size:13.5px">Destaque Cinematográfico (Holofote)</h2></div>
+          <p class="review-hint" style="margin-bottom:8px">Escurece o vídeo suavemente só no instante da palavra-chave e devolve a iluminação original logo após.</p>
+          <label class="field">
+            <span>Aplicação do holofote</span>
+            <select id="cineModeSelect">
+              <option value="off">Desativado</option>
+              <option value="auto">Automático moderado (momentos-chave)</option>
+              <option value="manual">Manual (escolha palavras na Revisão)</option>
+            </select>
+          </label>
+          <div class="row-2" style="margin-top:8px">
+            <label class="field"><span>Escurecimento fundo (<b id="cineIntVal">45%</b>)</span><input type="range" id="cineIntensity" min="20" max="75" step="5" value="45"></label>
+            <label class="field"><span>Transição (<b id="cineTransVal">0.26s</b>)</span><input type="range" id="cineTransDur" min="0.15" max="0.60" step="0.03" value="0.26"></label>
+          </div>
+          <div class="row-2" style="margin-top:8px">
+            <label class="field"><span>Sustentação extra (<b id="cineHoldVal">0.12s</b>)</span><input type="range" id="cineHoldPad" min="0" max="0.50" step="0.05" value="0.12"></label>
+            <label class="field"><span>Escala palavra (<b id="cineScaleVal">116%</b>)</span><input type="range" id="cineScale" min="100" max="145" step="2" value="116"></label>
+          </div>
+          <div class="row-2" style="margin-top:8px">
+            <label class="field"><span>Cor do destaque</span><input type="color" id="cineColor" value="#FFFFFF"></label>
+            <div class="field" style="gap:4px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="cineBoldToggle" checked> Negrito</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="cineGlowToggle" checked> Brilho foco</label>
+            </div>
+          </div>
+          <button type="button" id="cineReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px;border-color:rgba(250,204,21,0.45);color:#fde047">🎬 Simular Destaque Cinematográfico na Prévia</button>
         </div>
 
         <div class="step-nav">
           <button type="button" class="secondary-btn" data-prev="4">← Gráficos</button>
-          <button type="button" class="primary-btn" data-next="6">Próximo: Cortes &amp; Zoom →</button>
+          <button type="button" class="primary-btn" data-next="6">Próximo: Cortes &amp; Áudio →</button>
         </div>
       </section>
 
-      <!-- ETAPA 6: Decupagem, Zoom, Áudio e Resolução (100% preservado, sem SFX / Motion) -->
+      <!-- ETAPA 6: Cortes, Zoom & Áudio (Preservado) -->
       <section class="card wizard-step" data-step="6" hidden>
         <div class="step-head"><span class="badge">6</span><h2>Cortes, Zoom &amp; Áudio</h2></div>
         <label class="toggle-row">
@@ -426,11 +438,11 @@
           <span class="switch"><input type="checkbox" id="zoomToggle" checked><span class="slider"></span></span>
         </label>
         <label class="toggle-row">
-          <div><strong>🎙️ Limpeza suave de áudio (opcional)</strong><small>Ative apenas se o áudio tiver ruído de fundo</small></div>
+          <div><strong>🎙️ Limpeza suave de áudio (opcional)</strong><small>Ative apenas se o áudio tiver ruído</small></div>
           <span class="switch"><input type="checkbox" id="studioAudioToggle"><span class="slider"></span></span>
         </label>
         <label class="toggle-row">
-          <div><strong>✨ Filtro 4K + Bokeh (60–65%)</strong><small>Nitidez, contraste vivo e desfoque nas bordas</small></div>
+          <div><strong>✨ Filtro 4K + Bokeh (60–65%)</strong><small>Nitidez, contraste vivo e desfoque suave</small></div>
           <span class="switch"><input type="checkbox" id="colorGradeToggle"><span class="slider"></span></span>
         </label>
         <div class="res-section">
@@ -442,70 +454,68 @@
           </div>
         </div>
         <div class="step-nav">
-          <button type="button" class="secondary-btn" data-prev="5">← Movimento</button>
-          <button type="button" class="primary-btn" data-next="7">Próximo: Composições Visuais →</button>
+          <button type="button" class="secondary-btn" data-prev="5">← Ênfase &amp; Mov.</button>
+          <button type="button" class="primary-btn" data-next="7">Próximo: B-rolls &amp; Composições →</button>
         </div>
       </section>
 
-      <!-- ETAPA 7: Biblioteca · Composições Visuais, B-rolls, Cards & Exportação -->
+      <!-- ETAPA 7: Área Reorganizada de B-rolls, Cards, Empilhadas e Composições -->
       <section class="card wizard-step" data-step="7" hidden>
-        <div class="step-head"><span class="badge">7</span><h2>Biblioteca · Composições Visuais</h2></div>
-        <p class="review-hint">Adicione composições profissionais sobre o vídeo (cards informativos, mídia flutuante, imagens empilhadas ou divisão livre).</p>
+        <div class="step-head"><span class="badge">7</span><h2>B-rolls, Cards &amp; Composições</h2></div>
+        <div class="cat-tabs cat-tabs-4" id="compCatTabs">
+          <button type="button" class="cat-tab is-active" data-ccat="floating">🖼️ Flutuantes</button>
+          <button type="button" class="cat-tab" data-ccat="cards">🪪 Cards Info</button>
+          <button type="button" class="cat-tab" data-ccat="stacked">🗂️ Empilhadas</button>
+          <button type="button" class="cat-tab" data-ccat="compositions">🎨 Composições</button>
+        </div>
 
         <div class="style-grid" id="compAddGrid">
-          <button type="button" class="style-pill" data-comp="floating-media">
-            <span class="mini-sample"><span class="th-float">◻ Mídia</span></span>
-            <strong>Floating Media</strong>
-            <small class="pill-sub">Vídeo/imagem flutuante</small>
+          <!-- Flutuantes -->
+          <button type="button" class="style-pill" data-ccat="floating" data-comp="floating-media">
+            <span class="mini-sample"><span class="th-float">◻ Janela Livre</span></span>
+            <strong>+ Mídia Flutuante</strong><small class="pill-sub">Posição, proporção, borda e sombra</small>
           </button>
-          <button type="button" class="style-pill" data-comp="editorial-card">
-            <span class="mini-sample"><span class="th-card"><b>TAG</b><br>Card Info</span></span>
-            <strong>Editorial Card</strong>
-            <small class="pill-sub">Título, tag e imagem</small>
+          <button type="button" class="style-pill" data-ccat="floating" data-broll-quick="1">
+            <span class="mini-sample"><span class="th-float">▤ B-roll Rápido</span></span>
+            <strong>+ B-roll Divisão/PiP</strong><small class="pill-sub">Topo, baixo ou canto arredondado</small>
           </button>
-          <button type="button" class="style-pill" data-comp="stacked-cards">
-            <span class="mini-sample"><span class="th-stack">▤ Empilhados</span></span>
-            <strong>Stacked Cards</strong>
-            <small class="pill-sub">2+ imagens em sequência</small>
+
+          <!-- Cards Informativos -->
+          <button type="button" class="style-pill" data-ccat="cards" data-comp="editorial-card" hidden>
+            <span class="mini-sample"><span class="th-card"><b>TAG</b> · Título</span></span>
+            <strong>+ Editorial Card</strong><small class="pill-sub">Fundo configurável + etiqueta + texto</small>
           </button>
-          <button type="button" class="style-pill" data-comp="visual-storytelling">
+          <button type="button" class="style-pill" data-ccat="cards" data-card-quick="1" hidden>
+            <span class="mini-sample"><span class="th-card">🖼️ Produto/PNG</span></span>
+            <strong>+ Card Recortado</strong><small class="pill-sub">Remove fundo sólido</small>
+          </button>
+
+          <!-- Imagens Empilhadas -->
+          <button type="button" class="style-pill" data-ccat="stacked" data-comp="stacked-cards" hidden>
+            <span class="mini-sample"><span class="th-stack">▤ 2–4 Fotos</span></span>
+            <strong>+ Imagens Empilhadas</strong><small class="pill-sub">Quantidade, espaçamento e sequência</small>
+          </button>
+
+          <!-- Composições Visuais -->
+          <button type="button" class="style-pill" data-ccat="compositions" data-comp="visual-storytelling" hidden>
             <span class="mini-sample"><span class="th-story">◫ Infográfico</span></span>
-            <strong>Visual Storytelling</strong>
-            <small class="pill-sub">Camadas + explicação</small>
+            <strong>+ Visual Storytelling</strong><small class="pill-sub">Imagem principal + apoios + texto</small>
           </button>
-          <button type="button" class="style-pill" data-comp="split-composition">
+          <button type="button" class="style-pill" data-ccat="compositions" data-comp="split-composition" hidden>
             <span class="mini-sample"><span class="th-split">⊟ Divisão Livre</span></span>
-            <strong>Split Composition</strong>
-            <small class="pill-sub">Proporções configuráveis</small>
+            <strong>+ Split Composition</strong><small class="pill-sub">Proporções livres (sem Antes/Depois)</small>
           </button>
         </div>
 
         <input type="file" id="compMediaInput" accept="video/*,image/*" multiple hidden>
-        <div id="compList" class="media-queue"></div>
+        <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
+        <input type="file" id="cardFile" accept="image/*" multiple hidden>
 
-        <details class="adv-box" style="margin-top:12px">
-          <summary>🎞️ B-rolls rápidos e 🖼️ Cards soltos (modo clássico)</summary>
-          <div class="res-section" style="margin-top:10px">
-            <label class="broll-upload-btn" id="brollUploadLbl">
-              <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
-              <span id="brollStatus">＋ Adicionar vídeo(s)/imagem(ns) B-roll</span>
-            </label>
-            <div id="brollList" class="media-queue"></div>
-            <small class="broll-hint" id="brollHint" hidden>Preview mostra máscara suave ou moldura arredondada.</small>
-          </div>
-          <div class="res-section" style="margin-top:10px">
-            <label class="toggle-row" style="margin-bottom:6px;padding:6px 10px">
-              <div><strong>Remover fundo sólido</strong><small>Para fotos de produtos</small></div>
-              <span class="switch"><input type="checkbox" id="cardRemoveBgToggle" checked><span class="slider"></span></span>
-            </label>
-            <label class="broll-upload-btn" id="cardUploadLbl">
-              <input type="file" id="cardFile" accept="image/*" multiple hidden>
-              <span id="cardStatus">＋ Adicionar card(s) flutuantes</span>
-            </label>
-            <div id="cardList" class="media-queue"></div>
-            <small class="broll-hint" id="cardHint" hidden>Toque em Animar para ver a entrada no preview.</small>
-          </div>
-        </details>
+        <div id="compList" class="media-queue"></div>
+        <div id="brollList" class="media-queue"></div>
+        <div id="cardList" class="media-queue"></div>
+        <small class="broll-hint" id="brollHint" hidden></small>
+        <small class="broll-hint" id="cardHint" hidden></small>
 
         <div class="step-nav" style="margin-top:12px">
           <button type="button" class="secondary-btn" data-prev="6">← Cortes &amp; Áudio</button>
@@ -514,8 +524,8 @@
       </section>
 
       <section id="reviewCard" class="card" hidden>
-        <div class="step-head"><span class="badge">✓</span><h2>Revisar Legendas, Quebras &amp; Destaques</h2></div>
-        <p class="review-hint">Edite textos (use <b>|</b> para quebra manual de linha) e toque nas palavras para destacá-las. A prévia acima atualiza na hora.</p>
+        <div class="step-head"><span class="badge">✓</span><h2>Revisar Legendas, Quebras &amp; Holofote</h2></div>
+        <p class="review-hint">Edite o texto (use <b>|</b> para dividir linhas), toque na palavra para destaque normal ou no ícone <b>🎬</b> para o Destaque Cinematográfico naquela palavra.</p>
         <div id="captionEditorList" class="caption-editor-list"></div>
       </section>
 
@@ -526,10 +536,7 @@
         <button type="button" id="shareBtn" class="secondary-btn download-btn" hidden>📤 Salvar na Galeria (iPhone) / Compartilhar</button>
         <a id="downloadSrt" class="secondary-btn download-btn" href="#" download>📄 Baixar Legendas (.srt)</a>
         <button type="button" id="newVideoBtn" class="secondary-btn download-btn">🔄 Editar outro vídeo</button>
-        <details class="transcript-box">
-          <summary>Ver transcrição completa</summary>
-          <p id="transcriptText"></p>
-        </details>
+        <details class="transcript-box"><summary>Ver transcrição completa</summary><p id="transcriptText"></p></details>
       </section>
 
       <div id="progressBox" class="progress-box" hidden>

@@ -257,82 +257,108 @@ def emit_ass_graphic_fx(
     len_mult = max(0.55, min(1.40, float(cfg.get("length_pct") or cfg.get("size_pct") or 100) / 100.0))
     draw_ms = max(160, min(900, int(float(cfg.get("dur") or 0.38) * 1000)))
     anim_out = (cfg.get("anim_out") or "fade-out").lower()
+    dy_off = int(float(cfg.get("pos_offset_y") or 0) * scale_f)
+    cy_adj = cy + dy_off
     exit_dur = min(140, max(70, int(dur_ms * 0.16)))
     ex_s = max(draw_ms + 30, dur_ms - exit_dur)
-    ex_t = ""
-    if dur_ms > draw_ms + 80 and anim_out != "none":
-        ex_t = f"\\t({ex_s},{dur_ms},2.1,\\alpha&HFF&)"
+    ex_t = f"\\t({ex_s},{dur_ms},2.1,\\alpha&HFF&)" if (dur_ms > draw_ms + 80 and anim_out != "none") else ""
 
-    if fx_kind == "pill":
+    def _emit_line_clip(bw_v, lh_v, x0_v, y0_v, path_str, direction="ltr", rot_tag="", layer=3, pad_y=6):
+        c0 = f"\\clip({x0_v + bw_v - 4},{y0_v - pad_y},{x0_v + bw_v + 6},{y0_v + lh_v + pad_y})" if direction == "rtl" else f"\\clip({x0_v - 6},{y0_v - pad_y},{x0_v + 4},{y0_v + lh_v + pad_y})"
+        c1 = f"\\clip({x0_v - 10},{y0_v - pad_y},{x0_v + bw_v + 10},{y0_v + lh_v + pad_y})"
+        an = 5 if rot_tag else 7
+        px = cx if rot_tag else x0_v
+        events.append(
+            f"Dialogue: {layer},{t0s},{t1s},Main,,0,0,0,,"
+            f"{{\\an{an}\\pos({px},{y0_v}){rot_tag}\\p1\\1c{fx_color}\\1a&H00&\\3c&H65000000&\\bord1.0\\shad0\\blur0.8"
+            f"{c0}\\t(40,{draw_ms},0.35,{c1}){ex_t}}}{path_str}{{\\p0}}"
+        )
+
+    if fx_kind in ("pill", "bar", "hand-mark"):
         bw = max(84, int((box_w + 34 * scale_f) * len_mult))
-        bh = max(36, int(box_h * 1.14))
-        rx = max(8, min(22, int(bh * 0.25)))
-        x0, y0 = int(cx - bw // 2), int(cy - bh // 2)
+        bh = max(36, int(box_h * (1.06 if fx_kind == "hand-mark" else 1.14)))
+        rx = max(6, min(22, int(bh * 0.25)))
+        x0, y0 = int(cx - bw // 2), int(cy_adj - bh // 2)
+        rot = "\\frz-2" if fx_kind == "hand-mark" else ""
+        alpha = "&H26&" if fx_kind == "hand-mark" else "&H12&"
         path = (
             f"m {rx} 0 l {bw - rx} 0 b {bw} 0 {bw} {rx} {bw} {rx} "
             f"l {bw} {bh - rx} b {bw} {bh} {bw - rx} {bh} {bw - rx} {bh} "
-            f"l {rx} {bh} b 0 {bh} 0 {bh - rx} 0 {bh - rx} "
-            f"l 0 {rx} b 0 0 {rx} 0 {rx} 0"
+            f"l {rx} {bh} b 0 {bh} 0 {bh - rx} 0 {bh - rx} l 0 {rx} b 0 0 {rx} 0 {rx} 0"
         )
         events.append(
             f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
-            f"{{\\an7\\pos({x0},{y0})\\p1\\1c{fx_color}\\1a&H12&\\bord0\\shad0"
+            f"{{\\an7\\pos({x0},{y0}){rot}\\p1\\1c{fx_color}\\1a{alpha}\\bord0\\shad0"
             f"\\clip({x0},{y0},{x0 + 6},{y0 + bh})\\t(0,{draw_ms},0.32,\\clip({x0},{y0},{x0 + bw},{y0 + bh})){ex_t}}}{path}{{\\p0}}"
         )
         return
 
-    if fx_kind == "underline":
-        bw = max(72, int((box_w + 22 * scale_f) * len_mult))
-        lh = max(3, int(thick_px * 1.15))
-        x0, y0 = int(cx - bw // 2), int(cy + box_h * 0.42)
+    if fx_kind in ("underline", "underline-double", "top-bar-line", "hand-underline"):
+        bw = max(72, int((box_w + 24 * scale_f) * len_mult))
+        lh = max(3, int(thick_px * 1.12))
+        x0 = int(cx - bw // 2)
         direction = (cfg.get("direction") or "ltr").lower()
-        path = f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}"
-        if direction == "rtl":
-            c0 = f"\\clip({x0 + bw - 4},{y0 - 4},{x0 + bw},{y0 + lh + 4})"
+        if fx_kind == "top-bar-line":
+            y0 = int(cy_adj - box_h * 0.56)
+            _emit_line_clip(bw, lh, x0, y0, f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}", direction)
+        elif fx_kind == "hand-underline":
+            y0 = int(cy_adj + box_h * 0.42)
+            # Gentle organic pen wave across width
+            q1, q2, q3 = int(bw * 0.30), int(bw * 0.65), bw
+            w_path = (
+                f"m 0 {lh} b {int(q1*0.5)} 0 {q1} {int(lh*1.5)} {q2} {int(lh*0.4)} "
+                f"b {int(bw*0.82)} 0 {int(bw*0.94)} {int(lh*1.2)} {q3} {int(lh*0.5)} "
+                f"l {q3} {int(lh*1.9)} b {int(bw*0.82)} {int(lh*2.2)} {q2} {int(lh*1.5)} {q1} {int(lh*2.4)} "
+                f"l 0 {int(lh*2.0)}"
+            )
+            _emit_line_clip(bw, int(lh * 2.5), x0, y0, w_path, direction)
         else:
-            c0 = f"\\clip({x0},{y0 - 4},{x0 + 4},{y0 + lh + 4})"
-        c1 = f"\\clip({x0},{y0 - 4},{x0 + bw},{y0 + lh + 4})"
-        events.append(
-            f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
-            f"{{\\an7\\pos({x0},{y0})\\p1\\1c{fx_color}\\1a&H00&\\bord0\\shad0\\blur1.0"
-            f"{c0}\\t(40,{draw_ms},0.35,{c1}){ex_t}}}{path}{{\\p0}}"
-        )
+            y0 = int(cy_adj + box_h * 0.42)
+            _emit_line_clip(bw, lh, x0, y0, f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}", direction)
+            if fx_kind == "underline-double":
+                _emit_line_clip(int(bw * 0.84), max(2, lh - 1), int(cx - bw * 0.42), y0 + lh + max(4, int(5 * scale_f)), f"m 0 0 l {int(bw*0.84)} 0 l {int(bw*0.84)} {max(2, lh-1)} l 0 {max(2, lh-1)}", direction)
         return
 
-    if fx_kind == "strike":
+    if fx_kind in ("strike", "strike-diag"):
         bw = max(78, int((box_w + 26 * scale_f) * len_mult))
         lh = max(3, int(thick_px * 1.15))
-        is_diag = (cfg.get("angle") or "horizontal").lower() == "diagonal"
-        x0, y0 = int(cx - bw // 2), int(cy + (0 if is_diag else box_h * 0.04))
-        rot = "\\frz-8" if is_diag else ""
-        path = f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}"
-        pad = 28 if is_diag else 6
-        events.append(
-            f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
-            f"{{\\an5\\pos({cx},{y0}){rot}\\p1\\1c{fx_color}\\1a&H00&\\3c&H70000000&\\bord1.2\\shad0\\blur0.8"
-            f"\\clip({x0},{y0 - pad},{x0 + 4},{y0 + pad})\\t(40,{draw_ms},0.35,\\clip({x0 - 8},{y0 - pad},{x0 + bw + 8},{y0 + pad})){ex_t}}}{path}{{\\p0}}"
-        )
+        is_diag = (fx_kind == "strike-diag") or ((cfg.get("angle") or "horizontal").lower() == "diagonal")
+        x0, y0 = int(cx - bw // 2), int(cy_adj + (0 if is_diag else box_h * 0.04))
+        _emit_line_clip(bw, lh, x0, y0, f"m 0 0 l {bw} 0 l {bw} {lh} l 0 {lh}", "ltr", rot_tag=("\\frz-8" if is_diag else ""), pad_y=(28 if is_diag else 6))
         return
 
-    if fx_kind == "circle":
+    if fx_kind in ("circle", "circle-open", "circle-ring", "hand-circle"):
         bw = max(92, int((box_w + 46 * scale_f) * len_mult))
         bh = max(46, int(box_h * 1.30 * len_mult))
         rx, ry = bw / 2.0, bh / 2.0
         k = 0.5523
         kx, ky = rx * k, ry * k
-        x0, y0 = int(cx - rx), int(cy - ry)
+        x0, y0 = int(cx - rx), int(cy_adj - ry)
         stroke = round(max(2.0, thick_px * 0.95), 1)
-        complete = cfg.get("complete", True)
-        if complete:
+        pad = int(stroke + 10)
+        complete = (fx_kind != "circle-open") and cfg.get("complete", True)
+        if fx_kind == "hand-circle":
+            # Multi-pass sketchy organic marker loop with realistic slight overshoot
+            h_path = (
+                f"m {int(rx*0.42)} 2 "
+                f"b {int(bw*0.88)} -3 {bw+4} {int(ry*0.75)} {bw-2} {int(ry)} "
+                f"b {bw-4} {int(bh*0.88)} {int(bw*0.65)} {bh+3} {int(rx*0.85)} {bh-1} "
+                f"b {int(bw*0.18)} {bh} -3 {int(bh*0.75)} 2 {int(ry*0.92)} "
+                f"b 5 {int(ry*0.25)} {int(rx*0.58)} -2 {int(rx*1.12)} 6"
+            )
+            events.append(
+                f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
+                f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{fx_color}\\3a&H06&\\bord{stroke}\\shad0\\blur0.8"
+                f"\\clip({x0 - pad},{y0 - pad},{x0 + 8},{y0 + bh + pad})\\t(20,{draw_ms},0.42,\\clip({x0 - pad},{y0 - pad},{x0 + bw + pad},{y0 + bh + pad})){ex_t}}}{h_path}{{\\p0}}"
+            )
+        elif complete:
             oval_path = (
-                f"m {int(rx)} 0 "
-                f"b {int(rx + kx)} 0 {bw} {int(ry - ky)} {bw} {int(ry)} "
+                f"m {int(rx)} 0 b {int(rx + kx)} 0 {bw} {int(ry - ky)} {bw} {int(ry)} "
                 f"b {bw} {int(ry + ky)} {int(rx + kx)} {bh} {int(rx)} {bh} "
                 f"b {int(rx - kx)} {bh} 0 {int(ry + ky)} 0 {int(ry)} "
                 f"b 0 {int(ry - ky)} {int(rx - kx)} 0 {int(rx)} 0"
             )
             half1 = max(120, draw_ms // 2)
-            pad = int(stroke + 8)
             events.append(
                 f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
                 f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{fx_color}\\3a&H08&\\bord{stroke}\\shad0\\blur0.9"
@@ -343,15 +369,29 @@ def emit_ass_graphic_fx(
                 f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{fx_color}\\3a&H08&\\bord{stroke}\\shad0\\blur0.9"
                 f"\\clip({x0 + bw + pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})\\t({max(40, half1 - 40)},{draw_ms},0.45,\\clip({x0 - pad},{y0 + int(ry) - 2},{x0 + bw + pad},{y0 + bh + pad})){ex_t}}}{oval_path}{{\\p0}}"
             )
+            if fx_kind == "circle-ring":
+                ew, eh = bw + int(16 * scale_f), bh + int(14 * scale_f)
+                erx, ery = ew / 2.0, eh / 2.0
+                ekx, eky = erx * k, ery * k
+                ex0, ey0 = int(cx - erx), int(cy_adj - ery)
+                ring_p = (
+                    f"m {int(erx)} 0 b {int(erx + ekx)} 0 {ew} {int(ery - eky)} {ew} {int(ery)} "
+                    f"b {ew} {int(ery + eky)} {int(erx + ekx)} {eh} {int(erx)} {eh} "
+                    f"b {int(erx - ekx)} {eh} 0 {int(ery + eky)} 0 {int(ery)} "
+                    f"b 0 {int(ery - eky)} {int(erx - ekx)} 0 {int(erx)} 0"
+                )
+                events.append(
+                    f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
+                    f"{{\\an7\\pos({ex0},{ey0})\\p1\\1a&HFF&\\3c{fx_color}\\3a&H58&\\bord{max(1.5, stroke*0.55)}\\shad0\\blur1.0"
+                    f"\\clip({ex0 - pad},{ey0 - pad},{ex0},{ey0 + eh + pad})\\t(90,{draw_ms + 80},0.45,\\clip({ex0 - pad},{ey0 - pad},{ex0 + ew + pad},{ey0 + eh + pad})){ex_t}}}{ring_p}{{\\p0}}"
+                )
         else:
-            # Organic open hand-drawn arc (~285 deg leaving gap at bottom-left)
             open_path = (
                 f"m {int(rx * 0.3)} {int(bh * 0.85)} "
                 f"b 0 {int(ry)} {int(rx * 0.25)} 0 {int(rx)} 0 "
                 f"b {int(rx + kx)} 0 {bw} {int(ry - ky)} {bw} {int(ry)} "
                 f"b {bw} {int(ry + ky)} {int(rx + kx * 0.8)} {bh} {int(rx * 0.85)} {int(bh * 0.96)}"
             )
-            pad = int(stroke + 10)
             events.append(
                 f"Dialogue: 3,{t0s},{t1s},Main,,0,0,0,,"
                 f"{{\\an7\\pos({x0},{y0})\\p1\\1a&HFF&\\3c{fx_color}\\3a&H08&\\bord{stroke}\\shad0\\blur0.9"
@@ -359,43 +399,27 @@ def emit_ass_graphic_fx(
             )
         return
 
-    if fx_kind == "arrow":
-        shape = (cfg.get("shape") or "curved").lower()
+    if fx_kind in ("arrow", "arrow-curved", "arrow-straight", "arrow-angled"):
+        shape = "straight" if fx_kind == "arrow-straight" else ("angled" if fx_kind == "arrow-angled" else (cfg.get("shape") or "curved").lower())
         direction = (cfg.get("direction") or "left").lower()
         aw = max(56, int(76 * scale_f * len_mult))
         ah = max(36, int(50 * scale_f * len_mult))
         stroke = round(max(2.2, thick_px * 0.85), 1)
         pad = int(stroke + 8)
-        # Anchor near highlighted word side
         if direction == "right":
-            ax = int(cx + box_w / 2 + 12 * scale_f)
-            ay = int(cy - ah * 0.55)
-            path = (
-                f"m {aw} 0 b {int(aw*0.5)} 0 {int(aw*0.35)} {int(ah*0.65)} 4 {int(ah*0.72)} "
-                f"l 18 {int(ah*0.52)} m 4 {int(ah*0.72)} l 20 {ah}"
-                if shape != "straight"
-                else f"m {aw} {int(ah*0.5)} l 4 {int(ah*0.5)} l 18 {int(ah*0.32)} m 4 {int(ah*0.5)} l 18 {int(ah*0.68)}"
-            )
+            ax, ay = int(cx + box_w / 2 + 12 * scale_f), int(cy_adj - ah * 0.55)
+            path = f"m {aw} 0 b {int(aw*0.5)} 0 {int(aw*0.35)} {int(ah*0.65)} 4 {int(ah*0.72)} l 18 {int(ah*0.52)} m 4 {int(ah*0.72)} l 20 {ah}" if shape != "straight" else f"m {aw} {int(ah*0.5)} l 4 {int(ah*0.5)} l 18 {int(ah*0.32)} m 4 {int(ah*0.5)} l 18 {int(ah*0.68)}"
             c0 = f"\\clip({ax + aw - 4},{ay - pad},{ax + aw + pad},{ay + ah + pad})"
         elif direction == "up":
-            ax = int(cx - aw // 2)
-            ay = int(cy - box_h * 0.72 - ah)
-            path = (
-                f"m {int(aw*0.18)} 2 b {int(aw*0.75)} {int(ah*0.15)} {int(aw*0.6)} {int(ah*0.6)} {int(aw*0.5)} {ah - 4} "
-                f"l {int(aw*0.34)} {ah - 18} m {int(aw*0.5)} {ah - 4} l {int(aw*0.68)} {ah - 16}"
-            )
+            ax, ay = int(cx - aw // 2), int(cy_adj - box_h * 0.72 - ah)
+            path = f"m {int(aw*0.18)} 2 b {int(aw*0.75)} {int(ah*0.15)} {int(aw*0.6)} {int(ah*0.6)} {int(aw*0.5)} {ah - 4} l {int(aw*0.34)} {ah - 18} m {int(aw*0.5)} {ah - 4} l {int(aw*0.68)} {ah - 16}"
             c0 = f"\\clip({ax - pad},{ay - pad},{ax + aw + pad},{ay + 6})"
         elif direction == "down":
-            ax = int(cx - aw // 2)
-            ay = int(cy + box_h * 0.58)
-            path = (
-                f"m {int(aw*0.18)} {ah - 2} b {int(aw*0.72)} {int(ah*0.8)} {int(aw*0.55)} {int(ah*0.35)} {int(aw*0.5)} 4 "
-                f"l {int(aw*0.34)} 18 m {int(aw*0.5)} 4 l {int(aw*0.68)} 18"
-            )
+            ax, ay = int(cx - aw // 2), int(cy_adj + box_h * 0.58)
+            path = f"m {int(aw*0.18)} {ah - 2} b {int(aw*0.72)} {int(ah*0.8)} {int(aw*0.55)} {int(ah*0.35)} {int(aw*0.5)} 4 l {int(aw*0.34)} 18 m {int(aw*0.5)} 4 l {int(aw*0.68)} 18"
             c0 = f"\\clip({ax - pad},{ay + ah - 6},{ax + aw + pad},{ay + ah + pad})"
-        else:  # left (default: sweeps down-right from upper-left into word)
-            ax = max(12, int(cx - box_w / 2 - aw - 8 * scale_f))
-            ay = int(cy - ah * 0.6)
+        else:
+            ax, ay = max(12, int(cx - box_w / 2 - aw - 8 * scale_f)), int(cy_adj - ah * 0.6)
             if shape == "angled":
                 path = f"m 0 2 l {int(aw*0.48)} {int(ah*0.68)} l {aw - 4} {int(ah*0.68)} l {aw - 18} {int(ah*0.48)} m {aw - 4} {int(ah*0.68)} l {aw - 18} {int(ah*0.88)}"
             elif shape == "straight":

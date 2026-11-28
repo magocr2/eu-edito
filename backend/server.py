@@ -237,7 +237,7 @@ def _run_render_pipeline(job_id, opts):
             ass_path,
             width=out_w,
             height=out_h,
-            style_id=opts.get("style", "highlight-words"),
+            style_id=opts.get("style", "classic"),
             accent_hex=opts.get("accent_color", ""),
             text_color=opts.get("text_color", "#FFFFFF"),
             pos_y_pct=float(opts.get("pos_y", 74)),
@@ -245,6 +245,7 @@ def _run_render_pipeline(job_id, opts):
             caption_lines=int(opts.get("caption_lines", 3)),
             caption_scale=float(opts.get("caption_scale", 100)),
             letter_spacing=float(opts.get("letter_spacing", 0)),
+            word_spacing=float(opts.get("word_spacing", 1.0)),
             line_spacing=float(opts.get("line_spacing", 1.0)),
             outline_val=float(opts.get("outline_val", 0.8)),
             shadow_val=float(opts.get("shadow_val", 2.0)),
@@ -258,6 +259,14 @@ def _run_render_pipeline(job_id, opts):
             highlight_fx=str(opts.get("highlight_fx", "auto")),
             gfx_cfg=opts.get("gfx_cfg") if isinstance(opts.get("gfx_cfg"), dict) else None,
             fullscreen_mode=str(opts.get("fullscreen_mode", "auto")),
+            cine_mode=str(opts.get("cine_mode", "off")),
+            cine_intensity=int(opts.get("cine_intensity", 45)),
+            cine_trans_dur=float(opts.get("cine_trans_dur", 0.26)),
+            cine_hold_pad=float(opts.get("cine_hold_pad", 0.12)),
+            cine_scale=int(opts.get("cine_scale", 116)),
+            cine_color=str(opts.get("cine_color", "")),
+            cine_bold=bool(opts.get("cine_bold", True)),
+            cine_glow=bool(opts.get("cine_glow", True)),
         )
 
         # Resolve Professional Visual Compositions (floating-media, editorial-card, stacked-cards, visual-storytelling, split-composition)

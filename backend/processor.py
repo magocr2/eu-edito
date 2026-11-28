@@ -606,6 +606,17 @@ def sync_edited_captions(edited_captions):
                 pass
         if cap.get("graphic_fx"):
             item["graphic_fx"] = str(cap["graphic_fx"])
+        if cap.get("cine_indices"):
+            valid_ci = [int(x) for x in cap["cine_indices"] if 0 <= int(x) < len(words)]
+            if valid_ci:
+                item["cine_indices"] = valid_ci
+        if cap.get("cine_idx") is not None and "cine_indices" not in item:
+            try:
+                ci_v = int(cap["cine_idx"])
+                if 0 <= ci_v < len(words):
+                    item["cine_indices"] = [ci_v]
+            except Exception:
+                pass
         if cap.get("fullscreen"):
             item["fullscreen"] = True
         if "sfx" in cap and cap["sfx"] is not None:
@@ -875,12 +886,49 @@ def generate_srt(captions, out_path):
 
 
 
+def pick_cinematic_moments(captions, min_gap_s=6.0, max_moments=3):
+    """Moderately select 1..3 high-value phrases & target words for temporary cinematic dimming."""
+    if not captions:
+        return {}
+    limit = max(1, min(int(max_moments or 3), max(1, len(captions) // 4)))
+    scored = []
+    for idx, c in enumerate(captions):
+        txt = (c.get("text") or "").strip()
+        words = c.get("words") or []
+        if not words or not txt:
+            continue
+        sc = 0.0
+        if "?" in txt or "!" in txt:
+            sc += 2.6
+        if re.search(r"\d+|%|mil\b|milh|reais", txt, re.I):
+            sc += 3.0
+        best_wi, best_wsc = 0, -1.0
+        for wi, w in enumerate(words):
+            clean = re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", w["w"].lower())
+            wsc = len(clean) * 0.4 + (10.0 if clean in _IMPACT_WORDS else 0.0)
+            if wsc > best_wsc:
+                best_wsc, best_wi = wsc, wi
+        sc += best_wsc
+        if best_wsc >= 9.0 or sc >= 11.0:
+            scored.append((sc, float(c["s"]), idx, best_wi))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    chosen = {}
+    chosen_times = []
+    for sc, s_t, c_idx, wi in scored:
+        if len(chosen) >= limit:
+            break
+        if all(abs(s_t - ct) >= min_gap_s for ct in chosen_times):
+            chosen[c_idx] = [wi]
+            chosen_times.append(s_t)
+    return chosen
+
+
 def generate_ass(
     captions,
     out_path,
     width=1080,
     height=1920,
-    style_id="highlight-words",
+    style_id="classic",
     accent_hex="",
     text_color="#FFFFFF",
     pos_y_pct=74,
@@ -888,6 +936,7 @@ def generate_ass(
     caption_lines=3,
     caption_scale=100,
     letter_spacing=0,
+    word_spacing=1.0,
     line_spacing=1.0,
     outline_val=0.8,
     shadow_val=2.0,
@@ -901,11 +950,21 @@ def generate_ass(
     highlight_fx="auto",
     gfx_cfg=None,
     fullscreen_mode="auto",
+    cine_mode="off",
+    cine_intensity=45,
+    cine_trans_dur=0.26,
+    cine_hold_pad=0.12,
+    cine_scale=116,
+    cine_color="",
+    cine_bold=True,
+    cine_glow=True,
 ):
     """
-    Generate CapCut/editorial-grade ASS subtitles backed by library_catalog.py & compositor.py.
-    Supports the 6 core caption models + real bold font mapping + all 11 entry/exit animations
-    + full typography overrides + editable vector graphic effects + manual breaks & multi-highlight.
+    Generate CapCut/editorial-grade ASS subtitles backed by library_catalog.py & compositor.py:
+    - All 11 recovered classic models + all 6 new dynamic/editorial/highlight models
+    - Pillow real font-metrics proportional vertical stacking (1/2/3 lines without collisions)
+    - Independent temporary Cinematic Word Highlight dimming on background video synced to spoken word
+    - Categorized progressive vector FX + all 11 reusable entry/exit animations
     """
     cfg = resolve_caption_model(style_id)
     font_overrides = {
@@ -932,12 +991,11 @@ def generate_ass(
     if main_font_id and main_font_id in font_overrides:
         mf, mfile, mb, mi = font_overrides[main_font_id]
         cfg["main_font"], cfg["main_file"], cfg["main_bold"], cfg["main_italic"] = mf, mfile, -1, mi
-    if cfg["main_file"] in _BOLD_REAL_MAP:
+    if cfg["main_file"] in _BOLD_REAL_MAP and cfg.get("main_bold", 0) != 0:
         bmf, bmfile, bmb, bmi = _BOLD_REAL_MAP[cfg["main_file"]]
         cfg["main_font"], cfg["main_file"], cfg["main_bold"] = bmf, bmfile, bmb
         if cfg["main_italic"]:
             cfg["main_italic"] = bmi
-    cfg["main_bold"] = -1
 
     small_font_overrides = {
         **font_overrides,
@@ -952,10 +1010,11 @@ def generate_ass(
         cfg["small_font"], cfg["small_file"], cfg["small_bold"], cfg["small_italic"] = sf, sfile, sb, si
     if caption_bold:
         cfg["small_bold"] = -1
-        if cfg["small_file"] in _BOLD_REAL_MAP:
-            bsf, bsfile, _, _ = _BOLD_REAL_MAP[cfg["small_file"]]
-            cfg["small_font"], cfg["small_file"] = bsf, bsfile
-    cfg["main_bold"] = -1
+        cfg["main_bold"] = -1
+        for k_file, k_font in (("small_file", "small_font"), ("main_file", "main_font")):
+            if cfg[k_file] in _BOLD_REAL_MAP:
+                bf, bfile, _, _ = _BOLD_REAL_MAP[cfg[k_file]]
+                cfg[k_font], cfg[k_file] = bf, bfile
 
     active_fx = cfg.get("default_fx", "none") if (not highlight_fx or highlight_fx == "auto") else highlight_fx
     if active_fx == "bar":
@@ -973,12 +1032,14 @@ def generate_ass(
     shadow = round(max(0.0, float(shadow_val if shadow_val is not None else 2.0) * scale_f), 1)
     main_shadow = round(max(0.0, shadow * 0.55), 1)
     fsp_base = round(float(letter_spacing or 0) * scale_f, 1)
+    w_space_mult = max(0.6, min(2.2, float(word_spacing or 1.0)))
     line_mult = max(0.72, min(1.50, float(line_spacing or 1.0)))
 
     align_norm = (alignment or "center").strip().lower()
     an_code = 4 if align_norm == "left" else (6 if align_norm == "right" else 5)
     pos_x = int(width * (0.10 if align_norm == "left" else (0.90 if align_norm == "right" else 0.50)))
-    pos_y = int(height * max(16, min(86, float(pos_y_pct))) / 100.0)
+    eff_y_pct = pos_y_pct if pos_y_pct not in (None, "") else cfg.get("default_pos_y", 74)
+    pos_y = int(height * max(14, min(86, float(eff_y_pct))) / 100.0)
 
     text_ass = _hex_to_ass_bgr((text_color or "").strip() or cfg.get("default_color", "#FFFFFF"))
     chosen_hex = (accent_hex or "").strip() or cfg["default_accent"]
@@ -1005,16 +1066,22 @@ Style: MainGlow,{cfg['main_font']},{m_size},{accent_ass},{accent_ass},{accent_as
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
-    req_lines = int(caption_lines or 3)
+    req_lines = 1 if cfg.get("force_single_line") else int(caption_lines or 3)
     s_pil = m_pil = None
+    s_line_h = float(s_size) * 0.92
+    m_line_h = float(m_size) * 0.92
     try:
         from PIL import ImageFont
         s_fp = FONTS_DIR / cfg["small_file"]
         m_fp = FONTS_DIR / cfg["main_file"]
         if s_fp.exists():
             s_pil = ImageFont.truetype(str(s_fp), s_size)
+            sa, sd = s_pil.getmetrics()
+            s_line_h = max(float(s_size) * 0.85, float(sa + sd) * 0.88)
         if m_fp.exists():
             m_pil = ImageFont.truetype(str(m_fp), m_size)
+            ma_m, md_m = m_pil.getmetrics()
+            m_line_h = max(float(m_size) * 0.85, float(ma_m + md_m) * 0.88)
     except Exception:
         s_pil = m_pil = None
 
@@ -1030,12 +1097,61 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 pass
         return len(txt) * sz * 0.50 + extra_sp
 
+    def _row_visual_h(tokens, m_set, inline_m_sz):
+        if any(i in m_set for i in range(len(tokens))):
+            return m_line_h * (inline_m_sz / max(m_size, 1))
+        return s_line_h
+
+    def _stack_rows_y(row_heights, base_y, fx_pad_px=0):
+        """Distribute 1/2/3 lines symmetrically around base_y using real Pillow glyph heights."""
+        if not row_heights:
+            return []
+        if len(row_heights) == 1:
+            clamped = max(int(height * 0.10), min(int(height * 0.89), int(base_y)))
+            return [clamped]
+        max_h = max(row_heights)
+        gap_px = max(6.0, max_h * 0.20 * line_mult) + fx_pad_px * 0.65
+        total_h = sum(row_heights) + gap_px * (len(row_heights) - 1)
+        top_edge = base_y - total_h / 2.0
+        min_top, max_bot = height * 0.08, height * 0.90
+        if top_edge < min_top:
+            top_edge = min_top
+        elif top_edge + total_h > max_bot:
+            top_edge = max(min_top, max_bot - total_h)
+        ys = []
+        cursor_y = top_edge
+        for rh in row_heights:
+            ys.append(int(round(cursor_y + rh / 2.0)))
+            cursor_y += rh + gap_px
+        return ys
+
+    space_unit_px = _measure(" ", is_main=False) * w_space_mult
+    space_sep_tag = f"\\fsp{round((w_space_mult - 1.0) * s_size * 0.25, 1)}" if abs(w_space_mult - 1.0) > 0.08 else ""
+
+    def _join_chunks(chunks, reset_style_tag):
+        if space_sep_tag:
+            return f" {{{space_sep_tag}}} {{{reset_style_tag}\\fsp{fsp_base}}}".join(chunks)
+        return f" {{{reset_style_tag}}}".join(chunks)
+
     def _word_score(w):
         clean = re.sub(r"[^\w\u00e0-\u00fa\u00c0-\u00da]", "", w["w"])
         sc = len(clean)
         if clean.lower() in _IMPACT_WORDS:
             sc += 12
         return sc
+
+    # Cinematic Word Highlight preparation (moderately selects 1..3 key moments in Auto mode)
+    c_mode = (cine_mode or "off").strip().lower()
+    auto_cine_map = pick_cinematic_moments(captions, min_gap_s=6.0, max_moments=3) if c_mode == "auto" else {}
+    cine_dim_pct = max(15, min(80, int(cine_intensity or 45)))
+    dim_alpha_byte = max(20, min(230, int(255 * (1.0 - cine_dim_pct / 100.0))))
+    dim_ass_alpha = f"&H{dim_alpha_byte:02X}&"
+    cine_tr_s = max(0.12, min(0.65, float(cine_trans_dur or 0.26)))
+    cine_pad_s = max(0.0, min(0.55, float(cine_hold_pad or 0.12)))
+    cine_fg_ass = _hex_to_ass_bgr(cine_color.strip() or (chosen_hex if has_color_accent else "#FFFFFF"))
+    cine_glow_bord = round(max(4.5, 8.0 * scale_f), 1)
+    cine_glow_blur = round(max(12.0, 22.0 * scale_f), 1)
+    cine_sc_pct = max(100, min(145, int(cine_scale or 116)))
 
     def _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=False):
         t0 = max(0, int(rel_ms)) if in_anim == "stagger" else 0
@@ -1045,18 +1161,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         exit_tag = f"\\t({exit_s},{dur_ms},2.1,\\alpha&HFF&)" if (out_anim != "none" and dur_ms > (t0 + fade_ms + 90)) else ""
         start_alpha = "\\alpha&H00&" if in_anim == "none" else "\\alpha&HFF&"
         if is_glow:
-            if in_anim == "none":
-                return f"\\1a{glow_alpha}\\3a&H82&\\4a&HFF&{exit_tag}"
-            return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a{glow_alpha}\\3a&H82&\\4a&HFF&){exit_tag}"
+            return f"\\1a{glow_alpha}\\3a&H82&\\4a&HFF&{exit_tag}" if in_anim == "none" else f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a{glow_alpha}\\3a&H82&\\4a&HFF&){exit_tag}"
         if is_main_tok:
-            if in_anim == "none":
-                return f"\\1a&H00&\\3a&HF4&\\4a&HC8&{exit_tag}"
-            return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
-        if in_anim == "none":
-            return f"\\1a&H00&\\3a&HE4&\\4a&H9E&{exit_tag}"
-        return f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
+            return f"\\1a&H00&\\3a&HF4&\\4a&HC8&{exit_tag}" if in_anim == "none" else f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HF4&\\4a&HC8&){exit_tag}"
+        return f"\\1a&H00&\\3a&HE4&\\4a&H9E&{exit_tag}" if in_anim == "none" else f"{start_alpha}\\t({t0},{t0 + fade_ms},0.35,\\1a&H00&\\3a&HE4&\\4a&H9E&){exit_tag}"
 
-    def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, is_glow=False, est_w_px=300.0, row_h_px=90.0):
+    def _entry_motion(x, y, dur_ms, is_main=False, target_scale=100, est_w_px=300.0, row_h_px=90.0):
         d = int(28 * scale_f * inten)
         exit_dur = min(160, max(70, int(dur_ms * 0.16)))
         exit_s = max(in_ms + 40, dur_ms - exit_dur)
@@ -1097,119 +1207,110 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             s_hi = int(target_scale * (1.06 if is_main else 1.02))
             t_mid = int(in_ms * 0.60)
             return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{t_mid},0.34,\\fscx{s_hi}\\fscy{s_hi})\\t({t_mid},{in_ms},0.5,\\fscx{target_scale}\\fscy{target_scale}){exit_tag}"
-        # fade-in / stagger / draw fallback
         s_lo = max(65, int(target_scale * 0.95))
         return f"\\pos({x},{y})\\fscx{s_lo}\\fscy{s_lo}\\t(0,{in_ms},0.30,\\fscx{target_scale}\\fscy{target_scale}){exit_tag}"
 
-    def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None):
+    def _inline_switch(is_main_tok, is_glow=False, main_sz_override=None, is_cine=False):
         if is_glow:
-            if not is_main_tok:
+            if not is_main_tok and not is_cine:
                 return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\alpha&HFF&"
             msz = main_sz_override or m_size
-            return (
-                f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}"
-                f"\\1c{accent_ass}\\3c{accent_ass}\\4c&HFF000000&\\bord{glow_bord}\\shad0\\blur{glow_blur}"
-            )
-        if is_main_tok:
-            msz = main_sz_override or m_size
-            fg_c = "&H00FFFFFF&" if active_fx == "pill" else accent_ass
-            return (
-                f"\\fn{cfg['main_font']}\\fs{msz}\\b-1\\i{cfg['main_italic']}"
-                f"\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
-            )
-        return (
-            f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}"
-            f"\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
-        )
+            gb = cine_glow_bord if (is_cine and cine_glow) else glow_bord
+            gbl = cine_glow_blur if (is_cine and cine_glow) else glow_blur
+            gc = cine_fg_ass if is_cine else accent_ass
+            return f"\\fn{cfg['main_font']}\\fs{msz}\\b{cfg['main_bold']}\\i{cfg['main_italic']}\\1c{gc}\\3c{gc}\\4c&HFF000000&\\bord{gb}\\shad0\\blur{gbl}"
+        if is_main_tok or is_cine:
+            base_sz = main_sz_override or (m_size if is_main_tok else int(s_size * (cine_sc_pct / 100.0)))
+            fg_c = "&H00FFFFFF&" if active_fx == "pill" else (cine_fg_ass if is_cine else accent_ass)
+            b_flag = -1 if (is_cine and cine_bold) else cfg["main_bold"]
+            return f"\\fn{cfg['main_font']}\\fs{base_sz}\\b{b_flag}\\i{cfg['main_italic']}\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
+        return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none"):
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none", cine_local_set=None):
         if not tokens:
             return
         m_set = set(main_local_set or [])
-        has_main = bool(m_set)
-        primary_m = min(m_set) if has_main else None
+        c_set = set(cine_local_set or [])
+        emph_set = m_set | c_set
+        has_main = bool(emph_set)
+        primary_m = min(emph_set) if has_main else None
         dur_ms = max(120, int((cap_e + 0.12 - cap_s) * 1000))
         max_w = width * 0.86
         inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if has_main else m_size
+        need_wide_gap = has_main and len(tokens) > 1 and row_fx in ("circle", "circle-open", "circle-ring", "hand-circle", "pill", "hand-mark")
+        join_sp = "  " if need_wide_gap else " "
+        eff_sp_px = space_unit_px * (2.0 if need_wide_gap else 1.0)
         est_w = 0.0
         for idx, w in enumerate(tokens):
             is_m = idx in m_set
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             est_w += _measure(txt, is_main=is_m, custom_sz=(inline_m_sz if is_m else s_size))
-        est_w += _measure(" ", is_main=False) * max(0, len(tokens) - 1)
+        est_w += eff_sp_px * max(0, len(tokens) - 1)
         fit_pct = min(100, max(54, int((max_w / max(est_w, 1.0)) * 100)))
         half_w = (est_w * (fit_pct / 100.0)) / 2.0
-        if align_norm == "center":
-            safe_x = int(max(width * 0.07 + half_w, min(width * 0.93 - half_w, x_center)))
-            if half_w * 2 > width * 0.82:
-                safe_x = pos_x
-        else:
-            safe_x = x_center
+        safe_x = int(max(width * 0.07 + half_w, min(width * 0.93 - half_w, x_center))) if align_norm == "center" else x_center
+        if align_norm == "center" and half_w * 2 > width * 0.82:
+            safe_x = pos_x
 
         if has_main and row_fx not in ("none", ""):
             solo_m = (len(tokens) == 1)
             mtok = tokens[primary_m]
-            mtxt = mtok["w"].upper() if cfg["upper"] else mtok["w"]
+            mtxt = mtok["w"].upper() if (primary_m in m_set and cfg["upper"]) else mtok["w"]
             mw_px = _measure(mtxt, is_main=True, custom_sz=inline_m_sz) * (fit_pct / 100.0)
             cx_m = safe_x
             if align_norm == "left":
-                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + _measure(" ", is_main=False) * primary_m
+                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + eff_sp_px * primary_m
                 cx_m = int(safe_x + left_w * (fit_pct / 100.0) + mw_px * 0.5)
             elif align_norm == "right":
-                right_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[primary_m + 1:], primary_m + 1)) + _measure(" ", is_main=False) * max(0, len(tokens) - primary_m - 1)
+                right_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[primary_m + 1:], primary_m + 1)) + eff_sp_px * max(0, len(tokens) - primary_m - 1)
                 cx_m = int(safe_x - right_w * (fit_pct / 100.0) - mw_px * 0.5)
             elif not solo_m:
-                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + _measure(" ", is_main=False) * primary_m
+                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + eff_sp_px * primary_m
                 cx_m = int(safe_x - half_w + left_w * (fit_pct / 100.0) + mw_px * 0.5)
             m_start_s = max(cap_s, float(mtok.get("s", cap_s)))
-            mt0s = _fmt_ass_time(m_start_s)
-            m_dur_ms = max(240, int((cap_e + 0.12 - m_start_s) * 1000))
-            emit_ass_graphic_fx(
-                events, row_fx, cx_m, y_row, mw_px, inline_m_sz * (fit_pct / 100.0),
-                mt0s, t1s, m_dur_ms, scale_f, accent_ass, gfx_cfg=gfx_cfg,
-            )
+            emit_ass_graphic_fx(events, row_fx, cx_m, y_row, mw_px, inline_m_sz * (fit_pct / 100.0), _fmt_ass_time(m_start_s), t1s, max(240, int((cap_e + 0.12 - m_start_s) * 1000)), scale_f, accent_ass, gfx_cfg=gfx_cfg)
+
+        def _join_row(ch_list, rst):
+            if space_sep_tag:
+                return f"{join_sp}{{{space_sep_tag}}}{join_sp}{{{rst}\\fsp{fsp_base}}}".join(ch_list)
+            return f"{join_sp}{{{rst}}}".join(ch_list)
 
         if has_main:
             solo_main_glow = (len(tokens) == 1)
-            glow_motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, is_glow=True, est_w_px=est_w, row_h_px=inline_m_sz)
+            glow_motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main_glow, target_scale=fit_pct, est_w_px=est_w, row_h_px=inline_m_sz)
             g_chunks = []
             for idx, w in enumerate(tokens):
                 is_m = idx in m_set
+                is_c = idx in c_set
                 txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
-                if is_m:
+                if is_m or (is_c and cine_glow):
                     rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-                    sw = _inline_switch(True, is_glow=True, main_sz_override=inline_m_sz)
+                    sw = _inline_switch(is_m, is_glow=True, main_sz_override=inline_m_sz, is_cine=is_c)
                     g_chunks.append(f"{{{sw}{_word_reveal(rel_ms, dur_ms, is_glow=True, is_main_tok=True)}}}{txt}")
                 else:
-                    sw = _inline_switch(False, is_glow=True, main_sz_override=inline_m_sz)
-                    g_chunks.append(f"{{{sw}}}{txt}")
-            glow_base_style = "MainGlow" if solo_main_glow else "Small"
-            glow_text = f" {{{_inline_switch(False, is_glow=True)}}}".join(g_chunks) if not solo_main_glow else g_chunks[0]
+                    g_chunks.append(f"{{{_inline_switch(False, is_glow=True)}}}{txt}")
+            glow_text = _join_row(g_chunks, _inline_switch(False, is_glow=True)) if not solo_main_glow else g_chunks[0]
             if row_fx != "pill":
-                events.append(
-                    f"Dialogue: 1,{t0s},{t1s},{glow_base_style},,0,0,0,,{{\\an{an_code}{glow_motion}\\blur{glow_blur}}}{glow_text}"
-                )
+                events.append(f"Dialogue: 1,{t0s},{t1s},{'MainGlow' if solo_main_glow else 'Small'},,0,0,0,,{{\\an{an_code}{glow_motion}\\blur{glow_blur}}}{glow_text}")
 
         solo_main = (has_main and len(tokens) == 1)
-        motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, is_glow=False, est_w_px=est_w, row_h_px=(inline_m_sz if has_main else s_size))
+        motion = _entry_motion(safe_x, y_row, dur_ms, is_main=solo_main, target_scale=fit_pct, est_w_px=est_w, row_h_px=(inline_m_sz if has_main else s_size))
         fg_chunks = []
         for idx, w in enumerate(tokens):
             is_m = idx in m_set
+            is_c = idx in c_set
             txt = w["w"].upper() if (is_m and cfg["upper"]) else w["w"]
             rel_ms = max(0, (float(w["s"]) - cap_s) * 1000)
-            rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=is_m)
-            if (has_main and not solo_main) or (is_m and row_fx == "pill"):
-                sw = _inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz)
-                fg_chunks.append(f"{{{sw}{rev}}}{txt}")
+            rev = _word_reveal(rel_ms, dur_ms, is_glow=False, is_main_tok=(is_m or is_c))
+            if (has_main and not solo_main) or (is_m and row_fx == "pill") or is_c:
+                fg_chunks.append(f"{{{_inline_switch(is_m, is_glow=False, main_sz_override=inline_m_sz, is_cine=is_c)}{rev}}}{txt}")
             else:
                 fg_chunks.append(f"{{{rev}}}{txt}")
 
         style_name = "Main" if solo_main else "Small"
-        layer_id = 2 if has_main else 0
-        fg_text = f" {{{_inline_switch(False, is_glow=False)}}}".join(fg_chunks) if (has_main and not solo_main) else " ".join(fg_chunks)
-        events.append(
-            f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an{an_code}{motion}\\blur0.7}}{fg_text}"
-        )
+        layer_id = 3 if c_set else (2 if has_main else 1)
+        fg_text = _join_row(fg_chunks, _inline_switch(False, is_glow=False)) if (has_main and not solo_main) else " ".join(fg_chunks)
+        events.append(f"Dialogue: {layer_id},{t0s},{t1s},{style_name},,0,0,0,,{{\\an{an_code}{motion}\\blur0.7}}{fg_text}")
 
     def _split_two_balanced(tokens, m_idx):
         n = len(tokens)
@@ -1219,16 +1320,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             r1, r2 = tokens[:k], tokens[k:]
             cost = abs(sum(len(t["w"]) for t in r1) - sum(len(t["w"]) for t in r2))
             if len(r1) == 1 and m_idx != 0:
-                cost += 25
+                cost += 30
             if len(r2) == 1 and m_idx != k:
-                cost += 25
+                cost += 30
             if k == m_idx or k == m_idx + 1:
                 cost -= 2
             if cost < best_cost:
                 best_cost, best_k = cost, k
         return tokens[:best_k], tokens[best_k:]
 
-    for c in captions:
+    for cap_idx, c in enumerate(captions):
         raw_text = (c.get("text") or "").strip()
         words = c.get("words") or []
         if not raw_text and not words:
@@ -1248,94 +1349,112 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             m_indices = [max(range(len(words)), key=lambda i: _word_score(words[i]))]
         m_set_all = set(m_indices)
         main_idx = m_indices[0] if m_indices else 0
+
+        # Resolve temporary Cinematic Word Highlight for this block (Layer 0 background dim synced to spoken word)
+        cine_set_all = set()
+        if c_mode == "manual" and (c.get("cine_indices") or c.get("cine_idx") is not None):
+            cine_set_all = set(c.get("cine_indices") or [int(c["cine_idx"])])
+        elif c_mode == "auto" and cap_idx in auto_cine_map:
+            cine_set_all = set(auto_cine_map[cap_idx])
+        cine_set_all = {i for i in cine_set_all if 0 <= i < len(words)}
+
+        if cine_set_all:
+            c_first = words[min(cine_set_all)]
+            c_last = words[max(cine_set_all)]
+            cw_s = max(0.0, float(c_first.get("s", cap_s)))
+            cw_e = max(cw_s + 0.25, float(c_last.get("e", cw_s + 0.45)))
+            dim_s = max(0.0, cw_s - cine_tr_s)
+            dim_e = cw_e + cine_pad_s + cine_tr_s
+            tot_ms = max(280, int((dim_e - dim_s) * 1000))
+            tr_ms = min(tot_ms // 3, int(cine_tr_s * 1000))
+            out_ms = max(tr_ms + 40, tot_ms - tr_ms)
+            events.append(
+                f"Dialogue: 0,{_fmt_ass_time(dim_s)},{_fmt_ass_time(dim_e)},Main,,0,0,0,,"
+                f"{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&HFF&\\bord0\\shad0"
+                f"\\t(0,{tr_ms},0.45,\\1a{dim_ass_alpha})\\t({out_ms},{tot_ms},2.0,\\1a&HFF&)}}"
+                f"m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}"
+            )
+
         cap_fx = c.get("graphic_fx") or active_fx
         if cap_fx == "bar":
             cap_fx = "pill"
 
-        # Editorial Serif fullscreen scene backdrop when explicitly enabled or full-sentence punctuation matches
-        is_full_bg = (fullscreen_mode == "on") or bool(c.get("fullscreen")) or (
-            cfg.get("fullscreen_backdrop") and fullscreen_mode != "off" and len(words) <= 3 and ("." in raw_text or "!" in raw_text)
-        )
-        if is_full_bg:
-            events.append(
-                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&H42&\\bord0\\shad0}}m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}"
-            )
+        if fullscreen_mode == "on" or bool(c.get("fullscreen")):
+            events.append(f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&H42&\\bord0\\shad0}}m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}")
 
-        # Layered Typography background depth echo behind foreground text
         if cfg.get("layered_overlap") and words:
             bg_word = words[main_idx]["w"].upper()
             bg_sz = int(m_size * 1.65)
-            bg_y = max(int(height * 0.16), pos_y - int(m_size * 0.12))
-            events.append(
-                f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,"
-                f"{{\\an5\\pos({pos_x},{bg_y})\\fn{cfg['main_font']}\\fs{bg_sz}\\b-1\\1c&HFFFFFF&\\1a&HC4&\\bord0\\shad0\\blur2.4}}{bg_word}"
-            )
+            bg_y = max(int(height * 0.14), pos_y - int(m_size * 0.10))
+            events.append(f"Dialogue: 1,{t0s},{t1s},Main,,0,0,0,,{{\\an5\\pos({pos_x},{bg_y})\\fn{cfg['main_font']}\\fs{bg_sz}\\b-1\\1c&HFFFFFF&\\1a&HC4&\\bord0\\shad0\\blur2.4}}{bg_word}")
+
+        fx_extra = int(m_size * (0.18 if cap_fx in ("circle", "circle-open", "circle-ring", "hand-circle", "pill", "hand-mark", "arrow", "arrow-curved", "arrow-straight", "arrow-angled") else 0.10 if cap_fx in ("underline", "underline-double", "hand-underline") else 0.0))
 
         # Manual line breaks using '|' or newline
         if "|" in raw_text or "\n" in raw_text:
             parts = [p.strip().split() for p in re.split(r"[|\n]+", raw_text) if p.strip()]
-            cursor = 0
-            n_rows = len(parts)
-            step_y = int((m_size * 0.56 + s_size * 0.44) * line_mult)
-            y_start = pos_y - int(((n_rows - 1) * step_y) / 2)
-            for r_idx, ptoks in enumerate(parts):
+            cursor, rows_data, row_hs = 0, [], []
+            for ptoks in parts:
                 cnt = len(ptoks)
-                row_tokens = words[cursor:cursor + cnt] if cursor + cnt <= len(words) else [{"w": t, "s": cap_s, "e": cap_e} for t in ptoks]
-                row_m = {j for j in range(len(row_tokens)) if (cursor + j) in m_set_all}
-                _emit_mixed_line(row_tokens, pos_x, y_start + r_idx * step_y, cap_s, cap_e, t0s, t1s, main_local_set=row_m, inline_main_scale=0.92 if len(row_tokens) > 1 else 1.0, row_fx=cap_fx)
+                rtok = words[cursor:cursor + cnt] if cursor + cnt <= len(words) else [{"w": t, "s": cap_s, "e": cap_e} for t in ptoks]
+                rm = {j for j in range(len(rtok)) if (cursor + j) in m_set_all}
+                rc = {j for j in range(len(rtok)) if (cursor + j) in cine_set_all}
+                sc_inline = 0.92 if len(rtok) > 1 else 1.0
+                rows_data.append((rtok, rm, rc, sc_inline))
+                row_hs.append(_row_visual_h(rtok, rm, int(m_size * sc_inline)))
                 cursor += cnt
+            for (rtok, rm, rc, sc_inline), ry in zip(rows_data, _stack_rows_y(row_hs, pos_y, fx_extra)):
+                _emit_mixed_line(rtok, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=rm, inline_main_scale=sc_inline, row_fx=cap_fx, cine_local_set=rc)
             continue
 
         if req_lines == 1 or len(words) == 1:
-            _emit_mixed_line(words, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx)
+            [ry] = _stack_rows_y([_row_visual_h(words, m_set_all, int(m_size * 0.88))], pos_y, 0)
+            _emit_mixed_line(words, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx, cine_local_set=cine_set_all)
             continue
 
-        before = words[:main_idx]
-        main_w = [words[main_idx]]
-        after = words[main_idx + 1:]
-        upper_main = cfg["upper"]
-        fx_pad = int(m_size * (0.20 if cap_fx in ("circle", "pill", "arrow") else 0.12 if cap_fx == "underline" else 0.0))
-        mb_has = any(i < len(before) for i in m_set_all)
-        ma_has = any(i > main_idx for i in m_set_all)
-        top_offset = int(((m_size * 0.44 + (m_size * 0.34 if mb_has else s_size * 0.32))) * line_mult) + fx_pad
-        bot_offset = int(((m_size * (0.42 if upper_main else 0.46) + (m_size * 0.36 if ma_has else s_size * 0.35))) * line_mult) + fx_pad
-        top_2_above = int((m_size * 0.28 + s_size * 0.32) * line_mult) + fx_pad
-        bot_2_below = int(m_size * 0.16 * line_mult) + fx_pad
-        top_2_main = int(m_size * 0.16 * line_mult) + fx_pad
-        bot_2_after = int((m_size * (0.24 if upper_main else 0.28) + s_size * 0.36) * line_mult) + fx_pad
+        before, main_w, after = words[:main_idx], [words[main_idx]], words[main_idx + 1:]
 
         if req_lines >= 3 and before and after:
             orphan_before = (len(before) == 1 and len(before[0]["w"]) <= 4 and len(after) >= 2)
             orphan_after = (len(after) == 1 and len(after[0]["w"]) <= 4 and len(before) >= 2)
             if orphan_before or orphan_after:
                 r1, r2 = _split_two_balanced(words, main_idx)
-                m1 = {i for i in m_set_all if i < len(r1)}
-                m2 = {i - len(r1) for i in m_set_all if i >= len(r1)}
-                _emit_mixed_line(r1, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=0.92 if m1 else 1.0, row_fx=cap_fx)
-                _emit_mixed_line(r2, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=0.92 if m2 else 1.0, row_fx=cap_fx)
+                m1, m2 = {i for i in m_set_all if i < len(r1)}, {i - len(r1) for i in m_set_all if i >= len(r1)}
+                c1, c2 = {i for i in cine_set_all if i < len(r1)}, {i - len(r1) for i in cine_set_all if i >= len(r1)}
+                s1, s2 = (0.92 if m1 else 1.0), (0.92 if m2 else 1.0)
+                ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
+                _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1)
+                _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2)
             else:
-                mb = {i for i in m_set_all if i < len(before)}
-                ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
-                _emit_mixed_line(before, pos_x, pos_y - top_offset, cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx)
-                _emit_mixed_line(main_w, pos_x, pos_y, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
-                _emit_mixed_line(after, pos_x, pos_y + bot_offset, cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx)
+                mb, ma = {i for i in m_set_all if i < len(before)}, {i - (main_idx + 1) for i in m_set_all if i > main_idx}
+                cb, ca = {i for i in cine_set_all if i < len(before)}, {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
+                cm = {0} if main_idx in cine_set_all else set()
+                ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
+                _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, inline_main_scale=0.94 if mb else 1.0, row_fx=cap_fx, cine_local_set=cb)
+                _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
+                _emit_mixed_line(after, pos_x, ys[2], cap_s, cap_e, t0s, t1s, main_local_set=ma, inline_main_scale=0.94 if ma else 1.0, row_fx=cap_fx, cine_local_set=ca)
         elif req_lines == 2:
             r1, r2 = _split_two_balanced(words, main_idx)
-            m1 = {i for i in m_set_all if i < len(r1)}
-            m2 = {i - len(r1) for i in m_set_all if i >= len(r1)}
-            y1 = pos_y - (top_2_main if (0 in m1 and len(r1) == 1) else top_2_above)
-            y2 = pos_y + (bot_2_below if (0 in m2 and len(r2) == 1) else bot_2_after)
-            _emit_mixed_line(r1, pos_x, y1, cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=0.94 if m1 else 1.0, row_fx=cap_fx)
-            _emit_mixed_line(r2, pos_x, y2, cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=0.94 if m2 else 1.0, row_fx=cap_fx)
+            m1, m2 = {i for i in m_set_all if i < len(r1)}, {i - len(r1) for i in m_set_all if i >= len(r1)}
+            c1, c2 = {i for i in cine_set_all if i < len(r1)}, {i - len(r1) for i in cine_set_all if i >= len(r1)}
+            s1, s2 = (0.94 if m1 else 1.0), (0.94 if m2 else 1.0)
+            ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
+            _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1)
+            _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2)
         elif before:
             mb = {i for i in m_set_all if i < len(before)}
-            _emit_mixed_line(before, pos_x, pos_y - top_2_above, cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx)
-            _emit_mixed_line(main_w, pos_x, pos_y + bot_2_below, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
+            cb = {i for i in cine_set_all if i < len(before)}
+            cm = {0} if main_idx in cine_set_all else set()
+            ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size)], pos_y, fx_extra)
+            _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx, cine_local_set=cb)
+            _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
         else:
             ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
-            _emit_mixed_line(main_w, pos_x, pos_y - top_2_main, cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx)
-            _emit_mixed_line(after, pos_x, pos_y + bot_2_after, cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx)
+            ca = {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
+            cm = {0} if main_idx in cine_set_all else set()
+            ys = _stack_rows_y([_row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
+            _emit_mixed_line(main_w, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
+            _emit_mixed_line(after, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx, cine_local_set=ca)
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
@@ -1552,16 +1671,20 @@ def render_video(
             ty = f"{int(h_even * float(comp.get('y', 18))/100.0)}"
             comp_stages.append(("overlay_png", c_idx, cs, cd, anim_in, anim_out, anim_dur, anim_int, tx, ty))
         elif ctype in ("stacked-cards", "visual-storytelling"):
-            angles = (-4.5, 3.5, 0.0) if ctype == "stacked-cards" else (-2.0, 2.0, 0.0)
+            angles = (-4.5, 3.5, -1.5, 2.5) if ctype == "stacked-cards" else (-2.0, 2.0, 0.0, 0.0)
             labels = list(comp.get("labels") or [])
             base_x = float(comp.get("x", 10 if ctype == "stacked-cards" else 8))
             base_y = float(comp.get("y", 14))
-            for li, mitem in enumerate((media_list or [{"path": None}])[:3]):
+            sc_mult = max(0.55, min(1.35, float(comp.get("scale") or 48) / 48.0)) if ctype == "stacked-cards" else 1.0
+            stack_gap = max(6.0, min(26.0, float(comp.get("stack_gap") or 14.0)))
+            max_items = max(2, min(4, int(comp.get("stack_count") or len(media_list) or 3))) if ctype == "stacked-cards" else 3
+            items_src = (media_list or [{"path": None}])[:max_items]
+            for li, mitem in enumerate(items_src):
                 m_src = mitem.get("path")
                 if m_src and not Path(m_src).exists():
                     continue
                 is_story_main = (ctype == "visual-storytelling" and li == 0)
-                c_w = max(200, int(w_even * (0.64 if is_story_main else (0.48 if ctype == "stacked-cards" else 0.36))))
+                c_w = max(180, int(w_even * (0.64 if is_story_main else (0.48 * sc_mult if ctype == "stacked-cards" else 0.36))))
                 c_w -= c_w % 2
                 c_png = Path(out_path).parent / f"stack_{ci_m}_{li}_{uuid.uuid4().hex[:6]}.png"
                 sub_lbl = labels[li] if li < len(labels) else (comp.get("subtitle") or "" if li == 0 else "")
@@ -1579,8 +1702,8 @@ def render_video(
                 extra_inputs += ["-loop", "1", "-i", str(c_png)]
                 st_delay = li * 0.24
                 if ctype == "stacked-cards":
-                    px_pct = min(65.0, base_x + li * 16.0)
-                    py_pct = min(56.0, base_y + li * 12.0)
+                    px_pct = min(65.0, base_x + li * stack_gap)
+                    py_pct = min(56.0, base_y + li * (stack_gap * 0.78))
                 else:
                     slots = [(8.0, 10.0), (54.0, 14.0), (52.0, 38.0)]
                     px_pct, py_pct = slots[li % len(slots)]
@@ -1589,6 +1712,8 @@ def render_video(
                 in_k = "slide-left" if (li % 2 == 1 and anim_in == "stagger") else ("slide-right" if anim_in == "stagger" else anim_in)
                 comp_stages.append(("overlay_png", c_idx, cs + st_delay, max(1.0, cd - st_delay), in_k, anim_out, anim_dur, anim_int, tx, ty))
         elif ctype == "floating-media":
+            aspect_mode = (comp.get("aspect") or "landscape").lower()
+            h_ratio = 0.56 if aspect_mode == "landscape" else (1.0 if aspect_mode == "square" else 1.45)
             for fi, mitem in enumerate(media_list[:4]):
                 mp = mitem.get("path")
                 if not mp or not Path(mp).exists():
@@ -1599,7 +1724,7 @@ def render_video(
                 extra_inputs += (["-loop", "1", "-i", str(mp)] if is_img else ["-i", str(mp)])
                 sc_p = float(comp.get("scale") or 40) / 100.0
                 bw = max(160, int(w_even * sc_p))
-                bh = max(140, int(h_even * sc_p * 0.56))
+                bh = max(140, int(bw * h_ratio))
                 bw -= bw % 2
                 bh -= bh % 2
                 st_delay = fi * 0.20 if anim_in == "stagger" else 0.0
