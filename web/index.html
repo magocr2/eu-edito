@@ -31,20 +31,20 @@
       <button type="button" id="closeIosHint" aria-label="Fechar">✕</button>
     </div>
 
-    <!-- STEPPER — 6 etapas -->
+    <!-- STEPPER — 6 etapas profissionais -->
     <nav id="wizardStepper" class="wizard-stepper" aria-label="Etapas de edição">
-      <button type="button" class="ws-pill is-active" data-step="1"><span>1</span>Vídeo</button>
-      <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Decupagem</button>
-      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Legenda</button>
+      <button type="button" class="ws-pill is-active" data-step="1"><span>1</span>Vídeos</button>
+      <button type="button" class="ws-pill" data-step="2" disabled><span>2</span>Transcrição</button>
+      <button type="button" class="ws-pill" data-step="3" disabled><span>3</span>Legendas</button>
       <button type="button" class="ws-pill" data-step="4" disabled><span>4</span>Efeitos</button>
-      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>Revisar</button>
+      <button type="button" class="ws-pill" data-step="5" disabled><span>5</span>B-rolls</button>
       <button type="button" class="ws-pill" data-step="6" disabled><span>6</span>Exportar</button>
     </nav>
 
     <main class="feed">
       <div class="workspace-grid">
         <div class="workspace-left">
-      <!-- PRÉVIA SINCRONIZADA (oculta nas Etapas 1 e 2) -->
+      <!-- PRÉVIA PERSISTENTE (compartilhada da Etapa 2 em diante) -->
       <section id="previewCard" class="card preview-card" hidden>
         <div class="pv-top-bar">
           <span class="pv-title">Prévia em Tempo Real</span>
@@ -94,7 +94,15 @@
           </div>
         </div>
 
-        <!-- LINHA DO TEMPO SINCRONIZADA (exibida quando houver transcrição) -->
+        <!-- CONTROLES RÁPIDOS DO PLAYER PERSISTENTE -->
+        <div id="pvTransportBar" class="pv-transport">
+          <button type="button" id="pvBack2Btn" class="mini-pill-btn" title="Voltar 2s">↺ -2s</button>
+          <button type="button" id="pvPlayPauseBtn" class="mini-pill-btn pv-play-btn">▶ Reproduzir</button>
+          <button type="button" id="pvFwd2Btn" class="mini-pill-btn" title="Avançar 2s">+2s ↻</button>
+          <span id="pvTimeReadout" class="pv-time-readout">00:00 / 00:00</span>
+        </div>
+
+        <!-- LINHA DO TEMPO SINCRONIZADA -->
         <div id="syncTimelineBox" class="sync-timeline" hidden>
           <div class="stl-head">
             <strong>⏱️ Linha do Tempo Sincronizada</strong>
@@ -106,13 +114,13 @@
         </div>
         <div class="workspace-right">
 
-      <!-- ETAPA 1: Selecionar Vídeo (sem preview) -->
+      <!-- ETAPA 1: Vídeos (Envio, Sequência e Modos Rápidos) -->
       <section class="card wizard-step" data-step="1">
         <div class="hero-card" style="padding: 4px 0 14px">
           <h1>Edição profissional, <em>pronta para postar</em></h1>
-          <p>Selecione seu vídeo e escolha se quer edição <b>Automática</b>, <b>Modo Rápido</b> ou <b>Personalizada</b>.</p>
+          <p>Envie um ou mais vídeos na sequência desejada e siga pelo fluxo profissional ou pelos atalhos inteligentes.</p>
         </div>
-        <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeos</h2></div>
+        <div class="step-head"><span class="badge">1</span><h2>Vídeos do Projeto</h2></div>
         <label class="upload-box" id="uploadBox">
           <input type="file" id="videoFile" accept="video/*" multiple hidden>
           <span class="upload-icon">🎬</span>
@@ -128,17 +136,17 @@
             </div>
           </div>
           <div id="videoQueueList" class="vq-list"></div>
-          <button type="button" id="step1NextBtn" class="primary-btn" style="margin-top:10px">Avançar para Decupagem →</button>
+          <button type="button" id="step1NextBtn" class="primary-btn" style="margin-top:10px">Avançar: Decupagem &amp; Transcrição →</button>
         </div>
       </section>
 
-      <!-- ETAPA 2: Decupagem + Modos Rápidos -->
+      <!-- ETAPA 2: Decupagem e Transcrição (Base da Edição) -->
       <section class="card wizard-step" data-step="2" hidden>
-        <!-- Modos Rápidos (Automático / Rápido) -->
+        <!-- Atalhos de Edição Inteligente -->
         <div class="mode-banner" id="modeBanner">
           <div class="mode-banner-head">
             <strong>⚡ Atalhos de Edição Inteligente</strong>
-            <small>Quer o vídeo pronto sem configurar etapa por etapa?</small>
+            <small>Prefere que o app decupe, legende e entregue pronto em 1 clique?</small>
           </div>
           <div class="mode-actions">
             <button type="button" id="autoModeBtn" class="mode-btn mode-btn-auto">
@@ -152,10 +160,9 @@
           </div>
         </div>
 
-        <div class="step-head" style="margin-top:14px"><span class="badge">2</span><h2>Decupagem Automática</h2></div>
-        <p class="review-hint">Configure como o app vai cortar pausas, silêncios e vícios de fala do seu vídeo.</p>
+        <div class="step-head" style="margin-top:14px"><span class="badge">2</span><h2>Decupagem &amp; Transcrição</h2></div>
+        <p class="review-hint">Configure a decupagem e processe a transcrição. As palavras selecionadas ficam salvas para aplicar efeitos e B-rolls nas próximas etapas.</p>
 
-        <!-- Decupagem -->
         <label class="toggle-row">
           <div><strong>Decupagem automática</strong><small>Corta pausas, silêncios e vícios de fala</small></div>
           <span class="switch"><input type="checkbox" id="cutsToggle" checked><span class="slider"></span></span>
@@ -168,15 +175,40 @@
           </div>
         </div>
 
-        <div class="step-nav" style="margin-top:16px">
-          <button type="button" class="secondary-btn" data-prev="1">← Trocar vídeo</button>
-          <button type="button" class="primary-btn" data-next="3">Próximo: Legenda →</button>
+        <button type="button" id="transcribeBtn" class="primary-btn" style="margin-top:12px">🎙️ Transcrever &amp; Decupar Vídeo</button>
+
+        <!-- Central de Transcrição (Cards) -->
+        <section id="reviewCard" style="margin-top:14px" hidden>
+          <div class="step-head" style="margin-bottom:6px">
+            <span class="badge">✓</span>
+            <div>
+              <h2 style="font-size:14px">Transcrição &amp; Seleção de Trechos</h2>
+              <small id="reviewAnalysisSummary" style="display:block;font-size:11px;color:var(--green-bright)"></small>
+            </div>
+          </div>
+          <div id="selectionBanner" class="selection-banner" hidden>
+            <span id="selectionBannerText">Nenhuma palavra selecionada</span>
+          </div>
+          <p class="review-hint">Toque nas palavras para selecionar (1 palavra ou expressão completa). Sua seleção acompanha você até a etapa de <b>Efeitos</b> e <b>B-rolls</b>.</p>
+          <div class="review-toolbar">
+            <button type="button" id="applyAutoSuggestionsBtn" class="mini-pill-btn">✨ Aplicar sugestões</button>
+            <button type="button" id="prevCardBtn" class="mini-pill-btn">← Card anterior</button>
+            <button type="button" id="nextCardBtn" class="mini-pill-btn">Próximo card →</button>
+          </div>
+          <div id="captionEditorList" class="caption-editor-list"></div>
+        </section>
+
+        <div class="step-nav" style="margin-top:14px">
+          <button type="button" class="secondary-btn" data-prev="1">← Vídeos</button>
+          <button type="button" class="primary-btn" data-next="3">Próximo: Legendas →</button>
         </div>
       </section>
 
-      <!-- ETAPA 3: Modelo de Legenda + Cor e Posição -->
+      <!-- ETAPA 3: Legendas (Exclusiva para Modelo Geral, Fonte, Cores, Posição, Linhas e Animações) -->
       <section class="card wizard-step" data-step="3" hidden>
-        <div class="step-head"><span class="badge">3</span><h2>Modelo de Legenda</h2></div>
+        <div class="step-head"><span class="badge">3</span><h2>Legendas (Modelo Geral)</h2></div>
+        <p class="review-hint">Configure o estilo visual global das legendas. Efeitos individuais por palavra ficam na próxima etapa.</p>
+
         <div class="cat-tabs cat-tabs-3" id="catTabs">
           <button type="button" class="cat-tab is-active" data-cat="traditional">🏛️ Tradicionais</button>
           <button type="button" class="cat-tab" data-cat="dynamic">⚡ Dinâmicas</button>
@@ -260,8 +292,7 @@
         </div>
 
         <!-- Cores & Posição -->
-        <div class="step-head" style="margin-top:14px;margin-bottom:8px"><span class="badge" style="background:linear-gradient(135deg,#f472b6,#ec4899)">🎨</span><h2 style="font-size:13.5px">Cores &amp; Posição</h2></div>
-        <div class="row-2">
+        <div class="row-2" style="margin-top:10px">
           <div class="field">
             <span class="color-head"><label for="customColorToggle">Cor destaque</label><input type="checkbox" id="customColorToggle" checked></span>
             <input type="color" id="accentColor" value="#22C55E" aria-label="Cor de destaque">
@@ -286,18 +317,8 @@
           </div>
         </div>
 
-        <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="2">← Decupagem</button>
-          <button type="button" class="primary-btn" data-next="4">Próximo: Fonte &amp; Efeitos →</button>
-        </div>
-      </section>
-
-      <!-- ETAPA 4: Fonte, Linhas, Efeitos Gráficos e Holofote -->
-      <section class="card wizard-step" data-step="4" hidden>
-        <div class="step-head"><span class="badge">4</span><h2>Fonte &amp; Efeitos</h2></div>
-
         <!-- Fontes -->
-        <div class="row-2">
+        <div class="row-2" style="margin-top:10px">
           <label class="field">
             <span>Fonte do destaque</span>
             <select id="fontSelect">
@@ -334,7 +355,7 @@
 
         <!-- Avançado (espaçamentos, contorno) -->
         <details class="adv-details" style="margin-top:10px">
-          <summary class="adv-summary">⚙️ Configurações avançadas de fonte</summary>
+          <summary class="adv-summary">⚙️ Espaçamentos, contorno e sombra</summary>
           <div class="props-panel" style="margin-top:8px">
             <div class="row-2">
               <label class="field"><span>Entrelinha (<b id="lineSpVal">1.0x</b>)</span><input type="range" id="lineSpacing" min="0.75" max="1.45" step="0.05" value="1.0"></label>
@@ -348,13 +369,14 @@
         </details>
 
         <!-- Quebra de Linhas -->
-        <div class="step-head" style="margin-top:14px;margin-bottom:6px"><span class="badge" style="background:linear-gradient(135deg,#60a5fa,#3b82f6)">≡</span><h2 style="font-size:13.5px">Quebra de Linhas</h2></div>
-        <div class="res-grid" id="linesGrid">
-          <button type="button" class="res-pill" data-lines="1"><strong>1 linha</strong><small>Compacta</small></button>
-          <button type="button" class="res-pill" data-lines="2"><strong>2 linhas</strong><small>Equilibrada</small></button>
-          <button type="button" class="res-pill is-active" data-lines="3"><strong>2 ou 3 linhas</strong><small>Editorial</small></button>
+        <div class="res-section" style="margin-top:12px">
+          <span class="res-label">Quebra de linhas (nunca deixa palavra isolada)</span>
+          <div class="res-grid" id="linesGrid">
+            <button type="button" class="res-pill" data-lines="1"><strong>1 linha</strong><small>Compacta</small></button>
+            <button type="button" class="res-pill" data-lines="2"><strong>2 linhas</strong><small>Equilibrada</small></button>
+            <button type="button" class="res-pill is-active" data-lines="3"><strong>2 ou 3 linhas</strong><small>Editorial</small></button>
+          </div>
         </div>
-        <small class="step-hint" style="margin-top:4px;display:block;color:var(--muted)">Regra automática: nunca deixa palavra isolada sozinha em uma linha.</small>
 
         <!-- Animações -->
         <div class="props-panel" style="margin-top:10px">
@@ -385,8 +407,33 @@
           <button type="button" id="animReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px">▶ Visualizar Entrada + Saída</button>
         </div>
 
-        <!-- Efeitos Gráficos -->
-        <div class="step-head" style="margin-top:14px;margin-bottom:6px"><span class="badge" style="background:linear-gradient(135deg,#60a5fa,#3b82f6)">✏️</span><h2 style="font-size:13.5px">Efeito Gráfico no Destaque</h2></div>
+        <div class="step-nav" style="margin-top:14px">
+          <button type="button" class="secondary-btn" data-prev="2">← Transcrição</button>
+          <button type="button" class="primary-btn" data-next="4">Próximo: Destaques &amp; Efeitos →</button>
+        </div>
+      </section>
+
+      <!-- ETAPA 4: Destaques e Efeitos Gráficos (Exclusiva para palavras/expressões) -->
+      <section class="card wizard-step" data-step="4" hidden>
+        <div class="step-head"><span class="badge">4</span><h2>Destaques &amp; Efeitos</h2></div>
+        <p class="review-hint">Aplique sublinhados, círculos, setas ou holofote sobre palavras específicas sem alterar o modelo global da legenda.</p>
+
+        <!-- Seleção recuperada da transcrição ou escolha direta -->
+        <div id="fxSelectionBox" class="props-panel" style="margin-bottom:10px;border-color:rgba(34,197,94,0.35)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+            <strong style="font-size:12px;color:var(--green-bright)">🎯 Trecho Selecionado</strong>
+            <span id="fxSelectionTime" style="font-size:11px;color:var(--muted)">Sem transcrição</span>
+          </div>
+          <div id="fxSelectionText" style="font-size:12.5px;font-weight:700;margin-bottom:6px">Transcreva o vídeo na Etapa 2 para aplicar efeitos por palavra, ou configure o padrão global abaixo.</div>
+          <div id="fxQuickCardPicker" hidden>
+            <label class="field"><span>Escolher outro bloco da transcrição</span>
+              <select id="fxCardSelect"></select>
+            </label>
+            <div id="fxWordChipsRow" class="cap-word-chips" style="padding-left:0;margin-top:6px"></div>
+          </div>
+        </div>
+
+        <!-- Biblioteca Visual de Efeitos -->
         <div class="cat-tabs cat-tabs-4" id="gfxCatTabs">
           <button type="button" class="cat-tab is-active" data-gcat="lines">➖ Linhas</button>
           <button type="button" class="cat-tab" data-gcat="circles">⭕ Circulares</button>
@@ -395,27 +442,28 @@
         </div>
         <div class="style-grid" id="highlightFxGrid">
           <!-- Linhas -->
-          <button type="button" class="style-pill is-active" data-gcat="lines" data-fx="auto"><span class="mini-sample">Auto do <b>modelo</b></span><strong>Automático</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="none"><span class="mini-sample">Sem traço</span><strong>Nenhum</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline"><span class="mini-sample"><b class="ms-ul">Sublinhado</b></span><strong>Animated Underline</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline-double"><span class="mini-sample"><b class="ms-ul2">Duplo</b></span><strong>Sublinhado Duplo</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike"><span class="mini-sample"><b class="ms-strike">Riscado</b></span><strong>Strike Horizontal</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike-diag"><span class="mini-sample"><b class="ms-strike-d">Diagonal</b></span><strong>Strike Diagonal</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="top-bar-line"><span class="mini-sample"><b class="ms-top">Linha Topo</b></span><strong>Linha Superior</strong></button>
-          <button type="button" class="style-pill" data-gcat="lines" data-fx="pill"><span class="mini-sample"><b class="ms-bar">Faixa</b></span><strong>Faixa Highlight</strong></button>
+          <button type="button" class="style-pill is-active" data-gcat="lines" data-fx="auto"><span class="mini-sample">Auto do <b>modelo</b></span><strong>Automático</strong><small class="pill-sub">Padrão global</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="none"><span class="mini-sample">Sem traço</span><strong>Nenhum</strong><small class="pill-sub">Limpo</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline"><span class="mini-sample"><b class="ms-ul">Sublinhado</b></span><strong>Animated Underline</strong><small class="pill-sub">Linha animada</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="underline-double"><span class="mini-sample"><b class="ms-ul2">Duplo</b></span><strong>Sublinhado Duplo</strong><small class="pill-sub">2 traços</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike"><span class="mini-sample"><b class="ms-strike">Riscado</b></span><strong>Strike Horizontal</strong><small class="pill-sub">Corte central</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="strike-diag"><span class="mini-sample"><b class="ms-strike-d">Diagonal</b></span><strong>Strike Diagonal</strong><small class="pill-sub">Risco diagonal</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="top-bar-line"><span class="mini-sample"><b class="ms-top">Linha Topo</b></span><strong>Linha Superior</strong><small class="pill-sub">Ênfase acima</small></button>
+          <button type="button" class="style-pill" data-gcat="lines" data-fx="pill"><span class="mini-sample"><b class="ms-bar">Faixa</b></span><strong>Faixa Highlight</strong><small class="pill-sub">Fundo colorido</small></button>
           <!-- Circulares -->
-          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle" hidden><span class="mini-sample"><b class="ms-circle">360°</b></span><strong>Circle Highlight</strong></button>
-          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-open" hidden><span class="mini-sample"><b class="ms-circle-open">Aberto</b></span><strong>Círculo Incompleto</strong></button>
-          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-ring" hidden><span class="mini-sample"><b class="ms-ring">Anel</b></span><strong>Anel Duplo</strong></button>
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle" hidden><span class="mini-sample"><b class="ms-circle">360°</b></span><strong>Circle Highlight</strong><small class="pill-sub">Círculo completo</small></button>
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-open" hidden><span class="mini-sample"><b class="ms-circle-open">Aberto</b></span><strong>Círculo Incompleto</strong><small class="pill-sub">Contorno aberto</small></button>
+          <button type="button" class="style-pill" data-gcat="circles" data-fx="circle-ring" hidden><span class="mini-sample"><b class="ms-ring">Anel</b></span><strong>Anel Duplo</strong><small class="pill-sub">Dupla volta</small></button>
           <!-- Desenhados -->
-          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-circle" hidden><span class="mini-sample"><b class="ms-hand-c">À mão</b></span><strong>Círculo à Mão</strong></button>
-          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-underline" hidden><span class="mini-sample"><b class="ms-hand-u">Caneta</b></span><strong>Sublinhado Manual</strong></button>
-          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-mark" hidden><span class="mini-sample"><b class="ms-hand-m">Grifo</b></span><strong>Grifo Pincel</strong></button>
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-circle" hidden><span class="mini-sample"><b class="ms-hand-c">À mão</b></span><strong>Círculo à Mão</strong><small class="pill-sub">Traço orgânico</small></button>
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-underline" hidden><span class="mini-sample"><b class="ms-hand-u">Caneta</b></span><strong>Sublinhado Manual</strong><small class="pill-sub">Caneta livre</small></button>
+          <button type="button" class="style-pill" data-gcat="handdrawn" data-fx="hand-mark" hidden><span class="mini-sample"><b class="ms-hand-m">Grifo</b></span><strong>Grifo Pincel</strong><small class="pill-sub">Marca-texto</small></button>
           <!-- Setas -->
-          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-curved" hidden><span class="mini-sample"><span style="color:#f472b6">↪</span> <b>Curva</b></span><strong>Seta Curva</strong></button>
-          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-straight" hidden><span class="mini-sample"><span style="color:#38bdf8">→</span> <b>Reta</b></span><strong>Seta Reta</strong></button>
-          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-angled" hidden><span class="mini-sample"><span style="color:#facc15">↳</span> <b>Angular</b></span><strong>Seta Angular</strong></button>
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-curved" hidden><span class="mini-sample"><span style="color:#f472b6">↪</span> <b>Curva</b></span><strong>Seta Curva</strong><small class="pill-sub">Apontador curvo</small></button>
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-straight" hidden><span class="mini-sample"><span style="color:#38bdf8">→</span> <b>Reta</b></span><strong>Seta Reta</strong><small class="pill-sub">Apontador direto</small></button>
+          <button type="button" class="style-pill" data-gcat="arrows" data-fx="arrow-angled" hidden><span class="mini-sample"><span style="color:#facc15">↳</span> <b>Angular</b></span><strong>Seta Angular</strong><small class="pill-sub">Apontador 90°</small></button>
         </div>
+
         <div id="gfxPropsBox" class="props-panel">
           <div class="row-2">
             <label class="field"><span>Cor do traço</span><input type="color" id="gfxColor" value="#FACC15"></label>
@@ -427,7 +475,7 @@
           </div>
           <div class="row-2" style="margin-top:8px">
             <label class="field"><span>Posição vertical (<b id="gfxPosYVal">0px</b>)</span><input type="range" id="gfxPosY" min="-20" max="20" step="2" value="0"></label>
-            <label class="field"><span>Direção</span>
+            <label class="field" id="gfxDirField"><span>Direção</span>
               <select id="gfxDirection">
                 <option value="ltr">Esq → Dir</option><option value="rtl">Dir → Esq</option>
                 <option value="left">Seta Esquerda</option><option value="right">Seta Direita</option>
@@ -439,6 +487,16 @@
             <label class="field"><span>Saída</span><select id="gfxAnimOut"><option value="fade-out">Fade Out suave</option><option value="none">Corte direto</option></select></label>
             <div class="field" style="justify-content:center"><button type="button" id="gfxReplayBtn" class="media-preview-btn" style="padding:10px">▶ Rever traço</button></div>
           </div>
+          <button type="button" id="applyCardFxBtn" class="primary-btn" style="margin-top:10px;padding:11px;font-size:13px">✓ Aplicar Efeito na Seleção</button>
+        </div>
+
+        <!-- Lista de Efeitos Aplicados -->
+        <div id="appliedEffectsBox" class="props-panel" style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <strong style="font-size:12.5px;color:var(--green-bright)">✨ Efeitos Aplicados ao Projeto</strong>
+            <span id="appliedEffectsCount" style="font-size:11px;color:var(--muted)">0</span>
+          </div>
+          <div id="appliedEffectsList" class="media-queue"></div>
         </div>
 
         <!-- Holofote Cinematográfico -->
@@ -450,7 +508,7 @@
             <select id="cineModeSelect">
               <option value="off">Desativado</option>
               <option value="auto">Automático moderado (momentos-chave)</option>
-              <option value="manual">Manual (escolha palavras na Revisão)</option>
+              <option value="manual">Manual (por seleção de palavras)</option>
             </select>
           </label>
           <div class="row-2" style="margin-top:8px">
@@ -468,47 +526,167 @@
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="cineGlowToggle" checked> Brilho foco</label>
             </div>
           </div>
-          <button type="button" id="cineReplayBtn" class="media-preview-btn" style="margin-top:8px;width:100%;padding:9px;border-color:rgba(250,204,21,0.45);color:#fde047">🎬 Simular Destaque Cinematográfico na Prévia</button>
+          <div class="row-2" style="margin-top:8px">
+            <button type="button" id="cineReplayBtn" class="media-preview-btn" style="padding:9px;border-color:rgba(250,204,21,0.45);color:#fde047">🎬 Simular na Prévia</button>
+            <button type="button" id="applyCineSelectionBtn" class="mini-pill-btn" style="padding:9px;border-color:rgba(250,204,21,0.45);color:#fde047">✓ Aplicar Holofote na Seleção</button>
+          </div>
         </div>
 
         <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="3">← Legenda</button>
-          <button type="button" class="primary-btn" data-next="5">Próximo: Revisar →</button>
+          <button type="button" class="secondary-btn" data-prev="3">← Legendas</button>
+          <button type="button" class="primary-btn" data-next="5">Próximo: B-rolls &amp; Mídias →</button>
         </div>
       </section>
 
-      <!-- ETAPA 5: Revisar — Transcrição + Central de Edição -->
+      <!-- ETAPA 5: B-rolls e Imagens de Apoio (Seção Exclusiva) -->
       <section class="card wizard-step" data-step="5" hidden>
-        <div class="step-head"><span class="badge">5</span><h2>Transcrição &amp; Edição</h2></div>
-        <p class="review-hint">Clique em <b>Transcrever &amp; Revisar</b> para processar o vídeo. Depois edite os cards, ajuste destaques, adicione holofote e B-rolls.</p>
+        <div class="step-head"><span class="badge">5</span><h2>B-rolls &amp; Imagens de Apoio</h2></div>
+        <p class="review-hint">Escolha um modelo, envie imagem ou vídeo, posicione na prévia real e clique em <b>CONFIRMAR B-ROLL</b> para salvar na timeline.</p>
 
-        <!-- Central de Transcrição (cards) — aparece após processar -->
-        <section id="reviewCard" hidden>
-          <div class="step-head" style="margin-top:4px;margin-bottom:8px">
-            <span class="badge">✓</span>
-            <div>
-              <h2 style="font-size:14px">Central de Transcrição &amp; Edição</h2>
-              <small id="reviewAnalysisSummary" style="display:block;font-size:11px;color:var(--green-bright)"></small>
+        <div id="brollSection">
+          <div class="cat-tabs cat-tabs-4" id="compCatTabs">
+            <button type="button" class="cat-tab is-active" data-ccat="floating">🖼️ Flutuantes</button>
+            <button type="button" class="cat-tab" data-ccat="cards">🪪 Cards Info</button>
+            <button type="button" class="cat-tab" data-ccat="stacked">🗂️ Empilhadas</button>
+            <button type="button" class="cat-tab" data-ccat="compositions">🎨 Composições</button>
+          </div>
+
+          <div class="style-grid" id="compAddGrid">
+            <!-- Flutuantes -->
+            <button type="button" class="style-pill" data-ccat="floating" data-comp="floating-media">
+              <span class="mini-sample"><span class="th-float">◻ Janela Livre</span></span>
+              <strong>+ Mídia Flutuante</strong><small class="pill-sub">Posição, proporção, borda e sombra</small>
+            </button>
+            <button type="button" class="style-pill" data-ccat="floating" data-broll-quick="1">
+              <span class="mini-sample"><span class="th-float">▤ B-roll Rápido</span></span>
+              <strong>+ B-roll Divisão/PiP</strong><small class="pill-sub">Topo, baixo ou canto arredondado</small>
+            </button>
+            <!-- Cards -->
+            <button type="button" class="style-pill" data-ccat="cards" data-comp="editorial-card" hidden>
+              <span class="mini-sample"><span class="th-card"><b>TAG</b> · Título</span></span>
+              <strong>+ Editorial Card</strong><small class="pill-sub">Fundo configurável + etiqueta + texto</small>
+            </button>
+            <button type="button" class="style-pill" data-ccat="cards" data-card-quick="1" hidden>
+              <span class="mini-sample"><span class="th-card">🖼️ Produto/PNG</span></span>
+              <strong>+ Card Recortado</strong><small class="pill-sub">Remove fundo sólido</small>
+            </button>
+            <!-- Empilhadas -->
+            <button type="button" class="style-pill" data-ccat="stacked" data-comp="stacked-cards" hidden>
+              <span class="mini-sample"><span class="th-stack">▤ 2–4 Fotos</span></span>
+              <strong>+ Imagens Empilhadas</strong><small class="pill-sub">Quantidade, espaçamento e sequência</small>
+            </button>
+            <!-- Composições -->
+            <button type="button" class="style-pill" data-ccat="compositions" data-comp="visual-storytelling" hidden>
+              <span class="mini-sample"><span class="th-story">◫ Infográfico</span></span>
+              <strong>+ Visual Storytelling</strong><small class="pill-sub">Imagem principal + apoios + texto</small>
+            </button>
+            <button type="button" class="style-pill" data-ccat="compositions" data-comp="split-composition" hidden>
+              <span class="mini-sample"><span class="th-split">⊟ Divisão Livre</span></span>
+              <strong>+ Split Composition</strong><small class="pill-sub">Proporções livres (sem comparação forçada)</small>
+            </button>
+          </div>
+
+          <input type="file" id="compMediaInput" accept="video/*,image/*" multiple hidden>
+          <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
+          <input type="file" id="cardFile" accept="image/*" multiple hidden>
+
+          <!-- Estúdio de Posicionamento Manual + Rascunho -->
+          <section id="brollPosStudio" class="pos-studio" hidden>
+            <div class="pos-studio-head">
+              <strong id="posStudioLabel">🎞️ Ajustar posição</strong>
+              <span id="posStatusBadge" class="pos-badge">Rascunho</span>
+              <button type="button" id="posDetectFaceBtn" class="mini-pill-btn">👤 Rosto</button>
             </div>
+            <label class="field">
+              <span>Descrição interna (identificação na lista, não aparece no vídeo)</span>
+              <input type="text" id="brollInternalDesc" placeholder="Ex: Pessoa trabalhando no computador">
+            </label>
+            <div id="brollOverlapAlert" class="overlap-alert" hidden>
+              <span id="brollOverlapText"></span>
+              <button type="button" id="brollIgnoreWarnBtn" class="mini-warn-btn">Ignorar alerta</button>
+            </div>
+            <div class="pos-studio-body">
+              <div class="align-grid9" id="posGrid9" aria-label="Alinhamento rápido">
+                <button type="button" data-ax="0" data-ay="0" title="Topo Esquerda">↖</button>
+                <button type="button" data-ax="50" data-ay="0" title="Topo Centro">↑</button>
+                <button type="button" data-ax="100" data-ay="0" title="Topo Direita">↗</button>
+                <button type="button" data-ax="0" data-ay="50" title="Meio Esquerda">←</button>
+                <button type="button" data-ax="50" data-ay="50" title="Centro">✦</button>
+                <button type="button" data-ax="100" data-ay="50" title="Meio Direita">→</button>
+                <button type="button" data-ax="0" data-ay="100" title="Base Esquerda">↙</button>
+                <button type="button" data-ax="50" data-ay="100" title="Base Centro">↓</button>
+                <button type="button" data-ax="100" data-ay="100" title="Base Direita">↘</button>
+              </div>
+              <div class="pos-sliders">
+                <div class="row-2" id="posAspectRow">
+                  <label class="field"><span>Proporção</span>
+                    <select id="posAspectSel">
+                      <option value="16/9">Horizontal (16:9)</option>
+                      <option value="4/3">Retrato Largo (4:3)</option>
+                      <option value="1/1">Quadrado (1:1)</option>
+                      <option value="9/16">Vertical (9:16)</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>Tamanho (<em id="posScaleVal">42%</em>)</span>
+                    <input type="range" id="posScaleRange" min="18" max="88" step="2" value="42">
+                  </label>
+                </div>
+                <div class="row-2">
+                  <label class="field"><span>Posição X (<em id="posXVal">8%</em>)</span>
+                    <input type="range" id="posXRange" min="0" max="100" step="1" value="8">
+                  </label>
+                  <label class="field"><span>Posição Y (<em id="posYVal2">10%</em>)</span>
+                    <input type="range" id="posYRange" min="0" max="100" step="1" value="10">
+                  </label>
+                </div>
+                <div class="row-2">
+                  <label class="field"><span>Margem (<em id="posMarginVal">4%</em>)</span>
+                    <input type="range" id="posMarginRange" min="0" max="14" step="1" value="4">
+                  </label>
+                  <label class="field"><span>Rotação (<em id="posRotVal">0°</em>)</span>
+                    <input type="range" id="posRotRange" min="-25" max="25" step="1" value="0">
+                  </label>
+                </div>
+                <div class="row-2" id="posRadiusRow">
+                  <label class="field"><span>Cantos (<em id="posRadiusVal">22px</em>)</span>
+                    <input type="range" id="posRadiusRange" min="0" max="40" step="2" value="22">
+                  </label>
+                  <label class="field"><span>Inclinação</span>
+                    <button type="button" id="posRotResetBtn" class="mini-pill-btn" style="margin-top:4px">↺ Zerar 0°</button>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="pos-studio-foot">
+              <button type="button" id="posSmartSafeBtn" class="secondary-btn">✨ Posição segura</button>
+              <button type="button" id="confirmBrollPosBtn" class="primary-btn pos-confirm-btn">✓ CONFIRMAR B-ROLL</button>
+            </div>
+            <button type="button" id="cancelBrollDraftBtn" class="secondary-btn" style="padding:8px;font-size:12px">✕ Descartar rascunho</button>
+          </section>
+
+          <div id="compList" class="media-queue"></div>
+          <div id="brollList" class="media-queue"></div>
+          <div id="cardList" class="media-queue"></div>
+          <small class="broll-hint" id="brollHint" hidden></small>
+          <small class="broll-hint" id="cardHint" hidden></small>
+          <div style="margin-top:8px">
+            <button type="button" id="clearPreviewMediaBtn" class="secondary-btn" hidden>Limpar prévia</button>
           </div>
-          <p class="review-hint">Toque nas palavras para destacar (pode selecionar várias ou expressões completas), abra <b>＋ Elementos</b> em cada card para vincular efeitos gráficos, holofote ou B-rolls exatamente naquela fala.</p>
-          <div class="review-toolbar">
-            <button type="button" id="applyAutoSuggestionsBtn" class="mini-pill-btn">✨ Aplicar sugestões</button>
-            <button type="button" id="prevCardBtn" class="mini-pill-btn">← Card anterior</button>
-            <button type="button" id="nextCardBtn" class="mini-pill-btn">Próximo card →</button>
-          </div>
-          <div id="captionEditorList" class="caption-editor-list"></div>
-        </section>
+        </div>
 
         <div class="step-nav" style="margin-top:14px">
           <button type="button" class="secondary-btn" data-prev="4">← Efeitos</button>
-          <button type="button" class="primary-btn" data-next="6" id="goExportBtn" disabled>Finalizar &amp; Exportar →</button>
+          <button type="button" class="primary-btn" data-next="6">Próximo: Revisão &amp; Exportação →</button>
         </div>
       </section>
 
-      <!-- ETAPA 6: Exportar — Áudio, qualidade, B-rolls, resultado -->
+      <!-- ETAPA 6: Revisão e Exportação -->
       <section class="card wizard-step" data-step="6" hidden>
-        <div class="step-head"><span class="badge">6</span><h2>Exportar Vídeo</h2></div>
+        <div class="step-head"><span class="badge">6</span><h2>Revisão &amp; Exportação</h2></div>
+        <div id="projectSummaryBox" class="props-panel" style="margin-bottom:10px">
+          <strong style="font-size:12.5px;color:var(--green-bright);display:block;margin-bottom:6px">📋 Resumo do Projeto</strong>
+          <div id="projectSummaryText" style="font-size:12px;color:var(--muted);line-height:1.5"></div>
+        </div>
 
         <!-- Limpeza de áudio -->
         <label class="toggle-row">
@@ -532,139 +710,8 @@
           </div>
         </div>
 
-        <!-- B-rolls e Cards (banco de mídia) -->
-        <details class="adv-details" style="margin-top:14px" id="brollSection">
-          <summary class="adv-summary">🖼️ Banco de Mídia (B-rolls &amp; Cards)</summary>
-
-          <div style="margin-top:10px">
-            <div class="cat-tabs cat-tabs-4" id="compCatTabs">
-              <button type="button" class="cat-tab is-active" data-ccat="floating">🖼️ Flutuantes</button>
-              <button type="button" class="cat-tab" data-ccat="cards">🪪 Cards Info</button>
-              <button type="button" class="cat-tab" data-ccat="stacked">🗂️ Empilhadas</button>
-              <button type="button" class="cat-tab" data-ccat="compositions">🎨 Composições</button>
-            </div>
-
-            <div class="style-grid" id="compAddGrid">
-              <!-- Flutuantes -->
-              <button type="button" class="style-pill" data-ccat="floating" data-comp="floating-media">
-                <span class="mini-sample"><span class="th-float">◻ Janela Livre</span></span>
-                <strong>+ Mídia Flutuante</strong><small class="pill-sub">Posição, proporção, borda e sombra</small>
-              </button>
-              <button type="button" class="style-pill" data-ccat="floating" data-broll-quick="1">
-                <span class="mini-sample"><span class="th-float">▤ B-roll Rápido</span></span>
-                <strong>+ B-roll Divisão/PiP</strong><small class="pill-sub">Topo, baixo ou canto arredondado</small>
-              </button>
-              <!-- Cards -->
-              <button type="button" class="style-pill" data-ccat="cards" data-comp="editorial-card" hidden>
-                <span class="mini-sample"><span class="th-card"><b>TAG</b> · Título</span></span>
-                <strong>+ Editorial Card</strong><small class="pill-sub">Fundo configurável + etiqueta + texto</small>
-              </button>
-              <button type="button" class="style-pill" data-ccat="cards" data-card-quick="1" hidden>
-                <span class="mini-sample"><span class="th-card">🖼️ Produto/PNG</span></span>
-                <strong>+ Card Recortado</strong><small class="pill-sub">Remove fundo sólido</small>
-              </button>
-              <!-- Empilhadas -->
-              <button type="button" class="style-pill" data-ccat="stacked" data-comp="stacked-cards" hidden>
-                <span class="mini-sample"><span class="th-stack">▤ 2–4 Fotos</span></span>
-                <strong>+ Imagens Empilhadas</strong><small class="pill-sub">Quantidade, espaçamento e sequência</small>
-              </button>
-              <!-- Composições -->
-              <button type="button" class="style-pill" data-ccat="compositions" data-comp="visual-storytelling" hidden>
-                <span class="mini-sample"><span class="th-story">◫ Infográfico</span></span>
-                <strong>+ Visual Storytelling</strong><small class="pill-sub">Imagem principal + apoios + texto</small>
-              </button>
-              <button type="button" class="style-pill" data-ccat="compositions" data-comp="split-composition" hidden>
-                <span class="mini-sample"><span class="th-split">⊟ Divisão Livre</span></span>
-                <strong>+ Split Composition</strong><small class="pill-sub">Proporções livres</small>
-              </button>
-            </div>
-
-            <input type="file" id="compMediaInput" accept="video/*,image/*" multiple hidden>
-            <input type="file" id="brollFile" accept="video/*,image/*" multiple hidden>
-            <input type="file" id="cardFile" accept="image/*" multiple hidden>
-
-            <section id="brollPosStudio" class="pos-studio" hidden>
-              <div class="pos-studio-head">
-                <strong id="posStudioLabel">🎞️ Ajustar posição</strong>
-                <span id="posStatusBadge" class="pos-badge">Em edição</span>
-                <button type="button" id="posDetectFaceBtn" class="mini-pill-btn">👤 Rosto</button>
-              </div>
-              <div id="brollOverlapAlert" class="overlap-alert" hidden>
-                <span id="brollOverlapText"></span>
-                <button type="button" id="brollIgnoreWarnBtn" class="mini-warn-btn">Ignorar alerta</button>
-              </div>
-              <div class="pos-studio-body">
-                <div class="align-grid9" id="posGrid9" aria-label="Alinhamento rápido">
-                  <button type="button" data-ax="0" data-ay="0" title="Topo Esquerda">↖</button>
-                  <button type="button" data-ax="50" data-ay="0" title="Topo Centro">↑</button>
-                  <button type="button" data-ax="100" data-ay="0" title="Topo Direita">↗</button>
-                  <button type="button" data-ax="0" data-ay="50" title="Meio Esquerda">←</button>
-                  <button type="button" data-ax="50" data-ay="50" title="Centro">✦</button>
-                  <button type="button" data-ax="100" data-ay="50" title="Meio Direita">→</button>
-                  <button type="button" data-ax="0" data-ay="100" title="Base Esquerda">↙</button>
-                  <button type="button" data-ax="50" data-ay="100" title="Base Centro">↓</button>
-                  <button type="button" data-ax="100" data-ay="100" title="Base Direita">↘</button>
-                </div>
-                <div class="pos-sliders">
-                  <div class="row-2" id="posAspectRow">
-                    <label class="field"><span>Proporção</span>
-                      <select id="posAspectSel">
-                        <option value="16/9">Horizontal (16:9)</option>
-                        <option value="4/3">Retrato Largo (4:3)</option>
-                        <option value="1/1">Quadrado (1:1)</option>
-                        <option value="9/16">Vertical (9:16)</option>
-                      </select>
-                    </label>
-                    <label class="field"><span>Tamanho (<em id="posScaleVal">42%</em>)</span>
-                      <input type="range" id="posScaleRange" min="18" max="88" step="2" value="42">
-                    </label>
-                  </div>
-                  <div class="row-2">
-                    <label class="field"><span>Posição X (<em id="posXVal">8%</em>)</span>
-                      <input type="range" id="posXRange" min="0" max="100" step="1" value="8">
-                    </label>
-                    <label class="field"><span>Posição Y (<em id="posYVal2">10%</em>)</span>
-                      <input type="range" id="posYRange" min="0" max="100" step="1" value="10">
-                    </label>
-                  </div>
-                  <div class="row-2">
-                    <label class="field"><span>Margem (<em id="posMarginVal">4%</em>)</span>
-                      <input type="range" id="posMarginRange" min="0" max="14" step="1" value="4">
-                    </label>
-                    <label class="field"><span>Rotação (<em id="posRotVal">0°</em>)</span>
-                      <input type="range" id="posRotRange" min="-25" max="25" step="1" value="0">
-                    </label>
-                  </div>
-                  <div class="row-2" id="posRadiusRow">
-                    <label class="field"><span>Cantos (<em id="posRadiusVal">22px</em>)</span>
-                      <input type="range" id="posRadiusRange" min="0" max="40" step="2" value="22">
-                    </label>
-                    <label class="field"><span>Inclinação</span>
-                      <button type="button" id="posRotResetBtn" class="mini-pill-btn" style="margin-top:4px">↺ Zerar 0°</button>
-                    </label>
-                  </div>
-                </div>
-              </div>
-              <div class="pos-studio-foot">
-                <button type="button" id="posSmartSafeBtn" class="secondary-btn">✨ Posição segura</button>
-                <button type="button" id="confirmBrollPosBtn" class="primary-btn pos-confirm-btn">✓ CONFIRMAR B-ROLL</button>
-              </div>
-            </section>
-
-            <div id="compList" class="media-queue"></div>
-            <div id="brollList" class="media-queue"></div>
-            <div id="cardList" class="media-queue"></div>
-            <small class="broll-hint" id="brollHint" hidden></small>
-            <small class="broll-hint" id="cardHint" hidden></small>
-            <div style="margin-top:8px">
-              <button type="button" id="clearPreviewMediaBtn" class="secondary-btn" hidden>Limpar prévia</button>
-            </div>
-          </div>
-        </details>
-
         <div class="step-nav" style="margin-top:14px">
-          <button type="button" class="secondary-btn" data-prev="5">← Revisão</button>
-          <!-- Nenhum "próximo" — sticky CTA aparece para gerar -->
+          <button type="button" class="secondary-btn" data-prev="5">← B-rolls</button>
         </div>
       </section>
 
@@ -691,7 +738,7 @@
 
     <!-- STICKY CTA -->
     <div class="sticky-cta" id="stickyCta" hidden>
-      <button type="button" id="generateBtn" class="primary-btn" disabled>1. Transcrever &amp; Revisar Legendas →</button>
+      <button type="button" id="generateBtn" class="primary-btn" disabled>🚀 Gerar Vídeo Pronto →</button>
     </div>
   </div>
 

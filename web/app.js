@@ -65,9 +65,9 @@ function goToStep(step) {
   const s = Math.max(1, Math.min(6, Number(step) || 1));
   if (s > 1 && !videoUnlocked) return;
   currentStep = s;
-  // Preview fica oculto nas Etapas 1 e 2 (aparece da Etapa 3 em diante, ou quando há resultado)
+  // Prévia persistente em todas as seções de edição (Etapas 2 a 6) ou quando há resultado
   const hasResult = $('resultBox') && !$('resultBox').hidden;
-  if ($('previewCard')) $('previewCard').hidden = ((s <= 2 && !hasResult) || !videoUnlocked);
+  if ($('previewCard')) $('previewCard').hidden = ((s === 1 && !hasResult) || !videoUnlocked);
 
   document.querySelectorAll('.wizard-step').forEach((sec) => { sec.hidden = Number(sec.dataset.step) !== s; });
   document.querySelectorAll('#wizardStepper .ws-pill').forEach((pill) => {
@@ -77,19 +77,19 @@ function goToStep(step) {
     pill.classList.toggle('is-done', videoUnlocked && ps < s);
   });
 
-  // Sticky CTA aparece nas etapas 5 (Transcrição/Revisão) e 6 (Exportar), ou quando há revisão aberta
-  const inActionStep = (s === 5 || s === 6);
   if (hasResult) {
     setStickyVisible(false);
-  } else if ($('reviewCard') && !$('reviewCard').hidden && s >= 5) {
-    setStickyVisible(true);
   } else {
-    setStickyVisible(inActionStep);
+    setStickyVisible(s === 6);
   }
-  if (s !== 6 && !hasResult) clearMediaPreview();
+  if (s !== 5 && !hasResult && activePosTarget && !getPosItemByTarget(activePosTarget)?.confirmed) {
+    clearMediaPreview();
+  }
   if ($('pvStageHint')) {
-    $('pvStageHint').textContent = s === 6 ? 'Prévia de legendas, B-rolls e composições' : 'Arraste a legenda ou use A-/A+';
+    $('pvStageHint').textContent = s === 5 ? 'Arraste o B-roll ou use o alinhamento' : 'Arraste a legenda ou use A-/A+';
   }
+  if (s === 4 && typeof syncSelectionUI === 'function') syncSelectionUI();
+  if (s === 6 && typeof updateProjectSummary === 'function') updateProjectSummary();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -249,6 +249,8 @@ function syncOverlay(animate = false, previewExit = false, demoCine = false) {
     ['cineScaleVal', ($('cineScale')?.value || '116') + '%'],
   ];
   vals.forEach(([id, txt]) => { if ($(id)) $(id).textContent = txt; });
+
+  if ($('gfxDirField')) $('gfxDirField').hidden = !(activeFx || '').startsWith('arrow-');
 
   if (animate) {
     const inKind = $('animInSelect')?.value || PV.STYLE_DEFAULTS[selectedStyle]?.animIn || 'pop';
@@ -417,7 +419,7 @@ async function refreshFaceZone() {
 function syncGuidesAndOverlap() {
   const fb = $('pvFaceBox'), cb = $('pvCapBox'), alertBox = $('brollOverlapAlert');
   const item = getPosItemByTarget(activePosTarget);
-  const editing = !!item && !item.confirmed && currentStep === 6;
+  const editing = !!item && !item.confirmed && currentStep === 5;
   const bl = $('pvBrollLayer'), cs = $('pvCardStage');
   bl?.classList.remove('is-overlap-warn'); cs?.classList.remove('is-overlap-warn');
   if (!item) { if (fb) fb.hidden = true; if (cb) cb.hidden = true; if (alertBox) alertBox.hidden = true; return; }
@@ -449,8 +451,9 @@ function updatePosStudioUI() {
   const kind = activePosTarget.kind;
   const label = kind === 'broll' ? `🎞️ B${activePosTarget.idx + 1} · ${item.name || 'B-roll'}` : (kind === 'card' ? `🖼️ C${activePosTarget.idx + 1} · ${item.name || 'Card'}` : `✨ Comp ${activePosTarget.idx + 1}`);
   if ($('posStudioLabel')) $('posStudioLabel').textContent = label;
+  if ($('brollInternalDesc')) $('brollInternalDesc').value = item.internal_desc || '';
   const badge = $('posStatusBadge');
-  if (badge) { badge.textContent = item.confirmed ? 'Confirmado ✓' : 'Ajustando'; badge.classList.toggle('is-confirmed', !!item.confirmed); }
+  if (badge) { badge.textContent = item.confirmed ? 'Confirmado ✓' : 'Rascunho'; badge.classList.toggle('is-confirmed', !!item.confirmed); }
   const isAspectItem = kind === 'broll' || (kind === 'comp' && item.type === 'floating-media');
   if ($('posAspectRow')) $('posAspectRow').style.gridTemplateColumns = isAspectItem ? '' : '1fr';
   if ($('posAspectSel')?.parentElement) $('posAspectSel').parentElement.hidden = !isAspectItem;
@@ -613,7 +616,9 @@ function renderBrollList() {
     const row = document.createElement('div');
     const isEditing = activePosTarget?.kind === 'broll' && activePosTarget.idx === idx && !b.confirmed;
     row.className = 'media-item' + (isEditing ? ' is-editing' : '');
-    const lbl = document.createElement('span'); lbl.className = 'media-name'; lbl.textContent = `🎞️ B${idx + 1} · ${b.name}`;
+    const lbl = document.createElement('span'); lbl.className = 'media-name';
+    const dLabel = b.internal_desc ? `${b.internal_desc} (${b.name})` : b.name;
+    lbl.textContent = `🎞️ B${idx + 1} · ${dLabel}`;
     if (b.layout === 'custom') {
       const stBadge = document.createElement('span');
       stBadge.className = 'media-pos-badge' + (b.confirmed ? '' : ' is-pending');
@@ -740,10 +745,11 @@ $('brollFile')?.addEventListener('change', async (e) => {
       if (data.broll_id) {
         const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(null), detectedFaceZone, Number($('posY')?.value || 74), { scale: 42, aspect: '16/9', margin: 4 });
         const linkCap = (pendingCardBrollIdx >= 0 && currentCaptions[pendingCardBrollIdx]) ? currentCaptions[pendingCardBrollIdx] : null;
+        const activeSel = (!linkCap && typeof getActiveSelection === 'function') ? getActiveSelection() : null;
         selectedBrolls.push({
-          id: data.broll_id, name: f.name, layout: 'custom',
-          start: linkCap ? Number(Number(linkCap.s || 0).toFixed(1)) : '',
-          end: linkCap ? Number(Number(linkCap.e || (Number(linkCap.s || 0) + 3)).toFixed(1)) : '',
+          id: data.broll_id, name: f.name, internal_desc: '', layout: 'custom',
+          start: linkCap ? Number(Number(linkCap.s || 0).toFixed(1)) : (activeSel ? Number(activeSel.start.toFixed(1)) : ''),
+          end: linkCap ? Number(Number(linkCap.e || (Number(linkCap.s || 0) + 3)).toFixed(1)) : (activeSel ? Number(activeSel.end.toFixed(1)) : ''),
           cardIdx: linkCap ? pendingCardBrollIdx : undefined,
           previewUrl: URL.createObjectURL(f), isImage: (f.type || '').startsWith('image/'),
           x: slot.x, y: slot.y, scale: 42, aspect: '16/9', rotation: 0, margin: 4, radius: 22, confirmed: false, ignoreOverlap: false,
@@ -753,7 +759,7 @@ $('brollFile')?.addEventListener('change', async (e) => {
   }
   e.target.value = ''; renderBrollList();
   if (selectedBrolls.length) {
-    if (pendingCardBrollIdx >= 0) goToStep(6);
+    if (pendingCardBrollIdx >= 0) goToStep(5);
     openPosStudio('broll', selectedBrolls.length - 1);
   }
   renderSyncTimeline();
@@ -808,6 +814,25 @@ $('cardFile')?.addEventListener('change', async (e) => {
     const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(activePosTarget), detectedFaceZone, Number($('posY')?.value || 74), it);
     it.x = slot.x; it.y = slot.y;
   }));
+  $('brollInternalDesc')?.addEventListener('input', () => {
+    const it = getPosItemByTarget(activePosTarget); if (!it) return;
+    it.internal_desc = $('brollInternalDesc').value;
+    if (activePosTarget.kind === 'broll') renderBrollList();
+    else if (activePosTarget.kind === 'card') renderCardList();
+    else renderCompList();
+  });
+  $('cancelBrollDraftBtn')?.addEventListener('click', () => {
+    if (!activePosTarget) return;
+    const { kind, idx } = activePosTarget;
+    const arr = kind === 'broll' ? selectedBrolls : (kind === 'card' ? selectedCards : selectedCompositions);
+    const it = arr[idx];
+    if (it && !it.confirmed) arr.splice(idx, 1);
+    activePosTarget = null;
+    if ($('brollPosStudio')) $('brollPosStudio').hidden = true;
+    clearMediaPreview();
+    renderBrollList(); renderCardList(); renderCompList(); renderSyncTimeline();
+    flash('Rascunho descartado.');
+  });
   $('confirmBrollPosBtn')?.addEventListener('click', () => {
     const it = getPosItemByTarget(activePosTarget); if (!it) return;
     it.confirmed = true;
@@ -887,9 +912,22 @@ $('safeZoneBtn')?.addEventListener('click', () => {
   $('safeZoneBtn').textContent = m.label; $('safeZoneBtn').classList.toggle('is-on', on);
 });
 
+$('pvBack2Btn')?.addEventListener('click', () => { const v = $('previewVideo'); if (v) v.currentTime = Math.max(0, (v.currentTime || 0) - 2); });
+$('pvFwd2Btn')?.addEventListener('click', () => { const v = $('previewVideo'); if (v) v.currentTime = Math.min(v.duration || 999, (v.currentTime || 0) + 2); });
+$('pvPlayPauseBtn')?.addEventListener('click', () => {
+  const v = $('previewVideo'); if (!v) return;
+  if (v.paused) { v.muted = false; v.play().catch(() => {}); }
+  else v.pause();
+});
+$('previewVideo')?.addEventListener('play', () => { if ($('pvPlayPauseBtn')) $('pvPlayPauseBtn').textContent = '⏸ Pausar'; });
+$('previewVideo')?.addEventListener('pause', () => { if ($('pvPlayPauseBtn')) $('pvPlayPauseBtn').textContent = '▶ Reproduzir'; });
+
 $('previewVideo')?.addEventListener('timeupdate', () => {
-  const vid = $('previewVideo'); if (!vid || !$('resultBox').hidden) return;
+  const vid = $('previewVideo'); if (!vid) return;
   const t = vid.currentTime || 0;
+  const dur = Number(vid.duration || 0);
+  if ($('pvTimeReadout')) $('pvTimeReadout').textContent = `${fmtMMSS(t)} / ${fmtMMSS(dur)}`;
+  if (!$('resultBox').hidden) return;
   if ($('stlPlayheadVal')) $('stlPlayheadVal').textContent = t.toFixed(1) + 's';
   if (currentCaptions.length) {
     const capIdx = currentCaptions.findIndex((c) => t >= Number(c.orig_s ?? c.s ?? 0) && t <= Number(c.orig_e ?? c.e ?? 999));
@@ -907,8 +945,9 @@ $('previewVideo')?.addEventListener('timeupdate', () => {
       }
     }
   }
-  if (currentStep === 6 && (!activePosTarget || getPosItemByTarget(activePosTarget)?.confirmed)) {
+  if (currentStep >= 2 && (!activePosTarget || getPosItemByTarget(activePosTarget)?.confirmed)) {
     const matchWindow = (arr) => arr.findIndex((it) => {
+      if (!it.confirmed && it.type !== 'split-composition') return false;
       const s = parseFloat(it.start); if (isNaN(s)) return false;
       const e = isNaN(parseFloat(it.end)) ? s + 3.5 : parseFloat(it.end);
       return t >= s && t <= e;
@@ -1227,7 +1266,7 @@ function renderSyncTimeline() {
   tracks.append(rCap);
 
   // Faixa 2: Efeitos Gráficos e Holofote
-  const fxCaps = currentCaptions.map((c, idx) => ({ c, idx })).filter(({ c }) => (c.graphic_fx && c.graphic_fx !== 'none') || (c.cine_indices && c.cine_indices.length) || c.cine_block);
+  const fxCaps = currentCaptions.map((c, idx) => ({ c, idx })).filter(({ c }) => (c.effects && c.effects.length) || (c.graphic_fx && c.graphic_fx !== 'none') || (c.cine_indices && c.cine_indices.length) || c.cine_block);
   if (fxCaps.length) {
     const rFx = document.createElement('div'); rFx.className = 'stl-row';
     fxCaps.forEach(({ c, idx }) => {
@@ -1365,7 +1404,7 @@ function renderCaptionEditor(captions) {
           if (curSet.has(wIdx) && curSet.size > 1) curSet.delete(wIdx); else curSet.add(wIdx);
           currentCaptions[idx].main_indices = [...curSet].sort((a, b) => a - b);
           currentCaptions[idx].main_idx = currentCaptions[idx].main_indices[0];
-          activePreviewCaptionIdx = idx; renderChipsAndSummary(); syncOverlay(true); markDirtyAfterRender();
+          activePreviewCaptionIdx = idx; renderChipsAndSummary(); syncOverlay(true); if (typeof syncSelectionUI === 'function') syncSelectionUI(); markDirtyAfterRender();
         });
         chipsBox.append(chip);
       });
@@ -1670,39 +1709,240 @@ async function runOneClickPipeline(mode) {
 $('autoModeBtn')?.addEventListener('click', () => runOneClickPipeline('auto'));
 $('quickModeBtn')?.addEventListener('click', () => runOneClickPipeline('quick'));
 
+async function runTranscribeOnly() {
+  if (!selectedFile) return false;
+  $('errorMsg').hidden = true; $('resultBox').hidden = true;
+  if ($('transcribeBtn')) $('transcribeBtn').disabled = true;
+  $('progressBox').hidden = false; $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    $('progressText').textContent = 'Enviando vídeo(s)…'; $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
+    const up = await uploadWithProgress(selectedFiles.length ? selectedFiles : [selectedFile]);
+    currentJobId = up.job_id;
+    currentTakeRanges = up.take_ranges || [];
+    if (up.source_url && selectedFiles.length > 1 && $('previewVideo')) {
+      $('previewVideo').src = up.source_url; $('previewVideo').load();
+    }
+    const tr = await safeJson(await fetch('/api/transcribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: currentJobId, cuts: $('cutsToggle').checked, rhythm: selectedRhythm }),
+    }));
+    if (tr.error) throw new Error(tr.error);
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
+      $('progressText').textContent = st.message || 'Transcrevendo…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
+      if (st.status === 'review') {
+        renderCaptionEditor(st.captions || []);
+        $('progressBox').hidden = true;
+        $('reviewCard').hidden = false;
+        flowStage = 'render';
+        if ($('transcribeBtn')) { $('transcribeBtn').disabled = false; $('transcribeBtn').textContent = '🔄 Reprocessar Transcrição'; }
+        if ($('generateBtn')) { $('generateBtn').textContent = '🚀 Gerar Vídeo Pronto →'; $('generateBtn').disabled = false; }
+        syncSelectionUI();
+        renderAppliedEffectsList();
+        return true;
+      }
+      if (st.status === 'error') throw new Error(st.message || 'Erro na transcrição.');
+    }
+  } catch (err) {
+    $('progressBox').hidden = true;
+    $('errorMsg').textContent = err?.message || 'Falha na transcrição.';
+    $('errorMsg').hidden = false;
+    if ($('transcribeBtn')) $('transcribeBtn').disabled = false;
+    return false;
+  }
+}
+
+$('transcribeBtn')?.addEventListener('click', runTranscribeOnly);
+
+function getActiveSelection() {
+  if (!currentCaptions.length) return null;
+  const idx = activePreviewCaptionIdx >= 0 && activePreviewCaptionIdx < currentCaptions.length ? activePreviewCaptionIdx : 0;
+  const cap = currentCaptions[idx];
+  const toks = (cap.text || '').replace(/[|\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const words = cap.words || [];
+  const indices = (cap.main_indices && cap.main_indices.length) ? [...cap.main_indices].sort((a, b) => a - b) : [0];
+  const i0 = Math.max(0, Math.min(toks.length - 1, indices[0]));
+  const i1 = Math.max(i0, Math.min(toks.length - 1, indices[indices.length - 1]));
+  const start = words[i0]?.s != null ? Number(words[i0].s) : Number(cap.s || 0);
+  const end = words[i1]?.e != null ? Number(words[i1].e) : Number(cap.e || start + 0.5);
+  const text = indices.map((i) => toks[i]).filter(Boolean).join(' ') || cap.text || '';
+  return { cardIdx: idx, wordIndices: indices, start, end, text };
+}
+
+function syncSelectionUI() {
+  const sel = getActiveSelection();
+  const banner = $('selectionBanner'), bText = $('selectionBannerText');
+  if (banner && bText) {
+    if (sel) {
+      banner.hidden = false;
+      bText.textContent = `Seleção atual (Card ${sel.cardIdx + 1}): "${sel.text}" · ${sel.start.toFixed(1)}s – ${sel.end.toFixed(1)}s`;
+    } else banner.hidden = true;
+  }
+  const fxTxt = $('fxSelectionText'), fxTm = $('fxSelectionTime'), picker = $('fxQuickCardPicker');
+  if (!fxTxt || !fxTm) return;
+  if (!sel) {
+    fxTm.textContent = 'Sem transcrição';
+    fxTxt.textContent = 'Transcreva o vídeo na Etapa 2 para aplicar efeitos por palavra, ou configure o padrão global abaixo.';
+    if (picker) picker.hidden = true;
+    return;
+  }
+  fxTm.textContent = `${sel.start.toFixed(1)}s – ${sel.end.toFixed(1)}s (Card ${sel.cardIdx + 1})`;
+  fxTxt.textContent = `"${sel.text}"`;
+  if (picker) {
+    picker.hidden = false;
+    const cSel = $('fxCardSelect');
+    if (cSel) {
+      cSel.replaceChildren();
+      currentCaptions.forEach((c, i) => {
+        const o = document.createElement('option');
+        o.value = String(i);
+        o.textContent = `${i + 1}. ${(c.text || '').slice(0, 38)} (${fmtMMSS(c.s)})`;
+        if (i === sel.cardIdx) o.selected = true;
+        cSel.append(o);
+      });
+    }
+    const row = $('fxWordChipsRow');
+    if (row) {
+      row.replaceChildren();
+      const cap = currentCaptions[sel.cardIdx];
+      const toks = (cap.text || '').replace(/[|\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+      const mSet = new Set(cap.main_indices || [0]);
+      toks.forEach((tok, wIdx) => {
+        const chip = document.createElement('button'); chip.type = 'button';
+        chip.className = 'cap-word-chip' + (mSet.has(wIdx) ? ' is-main' : '');
+        chip.textContent = tok;
+        chip.addEventListener('click', () => {
+          const cur = new Set(cap.main_indices || []);
+          if (cur.has(wIdx) && cur.size > 1) cur.delete(wIdx); else cur.add(wIdx);
+          cap.main_indices = [...cur].sort((a, b) => a - b);
+          cap.main_idx = cap.main_indices[0];
+          activePreviewCaptionIdx = sel.cardIdx;
+          syncSelectionUI(); syncOverlay(true);
+        });
+        row.append(chip);
+      });
+    }
+  }
+}
+
+$('fxCardSelect')?.addEventListener('change', () => {
+  const idx = Number($('fxCardSelect').value || 0);
+  focusCaptionCard(idx, false);
+  syncSelectionUI();
+});
+
+function renderAppliedEffectsList() {
+  const list = $('appliedEffectsList'), cnt = $('appliedEffectsCount');
+  if (!list) return;
+  list.replaceChildren();
+  const items = [];
+  currentCaptions.forEach((cap, cIdx) => {
+    const toks = (cap.text || '').replace(/[|\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+    (cap.effects || []).forEach((ef, eIdx) => {
+      const expr = (ef.fx_indices || []).map((i) => toks[i]).filter(Boolean).join(' ') || cap.text;
+      items.push({ kind: 'fx', cIdx, eIdx, ef, expr, s: ef.start ?? cap.s, e: ef.end ?? cap.e });
+    });
+    if (cap.graphic_fx && cap.graphic_fx !== 'none' && !(cap.effects || []).length) {
+      const idxs = cap.fx_indices?.length ? cap.fx_indices : (cap.main_indices || [0]);
+      const expr = idxs.map((i) => toks[i]).filter(Boolean).join(' ') || cap.text;
+      items.push({ kind: 'legacy', cIdx, eIdx: -1, ef: { fx: cap.graphic_fx, accent_color: cap.accent_color || cap.gfx_cfg?.color || '#FACC15' }, expr, s: cap.s, e: cap.e });
+    }
+  });
+  if (cnt) cnt.textContent = String(items.length);
+  if (!items.length) {
+    const emp = document.createElement('small'); emp.className = 'broll-hint';
+    emp.textContent = 'Nenhum efeito aplicado individualmente ainda.';
+    list.append(emp);
+    return;
+  }
+  items.forEach((it) => {
+    const row = document.createElement('div'); row.className = 'fx-list-item';
+    const dot = document.createElement('span'); dot.className = 'fx-color-dot';
+    dot.style.background = it.ef.accent_color || it.ef.gfx_cfg?.color || '#FACC15';
+    const meta = document.createElement('div'); meta.className = 'fx-list-meta';
+    const st = document.createElement('strong'); st.textContent = `${it.ef.fx} · "${it.expr}"`;
+    const sm = document.createElement('small'); sm.textContent = `Card ${it.cIdx + 1} · ${Number(it.s || 0).toFixed(1)}s – ${Number(it.e || 0).toFixed(1)}s`;
+    meta.append(st, sm);
+    const edBtn = document.createElement('button'); edBtn.type = 'button'; edBtn.className = 'mini-pill-btn'; edBtn.textContent = '✏️'; edBtn.title = 'Editar';
+    edBtn.addEventListener('click', () => {
+      focusCaptionCard(it.cIdx, false);
+      selectedFx = it.ef.fx;
+      if ($('gfxColor')) $('gfxColor').value = it.ef.accent_color || it.ef.gfx_cfg?.color || '#FACC15';
+      syncSelectionUI(); syncOverlay(true);
+    });
+    const dupBtn = document.createElement('button'); dupBtn.type = 'button'; dupBtn.className = 'mini-pill-btn'; dupBtn.textContent = '❐'; dupBtn.title = 'Duplicar';
+    dupBtn.addEventListener('click', () => {
+      const cap = currentCaptions[it.cIdx]; if (!cap) return;
+      cap.effects = cap.effects || [];
+      cap.effects.push({ ...it.ef, id: 'fx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) });
+      renderAppliedEffectsList(); renderSyncTimeline(); markDirtyAfterRender();
+    });
+    const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.className = 'media-del'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', () => {
+      const cap = currentCaptions[it.cIdx]; if (!cap) return;
+      if (it.kind === 'legacy') { delete cap.graphic_fx; delete cap.fx_indices; }
+      else if (Array.isArray(cap.effects)) cap.effects.splice(it.eIdx, 1);
+      renderAppliedEffectsList(); renderCaptionEditor(currentCaptions); renderSyncTimeline(); markDirtyAfterRender();
+    });
+    row.append(dot, meta, edBtn, dupBtn, delBtn);
+    list.append(row);
+  });
+}
+
+$('applyCardFxBtn')?.addEventListener('click', () => {
+  const sel = getActiveSelection();
+  if (!sel || !currentCaptions[sel.cardIdx]) { flash('Transcreva o vídeo na Etapa 2 primeiro.'); return; }
+  const fx = resolveActiveFx();
+  if (!fx || fx === 'none') { flash('Escolha um efeito gráfico na biblioteca acima.'); return; }
+  const cap = currentCaptions[sel.cardIdx];
+  const cfg = readGfxConfig();
+  cap.effects = cap.effects || [];
+  cap.effects.push({
+    id: 'fx_' + Date.now(),
+    fx,
+    fx_indices: [...sel.wordIndices],
+    gfx_cfg: { ...cfg },
+    accent_color: cfg.color,
+    start: Number(sel.start.toFixed(2)),
+    end: Number(sel.end.toFixed(2)),
+  });
+  renderAppliedEffectsList();
+  renderSyncTimeline();
+  syncOverlay(true);
+  markDirtyAfterRender();
+  flash(`Efeito "${fx}" aplicado em "${sel.text}"!`);
+});
+
+$('applyCineSelectionBtn')?.addEventListener('click', () => {
+  const sel = getActiveSelection();
+  if (!sel || !currentCaptions[sel.cardIdx]) { flash('Transcreva o vídeo na Etapa 2 primeiro.'); return; }
+  const cap = currentCaptions[sel.cardIdx];
+  cap.cine_indices = [...sel.wordIndices];
+  if ($('cineModeSelect') && $('cineModeSelect').value === 'off') $('cineModeSelect').value = 'manual';
+  renderCaptionEditor(currentCaptions);
+  renderSyncTimeline();
+  syncOverlay(false, false, true);
+  markDirtyAfterRender();
+  flash(`Holofote aplicado em "${sel.text}"!`);
+});
+
+function updateProjectSummary() {
+  const el = $('projectSummaryText'); if (!el) return;
+  const fxCount = currentCaptions.reduce((acc, c) => acc + (c.effects?.length || (c.graphic_fx && c.graphic_fx !== 'none' ? 1 : 0)), 0);
+  const brCount = selectedBrolls.filter((b) => b.confirmed).length + selectedCards.filter((c) => c.confirmed).length + selectedCompositions.filter((c) => c.confirmed || c.type === 'split-composition').length;
+  el.innerHTML = `🎬 Vídeos: <b>${selectedFiles.length || (selectedFile ? 1 : 0)}</b> · 📝 Blocos de legenda: <b>${currentCaptions.length || 'Automático'}</b> · ✨ Efeitos aplicados: <b>${fxCount}</b> · 🖼️ B-rolls/Cards confirmados: <b>${brCount}</b>`;
+}
+
 $('generateBtn').addEventListener('click', async () => {
   if (!selectedFile) return;
   $('generateBtn').disabled = true; $('errorMsg').hidden = true; $('resultBox').hidden = true;
+  if (flowStage === 'transcribe') {
+    const ok = await runTranscribeOnly();
+    if (!ok) { $('generateBtn').disabled = false; return; }
+  }
   $('progressBox').hidden = false; $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
   try {
-    if (flowStage === 'transcribe') {
-      $('progressText').textContent = 'Enviando vídeo…'; $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
-      const up = await uploadWithProgress(selectedFiles.length ? selectedFiles : [selectedFile]); currentJobId = up.job_id;
-      currentTakeRanges = up.take_ranges || [];
-      if (up.source_url && selectedFiles.length > 1 && $('previewVideo')) {
-        $('previewVideo').src = up.source_url; $('previewVideo').load();
-      }
-      const tr = await safeJson(await fetch('/api/transcribe', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: currentJobId, cuts: $('cutsToggle').checked, rhythm: selectedRhythm }),
-      }));
-      if (tr.error) throw new Error(tr.error);
-      while (true) {
-        await new Promise((r) => setTimeout(r, 1200));
-        const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
-        $('progressText').textContent = st.message || 'Transcrevendo…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
-        if (st.status === 'review') {
-          renderCaptionEditor(st.captions || []); $('progressBox').hidden = true; $('reviewCard').hidden = false;
-          if ($('goExportBtn')) $('goExportBtn').disabled = false;
-          goToStep(5);
-          $('reviewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-          flowStage = 'render'; $('generateBtn').textContent = '2. Gerar Vídeo Pronto →'; $('generateBtn').disabled = false;
-          setStickyVisible(true); return;
-        }
-        if (st.status === 'error') throw new Error(st.message || 'Erro na transcrição.');
-      }
-    }
-
     const ren = await safeJson(await fetch('/api/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildRenderPayload()),
