@@ -397,7 +397,7 @@ def _run_render_pipeline(job_id, opts):
             ass_path,
             impacts,
             HW_PROFILE,
-            zoom_enabled=bool(opts.get("zoom", True)),
+            zoom_enabled=False,
             width=out_w,
             height=out_h,
             studio_audio=bool(opts.get("studio_audio", False)),

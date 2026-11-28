@@ -22,6 +22,7 @@ let activePosTarget = null; // { kind: 'broll'|'comp'|'card', idx: number }
 let detectedFaceZone = { x: 24, y: 12, w: 52, h: 42, detected: false };
 let activePreviewCaptionIdx = -1;
 let pendingCompUploadIdx = -1;
+let pendingCardBrollIdx = -1;
 let lastCineFiredIdx = -1;
 
 let deferredPrompt = null;
@@ -723,8 +724,12 @@ $('brollFile')?.addEventListener('change', async (e) => {
       const data = await safeJson(await fetch('/api/upload_broll', { method: 'POST', body: fd }));
       if (data.broll_id) {
         const slot = PV.pickSmartSafeSlot($('previewWrap'), getAllPlacedBoxes(null), detectedFaceZone, Number($('posY')?.value || 74), { scale: 42, aspect: '16/9', margin: 4 });
+        const linkCap = (pendingCardBrollIdx >= 0 && currentCaptions[pendingCardBrollIdx]) ? currentCaptions[pendingCardBrollIdx] : null;
         selectedBrolls.push({
-          id: data.broll_id, name: f.name, layout: 'custom', start: '', end: '',
+          id: data.broll_id, name: f.name, layout: 'custom',
+          start: linkCap ? Number(Number(linkCap.s || 0).toFixed(1)) : '',
+          end: linkCap ? Number(Number(linkCap.e || (Number(linkCap.s || 0) + 3)).toFixed(1)) : '',
+          cardIdx: linkCap ? pendingCardBrollIdx : undefined,
           previewUrl: URL.createObjectURL(f), isImage: (f.type || '').startsWith('image/'),
           x: slot.x, y: slot.y, scale: 42, aspect: '16/9', rotation: 0, margin: 4, radius: 22, confirmed: false, ignoreOverlap: false,
         });
@@ -732,7 +737,11 @@ $('brollFile')?.addEventListener('change', async (e) => {
     } catch {}
   }
   e.target.value = ''; renderBrollList();
-  if (selectedBrolls.length) openPosStudio('broll', selectedBrolls.length - 1);
+  if (selectedBrolls.length) {
+    if (pendingCardBrollIdx >= 0) goToStep(6);
+    openPosStudio('broll', selectedBrolls.length - 1);
+  }
+  renderSyncTimeline();
 });
 
 $('cardFile')?.addEventListener('change', async (e) => {
@@ -787,9 +796,19 @@ $('cardFile')?.addEventListener('change', async (e) => {
   $('confirmBrollPosBtn')?.addEventListener('click', () => {
     const it = getPosItemByTarget(activePosTarget); if (!it) return;
     it.confirmed = true;
+    // Se veio de um card da Central de Transcrição, vincula ao card após confirmação
+    if (pendingCardBrollIdx >= 0 && currentCaptions[pendingCardBrollIdx] && activePosTarget.kind === 'broll') {
+      const cap = currentCaptions[pendingCardBrollIdx];
+      it.cardIdx = pendingCardBrollIdx;
+      if (it.start === '' || it.start == null) it.start = Number(cap.s || 0);
+      if (it.end === '' || it.end == null) it.end = Number(cap.e || (Number(cap.s || 0) + 3.0));
+      pendingCardBrollIdx = -1;
+      renderCaptionEditor(currentCaptions);
+    }
     updatePosStudioUI();
     renderActiveTargetPreview(false);
     renderBrollList(); renderCardList(); renderCompList();
+    renderSyncTimeline();
     flash('Posição salva para este elemento!');
   });
 
@@ -856,10 +875,11 @@ $('safeZoneBtn')?.addEventListener('click', () => {
 $('previewVideo')?.addEventListener('timeupdate', () => {
   const vid = $('previewVideo'); if (!vid || !$('resultBox').hidden) return;
   const t = vid.currentTime || 0;
+  if ($('stlPlayheadVal')) $('stlPlayheadVal').textContent = t.toFixed(1) + 's';
   if (currentCaptions.length) {
     const capIdx = currentCaptions.findIndex((c) => t >= Number(c.orig_s ?? c.s ?? 0) && t <= Number(c.orig_e ?? c.e ?? 999));
     if (capIdx >= 0 && activePreviewCaptionIdx !== capIdx) {
-      activePreviewCaptionIdx = capIdx; syncOverlay(true);
+      activePreviewCaptionIdx = capIdx; syncOverlay(true); renderSyncTimeline();
     }
     const cCfg = readCineConfig();
     if (capIdx >= 0 && cCfg.mode !== 'off' && lastCineFiredIdx !== capIdx) {
@@ -892,11 +912,14 @@ $('previewVideo')?.addEventListener('timeupdate', () => {
   }
 });
 
-$('videoFile').addEventListener('change', (e) => {
-  const f = e.target.files?.[0]; if (!f) return;
+function handleVideoFileSelected(f) {
+  if (!f) return;
   selectedFile = f; videoUnlocked = true; currentJobId = ''; cachedVideoBlob = null; currentCaptions = [];
-  flowStage = 'transcribe'; activePreviewCaptionIdx = -1; lastCineFiredIdx = -1; clearMediaPreview();
-  $('reviewCard').hidden = true; $('generateBtn').textContent = '1. Transcrever & Revisar Legendas →';
+  flowStage = 'transcribe'; activePreviewCaptionIdx = -1; lastCineFiredIdx = -1; pendingCardBrollIdx = -1;
+  clearMediaPreview();
+  $('reviewCard').hidden = true;
+  if ($('syncTimelineBox')) $('syncTimelineBox').hidden = true;
+  $('generateBtn').textContent = '1. Transcrever & Abrir Central de Edição →';
   $('uploadTitle').textContent = f.name || 'Vídeo selecionado';
   $('uploadSub').textContent = ((f.size || 0) / (1024 * 1024)).toFixed(1) + ' MB · Pronto!';
   try {
@@ -905,9 +928,21 @@ $('videoFile').addEventListener('change', (e) => {
     vid.load();
   } catch {}
   $('liveOverlay').hidden = false; $('resultBox').hidden = true; $('errorMsg').hidden = true; $('generateBtn').disabled = false;
-  // Vai direto para etapa 2 (escolha de modelo) ao selecionar vídeo
   goToStep(2);
-});
+}
+
+$('videoFile')?.addEventListener('change', (e) => handleVideoFileSelected(e.target.files?.[0]));
+
+(() => {
+  const box = $('uploadBox');
+  if (!box) return;
+  ['dragenter', 'dragover'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add('is-dragover'); }));
+  ['dragleave', 'drop'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.remove('is-dragover'); }));
+  box.addEventListener('drop', (e) => {
+    const f = [...(e.dataTransfer?.files || [])].find((x) => (x.type || '').startsWith('video/'));
+    if (f) handleVideoFileSelected(f);
+  });
+})();
 
 function guessDefaultMainIdx(tokens) {
   let best = 0, bestLen = -1;
@@ -915,70 +950,383 @@ function guessDefaultMainIdx(tokens) {
   return best;
 }
 
+const _STOPWORDS_PT = new Set(['a', 'o', 'e', 'de', 'da', 'do', 'em', 'um', 'uma', 'para', 'com', 'que', 'se', 'no', 'na', 'os', 'as', 'por', 'mais', 'como', 'mas', 'foi', 'ao', 'ele', 'ela', 'seu', 'sua', 'ou', 'ser', 'quando', 'muito', 'há', 'nos', 'já', 'está', 'eu', 'você', 'isso', 'só']);
+
+function analyzeCaptionsSmart(captions, autoApply = false) {
+  const caps = (captions || []);
+  let suggestedHighlights = 0, suggestedCines = 0, suggestedBrolls = 0;
+  caps.forEach((cap, idx) => {
+    const toks = (cap.text || '').replace(/[|\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const scored = toks.map((t, i) => {
+      const clean = t.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      const len = clean.length;
+      const sc = (_STOPWORDS_PT.has(clean) || len <= 2) ? 0 : len + (/^\d+$/.test(clean) ? 6 : 0);
+      return { i, sc };
+    }).sort((a, b) => b.sc - a.sc);
+    const topIndices = scored.filter((x) => x.sc >= 5).slice(0, toks.length >= 6 ? 2 : 1).map((x) => x.i).sort((a, b) => a - b);
+    if (!topIndices.length && toks.length) topIndices.push(guessDefaultMainIdx(toks));
+    const prevEnd = idx > 0 ? Number(caps[idx - 1].e || 0) : 0;
+    const pauseGap = idx > 0 ? Math.max(0, Number(cap.s || 0) - prevEnd) : 0;
+    const isStrongMoment = (idx % 4 === 1 && toks.length >= 3);
+    const suggestBroll = (pauseGap >= 0.6 || toks.length >= 7) && (idx % 3 === 2);
+    cap._analysis = {
+      keyIndices: topIndices,
+      suggestCine: isStrongMoment,
+      suggestBroll,
+      pauseGap: Number(pauseGap.toFixed(1)),
+    };
+    if (topIndices.length) suggestedHighlights++;
+    if (isStrongMoment) suggestedCines++;
+    if (suggestBroll) suggestedBrolls++;
+
+    if (autoApply) {
+      cap.main_indices = [...topIndices];
+      cap.main_idx = topIndices[0] ?? 0;
+      if (isStrongMoment && suggestedCines <= 3) {
+        cap.cine_indices = [...topIndices];
+      }
+    }
+  });
+  return { total: caps.length, suggestedHighlights, suggestedCines, suggestedBrolls };
+}
+
+function fmtMMSS(sec) {
+  const s = Math.max(0, Number(sec || 0));
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+}
+
+function renderSyncTimeline() {
+  const box = $('syncTimelineBox'), tracks = $('syncTimelineTracks');
+  if (!box || !tracks) return;
+  if (!currentCaptions.length) { box.hidden = true; return; }
+  box.hidden = false;
+  tracks.replaceChildren();
+  const maxEnd = Math.max(
+    1,
+    ...currentCaptions.map((c) => Number(c.e || 0)),
+    ...selectedBrolls.map((b) => Number(b.end || 0)),
+    Number($('previewVideo')?.duration || 0)
+  );
+  const pct = (v) => Math.max(0, Math.min(100, (Number(v || 0) / maxEnd) * 100));
+
+  // Faixa 1: Blocos de Fala / Legenda
+  const rCap = document.createElement('div'); rCap.className = 'stl-row';
+  currentCaptions.forEach((cap, idx) => {
+    if (cap.cut) return;
+    const b = document.createElement('div');
+    b.className = 'stl-block' + (activePreviewCaptionIdx === idx ? ' is-active' : '');
+    const left = pct(cap.s), width = Math.max(3, pct(cap.e) - left);
+    b.style.left = left.toFixed(2) + '%'; b.style.width = width.toFixed(2) + '%';
+    b.textContent = `${idx + 1}. ${(cap.text || '').slice(0, 14)}`;
+    b.title = `${fmtMMSS(cap.s)}–${fmtMMSS(cap.e)}: ${cap.text}`;
+    b.addEventListener('click', () => focusCaptionCard(idx, true));
+    rCap.append(b);
+  });
+  tracks.append(rCap);
+
+  // Faixa 2: Efeitos Gráficos e Holofote
+  const fxCaps = currentCaptions.map((c, idx) => ({ c, idx })).filter(({ c }) => (c.graphic_fx && c.graphic_fx !== 'none') || (c.cine_indices && c.cine_indices.length) || c.cine_block);
+  if (fxCaps.length) {
+    const rFx = document.createElement('div'); rFx.className = 'stl-row';
+    fxCaps.forEach(({ c, idx }) => {
+      const b = document.createElement('div'); b.className = 'stl-block is-fx';
+      const left = pct(c.s), width = Math.max(3, pct(c.e) - left);
+      b.style.left = left.toFixed(2) + '%'; b.style.width = width.toFixed(2) + '%';
+      b.textContent = (c.cine_indices?.length || c.cine_block ? '🎬 ' : '') + (c.graphic_fx && c.graphic_fx !== 'none' ? c.graphic_fx : 'Holofote');
+      b.addEventListener('click', () => focusCaptionCard(idx, true));
+      rFx.append(b);
+    });
+    tracks.append(rFx);
+  }
+
+  // Faixa 3: B-rolls associados
+  const activeBrolls = selectedBrolls.filter((b) => b.confirmed || b.start !== '');
+  if (activeBrolls.length) {
+    const rBr = document.createElement('div'); rBr.className = 'stl-row';
+    activeBrolls.forEach((br) => {
+      const bs = parseFloat(br.start); if (isNaN(bs)) return;
+      const be = isNaN(parseFloat(br.end)) ? bs + 3.0 : parseFloat(br.end);
+      const b = document.createElement('div'); b.className = 'stl-block is-broll';
+      const left = pct(bs), width = Math.max(3, pct(be) - left);
+      b.style.left = left.toFixed(2) + '%'; b.style.width = width.toFixed(2) + '%';
+      b.textContent = `🎞️ ${br.name || 'B-roll'}`;
+      b.addEventListener('click', () => {
+        const vid = $('previewVideo');
+        if (vid) { vid.currentTime = bs; }
+        if (br.cardIdx != null) focusCaptionCard(br.cardIdx, false);
+      });
+      rBr.append(b);
+    });
+    tracks.append(rBr);
+  }
+}
+
+function focusCaptionCard(idx, play = false) {
+  if (idx < 0 || idx >= currentCaptions.length) return;
+  activePreviewCaptionIdx = idx;
+  const cap = currentCaptions[idx];
+  syncOverlay(true);
+  renderSyncTimeline();
+  document.querySelectorAll('#captionEditorList .cap-edit-row').forEach((el, i) => el.classList.toggle('is-active-card', i === idx));
+  const targetRow = document.querySelectorAll('#captionEditorList .cap-edit-row')[idx];
+  targetRow?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const vid = $('previewVideo');
+  if (vid) {
+    vid.muted = false;
+    vid.currentTime = Math.max(0, Number(cap.orig_s ?? cap.s ?? 0));
+    if (play) vid.play().catch(() => {});
+  }
+}
+
+$('prevCardBtn')?.addEventListener('click', () => focusCaptionCard(Math.max(0, activePreviewCaptionIdx <= 0 ? 0 : activePreviewCaptionIdx - 1), false));
+$('nextCardBtn')?.addEventListener('click', () => focusCaptionCard(Math.min(currentCaptions.length - 1, activePreviewCaptionIdx + 1), false));
+$('applyAutoSuggestionsBtn')?.addEventListener('click', () => {
+  analyzeCaptionsSmart(currentCaptions, true);
+  if ($('cineModeSelect') && currentCaptions.some((c) => c.cine_indices?.length) && $('cineModeSelect').value === 'off') {
+    $('cineModeSelect').value = 'manual';
+  }
+  renderCaptionEditor(currentCaptions);
+  syncOverlay(true);
+  markDirtyAfterRender();
+});
+
 function renderCaptionEditor(captions) {
   currentCaptions = (captions || []).map((c) => ({ ...c }));
+  const stats = analyzeCaptionsSmart(currentCaptions, false);
+  if ($('reviewAnalysisSummary')) {
+    $('reviewAnalysisSummary').textContent = `${stats.total} blocos · ${stats.suggestedHighlights} destaques · ${stats.suggestedCines} sugestões de holofote`;
+  }
   const list = $('captionEditorList'); list.replaceChildren();
+
   currentCaptions.forEach((cap, idx) => {
-    const row = document.createElement('div'); row.className = 'cap-edit-row';
+    const row = document.createElement('div');
+    row.className = 'cap-edit-row' + (activePreviewCaptionIdx === idx ? ' is-active-card' : '') + (cap.cut ? ' is-cut' : '');
+
     const topBar = document.createElement('div'); topBar.className = 'cap-edit-top';
     const playBtn = document.createElement('button'); playBtn.type = 'button'; playBtn.className = 'cap-edit-play'; playBtn.textContent = '▶';
-    playBtn.addEventListener('click', () => {
-      activePreviewCaptionIdx = idx; syncOverlay(true);
-      const vid = $('previewVideo'); if (vid) { vid.muted = false; vid.currentTime = Math.max(0, Number(cap.orig_s ?? cap.s ?? 0) - 0.1); vid.play().catch(() => {}); }
-    });
-    const tm = document.createElement('span'); tm.className = 'cap-edit-time'; tm.textContent = Number(cap.s || 0).toFixed(1) + 's';
-    const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'cap-edit-input'; inp.value = cap.text || '';
-    const chipsBox = document.createElement('div'); chipsBox.className = 'cap-word-chips';
+    playBtn.title = 'Reproduzir trecho';
+    playBtn.addEventListener('click', () => focusCaptionCard(idx, true));
 
-    function renderChips() {
+    const rewindBtn = document.createElement('button'); rewindBtn.type = 'button'; rewindBtn.className = 'mini-pill-btn'; rewindBtn.textContent = '⏮';
+    rewindBtn.title = 'Voltar ao início do bloco';
+    rewindBtn.addEventListener('click', () => focusCaptionCard(idx, false));
+
+    const tm = document.createElement('span'); tm.className = 'cap-edit-time';
+    tm.textContent = `${fmtMMSS(cap.s)}–${fmtMMSS(cap.e)}`;
+
+    const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'cap-edit-input'; inp.value = cap.text || '';
+
+    const elToggleBtn = document.createElement('button'); elToggleBtn.type = 'button'; elToggleBtn.className = 'mini-pill-btn';
+    elToggleBtn.textContent = '＋ Elementos';
+
+    const cutBtn = document.createElement('button'); cutBtn.type = 'button'; cutBtn.className = 'cap-edit-cut'; cutBtn.textContent = cap.cut ? 'Voltar' : '✂️';
+    cutBtn.addEventListener('click', () => {
+      currentCaptions[idx].cut = !currentCaptions[idx].cut; row.classList.toggle('is-cut', !!currentCaptions[idx].cut);
+      cutBtn.textContent = currentCaptions[idx].cut ? 'Voltar' : '✂️';
+      renderSyncTimeline(); markDirtyAfterRender();
+    });
+
+    topBar.append(playBtn, rewindBtn, tm, inp, elToggleBtn, cutBtn);
+
+    // Análise automática discreta
+    const analysisBar = document.createElement('div'); analysisBar.className = 'cap-analysis-bar';
+    if (cap._analysis?.suggestCine) {
+      const tag = document.createElement('span'); tag.className = 'cap-analysis-tag'; tag.textContent = '💡 Sugestão: Holofote';
+      analysisBar.append(tag);
+    }
+    if (cap._analysis?.suggestBroll) {
+      const tag = document.createElement('span'); tag.className = 'cap-analysis-tag'; tag.textContent = '🖼️ Bom ponto p/ B-roll';
+      analysisBar.append(tag);
+    }
+
+    const chipsBox = document.createElement('div'); chipsBox.className = 'cap-word-chips';
+    const summaryBox = document.createElement('div'); summaryBox.className = 'cap-elements-summary';
+
+    function renderChipsAndSummary() {
       const toks = (inp.value || '').replace(/[|\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
-      chipsBox.replaceChildren(); if (!toks.length) return;
+      chipsBox.replaceChildren(); summaryBox.replaceChildren();
+      if (!toks.length) return;
       if (!Array.isArray(currentCaptions[idx].main_indices) || !currentCaptions[idx].main_indices.length) {
         const defI = currentCaptions[idx].main_idx ?? guessDefaultMainIdx(toks);
         currentCaptions[idx].main_indices = [defI]; currentCaptions[idx].main_idx = defI;
       }
       const mSet = new Set(currentCaptions[idx].main_indices);
+      const fxSet = new Set(currentCaptions[idx].fx_indices || []);
       const cSet = new Set(currentCaptions[idx].cine_indices || []);
+
       toks.forEach((tok, wIdx) => {
         const chip = document.createElement('button'); chip.type = 'button';
-        chip.className = 'cap-word-chip' + (mSet.has(wIdx) ? ' is-main' : ''); chip.textContent = tok;
+        chip.className = 'cap-word-chip' + (mSet.has(wIdx) ? ' is-main' : '') + (fxSet.has(wIdx) ? ' is-fx' : '') + (cSet.has(wIdx) ? ' is-cine' : '');
+        chip.textContent = tok;
         chip.addEventListener('click', () => {
           const curSet = new Set(currentCaptions[idx].main_indices || []);
           if (curSet.has(wIdx) && curSet.size > 1) curSet.delete(wIdx); else curSet.add(wIdx);
           currentCaptions[idx].main_indices = [...curSet].sort((a, b) => a - b);
           currentCaptions[idx].main_idx = currentCaptions[idx].main_indices[0];
-          activePreviewCaptionIdx = idx; renderChips(); syncOverlay(true); markDirtyAfterRender();
+          activePreviewCaptionIdx = idx; renderChipsAndSummary(); syncOverlay(true); markDirtyAfterRender();
         });
         chipsBox.append(chip);
       });
 
       const cineBtn = document.createElement('button'); cineBtn.type = 'button';
-      cineBtn.className = 'cap-chip-cine' + (cSet.size ? ' is-on' : '');
-      cineBtn.textContent = cSet.size ? '🎬 Holofote ON' : '🎬 Holofote';
-      cineBtn.title = 'Aplicar escurecimento cinematográfico somente na palavra em destaque deste trecho';
+      cineBtn.className = 'cap-chip-cine' + ((cSet.size || currentCaptions[idx].cine_block) ? ' is-on' : '');
+      cineBtn.textContent = (cSet.size || currentCaptions[idx].cine_block) ? '🎬 Holofote ON' : '🎬 Holofote';
       cineBtn.addEventListener('click', () => {
-        if (cSet.size) currentCaptions[idx].cine_indices = [];
-        else {
-          currentCaptions[idx].cine_indices = [currentCaptions[idx].main_idx ?? 0];
+        if (cSet.size || currentCaptions[idx].cine_block) {
+          currentCaptions[idx].cine_indices = []; currentCaptions[idx].cine_block = false;
+        } else {
+          currentCaptions[idx].cine_indices = [...(currentCaptions[idx].main_indices || [0])];
           if ($('cineModeSelect') && $('cineModeSelect').value === 'off') $('cineModeSelect').value = 'manual';
         }
-        activePreviewCaptionIdx = idx; renderChips();
-        syncOverlay(false, false, !!currentCaptions[idx].cine_indices.length);
+        activePreviewCaptionIdx = idx; renderChipsAndSummary(); renderSyncTimeline();
+        syncOverlay(false, false, !!(currentCaptions[idx].cine_indices?.length || currentCaptions[idx].cine_block));
         markDirtyAfterRender();
       });
       chipsBox.append(cineBtn);
-    }
-    renderChips();
 
-    inp.addEventListener('focus', () => { activePreviewCaptionIdx = idx; syncOverlay(false); });
-    inp.addEventListener('input', () => { currentCaptions[idx].text = inp.value; activePreviewCaptionIdx = idx; renderChips(); syncOverlay(false); markDirtyAfterRender(); });
-    const cutBtn = document.createElement('button'); cutBtn.type = 'button'; cutBtn.className = 'cap-edit-cut'; cutBtn.textContent = cap.cut ? 'Voltar' : '✂️';
-    cutBtn.addEventListener('click', () => {
-      currentCaptions[idx].cut = !currentCaptions[idx].cut; row.classList.toggle('is-cut', !!currentCaptions[idx].cut);
-      cutBtn.textContent = currentCaptions[idx].cut ? 'Voltar' : '✂️'; markDirtyAfterRender();
+      // Resumo de elementos adicionados no card
+      const addSummaryChip = (label, onDel) => {
+        const sc = document.createElement('span'); sc.className = 'cap-el-chip';
+        sc.textContent = label + ' ';
+        const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕';
+        x.addEventListener('click', onDel);
+        sc.append(x); summaryBox.append(sc);
+      };
+      if (currentCaptions[idx].style_id) {
+        addSummaryChip(`Legenda: ${currentCaptions[idx].style_id}`, () => { delete currentCaptions[idx].style_id; renderChipsAndSummary(); markDirtyAfterRender(); });
+      }
+      if (currentCaptions[idx].graphic_fx && currentCaptions[idx].graphic_fx !== 'none') {
+        const fxWords = (currentCaptions[idx].fx_indices?.length ? currentCaptions[idx].fx_indices : currentCaptions[idx].main_indices).map((wi) => toks[wi]).filter(Boolean).join(' ');
+        addSummaryChip(`Efeito: ${currentCaptions[idx].graphic_fx}${fxWords ? ' em "' + fxWords + '"' : ''}`, () => {
+          delete currentCaptions[idx].graphic_fx; delete currentCaptions[idx].fx_indices;
+          renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+        });
+      }
+      if (currentCaptions[idx].cine_indices?.length || currentCaptions[idx].cine_block) {
+        addSummaryChip(currentCaptions[idx].cine_block ? '🎬 Holofote (Bloco)' : '🎬 Holofote (Seleção)', () => {
+          currentCaptions[idx].cine_indices = []; currentCaptions[idx].cine_block = false;
+          renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+        });
+      }
+      selectedBrolls.forEach((br, bi) => {
+        if (br.cardIdx === idx && br.confirmed) {
+          addSummaryChip(`🎞️ ${br.name} (${fmtMMSS(br.start)}–${fmtMMSS(br.end)})`, () => {
+            selectedBrolls.splice(bi, 1); renderBrollList(); renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+          });
+        }
+      });
+    }
+    renderChipsAndSummary();
+
+    // Painel expansível "ADICIONAR ELEMENTOS" dentro do card
+    const elPanel = document.createElement('div'); elPanel.className = 'cap-add-elements-box'; elPanel.hidden = true;
+    elPanel.innerHTML = `
+      <div class="cap-el-tabs">
+        <button type="button" class="cap-el-tab is-active" data-tab="cap">💬 Legenda</button>
+        <button type="button" class="cap-el-tab" data-tab="fx">✏️ Efeitos</button>
+        <button type="button" class="cap-el-tab" data-tab="broll">🎞️ B-roll</button>
+      </div>
+      <div class="cap-el-pane" data-pane="cap">
+        <div class="row-2">
+          <label class="field"><span>Modelo do bloco</span>
+            <select data-k="style_id">
+              <option value="">Herdar global</option>
+              <option value="classic">Impacto Bold</option>
+              <option value="editorial-serif">Editorial Serif</option>
+              <option value="big-word">Big Word</option>
+              <option value="highlight-words">Highlight Words</option>
+              <option value="pink-highlight">Pink Highlight</option>
+              <option value="clean-dynamic">Clean Dynamic</option>
+            </select>
+          </label>
+          <label class="field"><span>Cor destaque</span><input type="color" data-k="accent_color" value="${cap.accent_color || ($('accentColor')?.value || '#22C55E')}"></label>
+        </div>
+      </div>
+      <div class="cap-el-pane" data-pane="fx" hidden>
+        <div class="row-2">
+          <label class="field"><span>Efeito gráfico</span>
+            <select data-k="graphic_fx">
+              <option value="">Padrão global</option>
+              <option value="none">Nenhum</option>
+              <option value="underline">Sublinhado animado</option>
+              <option value="underline-double">Sublinhado duplo</option>
+              <option value="strike">Riscado horizontal</option>
+              <option value="strike-diag">Riscado diagonal</option>
+              <option value="circle">Círculo completo</option>
+              <option value="circle-open">Círculo incompleto</option>
+              <option value="hand-circle">Círculo à mão</option>
+              <option value="hand-underline">Sublinhado manual</option>
+              <option value="hand-mark">Grifo pincel</option>
+              <option value="arrow-curved">Seta curva</option>
+              <option value="arrow-straight">Seta reta</option>
+              <option value="arrow-angled">Seta angular</option>
+            </select>
+          </label>
+          <label class="field"><span>Cor do efeito</span><input type="color" data-k="fx_color" value="${cap.gfx_cfg?.color || ($('gfxColor')?.value || '#FACC15')}"></label>
+        </div>
+        <div class="row-2">
+          <button type="button" class="mini-pill-btn" data-act="bind-fx">🔗 Vincular às palavras selecionadas</button>
+          <button type="button" class="mini-pill-btn" data-act="cine-block">🎬 Holofote no bloco todo</button>
+        </div>
+      </div>
+      <div class="cap-el-pane" data-pane="broll" hidden>
+        <p class="step-hint">Adicione imagem ou vídeo exatamente entre <b>${fmtMMSS(cap.s)}</b> e <b>${fmtMMSS(cap.e)}</b>. Só entra na composição após confirmar.</p>
+        <button type="button" class="primary-btn" data-act="add-broll" style="padding:9px;font-size:12px">＋ Escolher mídia &amp; posicionar B-roll</button>
+      </div>
+    `;
+
+    elPanel.querySelectorAll('.cap-el-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        elPanel.querySelectorAll('.cap-el-tab').forEach((t) => t.classList.remove('is-active'));
+        tab.classList.add('is-active');
+        elPanel.querySelectorAll('.cap-el-pane').forEach((p) => { p.hidden = (p.dataset.pane !== tab.dataset.tab); });
+      });
     });
-    topBar.append(playBtn, tm, inp, cutBtn); row.append(topBar, chipsBox); list.append(row);
+    const selStyle = elPanel.querySelector('[data-k="style_id"]');
+    if (selStyle) { selStyle.value = cap.style_id || ''; selStyle.addEventListener('change', () => { currentCaptions[idx].style_id = selStyle.value || ''; renderChipsAndSummary(); markDirtyAfterRender(); }); }
+    const selAcc = elPanel.querySelector('[data-k="accent_color"]');
+    if (selAcc) selAcc.addEventListener('change', () => { currentCaptions[idx].accent_color = selAcc.value; markDirtyAfterRender(); });
+    const selFx = elPanel.querySelector('[data-k="graphic_fx"]');
+    if (selFx) {
+      selFx.value = cap.graphic_fx || '';
+      selFx.addEventListener('change', () => {
+        currentCaptions[idx].graphic_fx = selFx.value || '';
+        if (!currentCaptions[idx].fx_indices?.length) currentCaptions[idx].fx_indices = [...(currentCaptions[idx].main_indices || [0])];
+        renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+      });
+    }
+    const selFxCol = elPanel.querySelector('[data-k="fx_color"]');
+    if (selFxCol) selFxCol.addEventListener('change', () => { currentCaptions[idx].gfx_cfg = { ...(currentCaptions[idx].gfx_cfg || {}), color: selFxCol.value }; markDirtyAfterRender(); });
+    elPanel.querySelector('[data-act="bind-fx"]')?.addEventListener('click', () => {
+      currentCaptions[idx].fx_indices = [...(currentCaptions[idx].main_indices || [0])];
+      if (!currentCaptions[idx].graphic_fx) currentCaptions[idx].graphic_fx = selFx?.value || 'underline';
+      renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+    });
+    elPanel.querySelector('[data-act="cine-block"]')?.addEventListener('click', () => {
+      currentCaptions[idx].cine_block = !currentCaptions[idx].cine_block;
+      if ($('cineModeSelect') && $('cineModeSelect').value === 'off') $('cineModeSelect').value = 'manual';
+      renderChipsAndSummary(); renderSyncTimeline(); markDirtyAfterRender();
+    });
+    elPanel.querySelector('[data-act="add-broll"]')?.addEventListener('click', () => {
+      pendingCardBrollIdx = idx;
+      $('brollFile')?.click();
+    });
+
+    elToggleBtn.addEventListener('click', () => {
+      elPanel.hidden = !elPanel.hidden;
+      elToggleBtn.textContent = elPanel.hidden ? '＋ Elementos' : '− Fechar';
+      focusCaptionCard(idx, false);
+    });
+
+    inp.addEventListener('focus', () => focusCaptionCard(idx, false));
+    inp.addEventListener('input', () => { currentCaptions[idx].text = inp.value; activePreviewCaptionIdx = idx; renderChipsAndSummary(); syncOverlay(false); renderSyncTimeline(); markDirtyAfterRender(); });
+
+    row.append(topBar, analysisBar, chipsBox, summaryBox, elPanel);
+    list.append(row);
   });
+  renderSyncTimeline();
 }
 
 async function safeJson(res) {
@@ -1005,13 +1353,120 @@ function uploadWithProgress(file) {
   });
 }
 
+function buildRenderPayload() {
+  const cCfg = readCineConfig();
+  return {
+    job_id: currentJobId, captions: currentCaptions, style: selectedStyle,
+    accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
+    text_color: $('textColor')?.value || '#FFFFFF',
+    pos_y: Number($('posY').value), alignment: selectedAlign,
+    caption_scale: Number($('capScale')?.value || 100),
+    letter_spacing: Number($('letterSpacing')?.value || 0),
+    word_spacing: Number($('wordSpacing')?.value || 1.0),
+    line_spacing: Number($('lineSpacing')?.value || 1.0),
+    outline_val: Number($('outlineVal')?.value || 0.8),
+    shadow_val: Number($('shadowVal')?.value || 2.0),
+    anim_in: $('animInSelect')?.value || '',
+    anim_out: $('animOutSelect')?.value || 'fade-out',
+    anim_dur: Number($('animDur')?.value || 0.28),
+    anim_intensity: Number($('animIntensity')?.value || 1.0),
+    caption_bold: !!$('boldToggle')?.checked,
+    highlight_fx: selectedFx, gfx_cfg: readGfxConfig(),
+    cine_mode: cCfg.mode, cine_intensity: cCfg.intensity, cine_trans_dur: cCfg.trans_dur,
+    cine_hold_pad: cCfg.hold_pad, cine_scale: cCfg.scale, cine_color: cCfg.color, cine_bold: cCfg.bold, cine_glow: cCfg.glow,
+    main_font: $('fontSelect')?.value || '', small_font: $('smallFontSelect')?.value || '',
+    caption_lines: selectedLines, zoom: false, studio_audio: $('studioAudioToggle').checked,
+    color_grade: !!$('colorGradeToggle')?.checked,
+    compositions: selectedCompositions.map((c) => ({ ...c, media: (c.media || []).map((m) => ({ id: m.id })) })),
+    brolls: selectedBrolls.map((b) => ({
+      id: b.id, layout: b.layout, start: b.start, end: b.end,
+      x: b.x, y: b.y, scale: b.scale, aspect: b.aspect, rotation: b.rotation, margin: b.margin, radius: b.radius,
+    })),
+    cards: selectedCards.map((c) => ({
+      id: c.id, anim: c.anim, start: c.start, end: c.end,
+      x: c.x, y: c.y, scale: c.scale, rotation: c.rotation, margin: c.margin,
+    })),
+    resolution: selectedResolution,
+  };
+}
+
+async function pollRenderCompletion() {
+  while (true) {
+    await new Promise((r) => setTimeout(r, 1400));
+    const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
+    $('progressText').textContent = st.message || 'Renderizando…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
+    if (st.status === 'done') {
+      clearMediaPreview(); lastVideoUrl = st.video_url; cachedVideoBlob = null; cachedShareFile = null;
+      $('previewVideo').src = st.video_url; $('previewVideo').muted = false; $('previewVideo').hidden = false;
+      $('emptyStage').hidden = true; $('liveOverlay').hidden = true;
+      $('downloadMp4').href = st.video_url + '?dl=1'; $('downloadMp4').download = `eu-edito-${currentJobId || 'pronto'}.mp4`;
+      $('downloadSrt').href = st.srt_url; $('shareBtn').hidden = !navigator.share;
+      $('transcriptText').textContent = st.transcript || '';
+      $('statsRow').innerHTML = `<div class="stat-pill"><strong>${st.stats.resolution}</strong><small>Qualidade</small></div><div class="stat-pill"><strong>${st.stats.duration}s</strong><small>Duração</small></div><div class="stat-pill"><strong>${st.stats.removed_seconds}s</strong><small>Cortados</small></div>`;
+      $('progressBox').hidden = true; $('resultBox').hidden = false; $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      $('generateBtn').disabled = false; setStickyVisible(false); break;
+    }
+    if (st.status === 'error') throw new Error(st.message || 'Erro ao renderizar.');
+  }
+}
+
+async function runOneClickPipeline(mode) {
+  if (!selectedFile) return;
+  $('errorMsg').hidden = true; $('resultBox').hidden = true; $('reviewCard').hidden = true;
+  $('progressBox').hidden = false; $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    if (mode === 'auto') {
+      selectedStyle = 'highlight-words';
+      selectedLines = 3;
+      if ($('accentColor')) $('accentColor').value = '#FACC15';
+      if ($('customColorToggle')) $('customColorToggle').checked = true;
+      if ($('cineModeSelect')) $('cineModeSelect').value = 'auto';
+      syncOverlay(true);
+    } else if (mode === 'quick') {
+      selectedLines = 2;
+      syncOverlay(true);
+    }
+    $('progressText').textContent = mode === 'auto' ? '🤖 Modo Automático: enviando vídeo…' : '⚡ Modo Rápido: enviando vídeo…';
+    $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
+    const up = await uploadWithProgress(selectedFile); currentJobId = up.job_id;
+    const tr = await safeJson(await fetch('/api/transcribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: currentJobId, cuts: true, rhythm: 'natural' }),
+    }));
+    if (tr.error) throw new Error(tr.error);
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
+      $('progressText').textContent = st.message || 'Analisando falas…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
+      if (st.status === 'review') {
+        currentCaptions = (st.captions || []).map((c) => ({ ...c }));
+        analyzeCaptionsSmart(currentCaptions, true);
+        break;
+      }
+      if (st.status === 'error') throw new Error(st.message || 'Erro na transcrição.');
+    }
+    $('progressText').textContent = mode === 'auto' ? '🤖 Aplicando edição automática…' : '⚡ Gerando vídeo rápido…';
+    const ren = await safeJson(await fetch('/api/render', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildRenderPayload()),
+    }));
+    if (ren.error) throw new Error(ren.error);
+    await pollRenderCompletion();
+  } catch (err) {
+    $('progressBox').hidden = true; $('errorMsg').textContent = err?.message || 'Falha no processamento.'; $('errorMsg').hidden = false;
+  }
+}
+
+$('autoModeBtn')?.addEventListener('click', () => runOneClickPipeline('auto'));
+$('quickModeBtn')?.addEventListener('click', () => runOneClickPipeline('quick'));
+
 $('generateBtn').addEventListener('click', async () => {
   if (!selectedFile) return;
   $('generateBtn').disabled = true; $('errorMsg').hidden = true; $('resultBox').hidden = true;
   $('progressBox').hidden = false; $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
   try {
     if (flowStage === 'transcribe') {
-      $('progressText').textContent = 'Enviando vídeo do celular…'; $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
+      $('progressText').textContent = 'Enviando vídeo…'; $('progressPct').textContent = '5%'; $('progressFill').style.width = '5%';
       const up = await uploadWithProgress(selectedFile); currentJobId = up.job_id;
       const tr = await safeJson(await fetch('/api/transcribe', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1032,64 +1487,12 @@ $('generateBtn').addEventListener('click', async () => {
       }
     }
 
-    const cCfg = readCineConfig();
-    const { data: ren } = await (async () => {
-      const r = await fetch('/api/render', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          job_id: currentJobId, captions: currentCaptions, style: selectedStyle,
-          accent_color: $('customColorToggle')?.checked ? $('accentColor').value : '',
-          text_color: $('textColor')?.value || '#FFFFFF',
-          pos_y: Number($('posY').value), alignment: selectedAlign,
-          caption_scale: Number($('capScale')?.value || 100),
-          letter_spacing: Number($('letterSpacing')?.value || 0),
-          word_spacing: Number($('wordSpacing')?.value || 1.0),
-          line_spacing: Number($('lineSpacing')?.value || 1.0),
-          outline_val: Number($('outlineVal')?.value || 0.8),
-          shadow_val: Number($('shadowVal')?.value || 2.0),
-          anim_in: $('animInSelect')?.value || '',
-          anim_out: $('animOutSelect')?.value || 'fade-out',
-          anim_dur: Number($('animDur')?.value || 0.28),
-          anim_intensity: Number($('animIntensity')?.value || 1.0),
-          caption_bold: !!$('boldToggle')?.checked,
-          highlight_fx: selectedFx, gfx_cfg: readGfxConfig(),
-          cine_mode: cCfg.mode, cine_intensity: cCfg.intensity, cine_trans_dur: cCfg.trans_dur,
-          cine_hold_pad: cCfg.hold_pad, cine_scale: cCfg.scale, cine_color: cCfg.color, cine_bold: cCfg.bold, cine_glow: cCfg.glow,
-          main_font: $('fontSelect')?.value || '', small_font: $('smallFontSelect')?.value || '',
-          caption_lines: selectedLines, zoom: $('zoomToggle').checked, studio_audio: $('studioAudioToggle').checked,
-          color_grade: !!$('colorGradeToggle')?.checked,
-          compositions: selectedCompositions.map((c) => ({ ...c, media: (c.media || []).map((m) => ({ id: m.id })) })),
-          brolls: selectedBrolls.map((b) => ({
-            id: b.id, layout: b.layout, start: b.start, end: b.end,
-            x: b.x, y: b.y, scale: b.scale, aspect: b.aspect, rotation: b.rotation, margin: b.margin, radius: b.radius,
-          })),
-          cards: selectedCards.map((c) => ({
-            id: c.id, anim: c.anim, start: c.start, end: c.end,
-            x: c.x, y: c.y, scale: c.scale, rotation: c.rotation, margin: c.margin,
-          })),
-          resolution: selectedResolution,
-        }),
-      });
-      return { data: await safeJson(r) };
-    })();
+    const ren = await safeJson(await fetch('/api/render', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildRenderPayload()),
+    }));
     if (ren.error) throw new Error(ren.error);
-    while (true) {
-      await new Promise((r) => setTimeout(r, 1400));
-      const st = await safeJson(await fetch('/api/jobs/' + currentJobId));
-      $('progressText').textContent = st.message || 'Renderizando…'; $('progressPct').textContent = (st.progress || 0) + '%'; $('progressFill').style.width = (st.progress || 0) + '%';
-      if (st.status === 'done') {
-        clearMediaPreview(); lastVideoUrl = st.video_url; cachedVideoBlob = null; cachedShareFile = null;
-        $('previewVideo').src = st.video_url; $('previewVideo').muted = false; $('previewVideo').hidden = false;
-        $('emptyStage').hidden = true; $('liveOverlay').hidden = true;
-        $('downloadMp4').href = st.video_url + '?dl=1'; $('downloadMp4').download = `eu-edito-${currentJobId || 'pronto'}.mp4`;
-        $('downloadSrt').href = st.srt_url; $('shareBtn').hidden = !navigator.share;
-        $('transcriptText').textContent = st.transcript || '';
-        $('statsRow').innerHTML = `<div class="stat-pill"><strong>${st.stats.resolution}</strong><small>Qualidade</small></div><div class="stat-pill"><strong>${st.stats.duration}s</strong><small>Duração</small></div><div class="stat-pill"><strong>${st.stats.removed_seconds}s</strong><small>Cortados</small></div>`;
-        $('progressBox').hidden = true; $('resultBox').hidden = false; $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
-        $('generateBtn').disabled = false; setStickyVisible(false); break;
-      }
-      if (st.status === 'error') throw new Error(st.message || 'Erro ao renderizar.');
-    }
+    await pollRenderCompletion();
   } catch (err) {
     $('progressBox').hidden = true; $('errorMsg').textContent = err?.message || 'Falha no processamento.'; $('errorMsg').hidden = false; $('generateBtn').disabled = false;
   }

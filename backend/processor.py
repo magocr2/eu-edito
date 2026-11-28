@@ -606,10 +606,26 @@ def sync_edited_captions(edited_captions):
                 pass
         if cap.get("graphic_fx"):
             item["graphic_fx"] = str(cap["graphic_fx"])
+        if cap.get("fx_indices"):
+            valid_fi = [int(x) for x in cap["fx_indices"] if 0 <= int(x) < len(words)]
+            if valid_fi:
+                item["fx_indices"] = valid_fi
+        if isinstance(cap.get("gfx_cfg"), dict):
+            item["gfx_cfg"] = dict(cap["gfx_cfg"])
         if cap.get("cine_indices"):
             valid_ci = [int(x) for x in cap["cine_indices"] if 0 <= int(x) < len(words)]
             if valid_ci:
                 item["cine_indices"] = valid_ci
+        if cap.get("cine_block"):
+            item["cine_block"] = True
+        if cap.get("accent_color"):
+            item["accent_color"] = str(cap["accent_color"])
+        if cap.get("anim_in"):
+            item["anim_in"] = str(cap["anim_in"])
+        if cap.get("anim_out"):
+            item["anim_out"] = str(cap["anim_out"])
+        if cap.get("style_id"):
+            item["style_id"] = str(cap["style_id"])
         if cap.get("cine_idx") is not None and "cine_indices" not in item:
             try:
                 ci_v = int(cap["cine_idx"])
@@ -1226,14 +1242,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return f"\\fn{cfg['main_font']}\\fs{base_sz}\\b{b_flag}\\i{cfg['main_italic']}\\1c{fg_c}\\3c&HF4000000&\\4c&HC8000000&\\bord0\\shad{main_shadow}\\blur0.7"
         return f"\\fn{cfg['small_font']}\\fs{s_size}\\b{cfg['small_bold']}\\i{cfg['small_italic']}\\1c{text_ass}\\3c&HE4000000&\\4c&H9E000000&\\bord{outline}\\shad{shadow}\\blur0.7"
 
-    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none", cine_local_set=None):
+    def _emit_mixed_line(tokens, x_center, y_row, cap_s, cap_e, t0s, t1s, main_local_set=None, inline_main_scale=1.0, row_fx="none", cine_local_set=None, fx_local_set=None, card_gfx_cfg=None, card_accent_ass=None, card_in_anim=None, card_out_anim=None):
         if not tokens:
             return
         m_set = set(main_local_set or [])
         c_set = set(cine_local_set or [])
+        fx_set = set(fx_local_set) if fx_local_set else set(m_set | c_set)
         emph_set = m_set | c_set
         has_main = bool(emph_set)
-        primary_m = min(emph_set) if has_main else None
+        eff_accent_ass = card_accent_ass or accent_ass
+        eff_gfx_cfg = {**(gfx_cfg or {}), **(card_gfx_cfg or {})} if (gfx_cfg or card_gfx_cfg) else None
         dur_ms = max(120, int((cap_e + 0.12 - cap_s) * 1000))
         max_w = width * 0.86
         inline_m_sz = max(s_size + 4, int(m_size * inline_main_scale)) if has_main else m_size
@@ -1252,23 +1270,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if align_norm == "center" and half_w * 2 > width * 0.82:
             safe_x = pos_x
 
-        if has_main and row_fx not in ("none", ""):
-            solo_m = (len(tokens) == 1)
-            mtok = tokens[primary_m]
-            mtxt = mtok["w"].upper() if (primary_m in m_set and cfg["upper"]) else mtok["w"]
-            mw_px = _measure(mtxt, is_main=True, custom_sz=inline_m_sz) * (fit_pct / 100.0)
-            cx_m = safe_x
-            if align_norm == "left":
-                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + eff_sp_px * primary_m
-                cx_m = int(safe_x + left_w * (fit_pct / 100.0) + mw_px * 0.5)
-            elif align_norm == "right":
-                right_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[primary_m + 1:], primary_m + 1)) + eff_sp_px * max(0, len(tokens) - primary_m - 1)
-                cx_m = int(safe_x - right_w * (fit_pct / 100.0) - mw_px * 0.5)
-            elif not solo_m:
-                left_w = sum(_measure(t["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size)) for j, t in enumerate(tokens[:primary_m])) + eff_sp_px * primary_m
-                cx_m = int(safe_x - half_w + left_w * (fit_pct / 100.0) + mw_px * 0.5)
-            m_start_s = max(cap_s, float(mtok.get("s", cap_s)))
-            emit_ass_graphic_fx(events, row_fx, cx_m, y_row, mw_px, inline_m_sz * (fit_pct / 100.0), _fmt_ass_time(m_start_s), t1s, max(240, int((cap_e + 0.12 - m_start_s) * 1000)), scale_f, accent_ass, gfx_cfg=gfx_cfg)
+        if fx_set and row_fx not in ("none", ""):
+            # Agrupa índices contíguos para que expressões completas (ex: "MELHOR RESULTADO") recebam um único traço/círculo cobrindo toda a expressão
+            sorted_fx = sorted(i for i in fx_set if 0 <= i < len(tokens))
+            groups = []
+            for idx_fx in sorted_fx:
+                if groups and idx_fx == groups[-1][-1] + 1:
+                    groups[-1].append(idx_fx)
+                else:
+                    groups.append([idx_fx])
+
+            row_left_x = safe_x if align_norm == "left" else (safe_x - est_w * (fit_pct / 100.0) if align_norm == "right" else safe_x - half_w)
+            for grp in groups:
+                g0, g1 = grp[0], grp[-1]
+                pre_w = sum(
+                    _measure(tokens[j]["w"].upper() if (j in m_set and cfg["upper"]) else tokens[j]["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size))
+                    for j in range(g0)
+                ) + eff_sp_px * g0
+                grp_w = sum(
+                    _measure(tokens[j]["w"].upper() if (j in m_set and cfg["upper"]) else tokens[j]["w"], is_main=(j in m_set), custom_sz=(inline_m_sz if j in m_set else s_size))
+                    for j in grp
+                ) + eff_sp_px * max(0, len(grp) - 1)
+                grp_w_px = grp_w * (fit_pct / 100.0)
+                cx_m = int(row_left_x + pre_w * (fit_pct / 100.0) + grp_w_px * 0.5)
+                m_start_s = max(cap_s, float(tokens[g0].get("s", cap_s)))
+                m_end_s = max(m_start_s + 0.24, float(tokens[g1].get("e", cap_e)))
+                emit_ass_graphic_fx(
+                    events, row_fx, cx_m, y_row, grp_w_px, inline_m_sz * (fit_pct / 100.0),
+                    _fmt_ass_time(m_start_s), _fmt_ass_time(min(cap_e + 0.12, m_end_s + 0.08)),
+                    max(240, int((m_end_s - m_start_s + 0.08) * 1000)),
+                    scale_f, eff_accent_ass, gfx_cfg=eff_gfx_cfg,
+                )
 
         def _join_row(ch_list, rst):
             if space_sep_tag:
@@ -1352,7 +1384,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # Resolve temporary Cinematic Word Highlight for this block (Layer 0 background dim synced to spoken word)
         cine_set_all = set()
-        if c_mode == "manual" and (c.get("cine_indices") or c.get("cine_idx") is not None):
+        if c.get("cine_block"):
+            cine_set_all = set(range(len(words)))
+        elif c.get("cine_indices") or c.get("cine_idx") is not None:
             cine_set_all = set(c.get("cine_indices") or [int(c["cine_idx"])])
         elif c_mode == "auto" and cap_idx in auto_cine_map:
             cine_set_all = set(auto_cine_map[cap_idx])
@@ -1378,6 +1412,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cap_fx = c.get("graphic_fx") or active_fx
         if cap_fx == "bar":
             cap_fx = "pill"
+        fx_set_all = {int(i) for i in (c.get("fx_indices") or []) if 0 <= int(i) < len(words)} or m_set_all
+        card_gfx = c.get("gfx_cfg") if isinstance(c.get("gfx_cfg"), dict) else None
+        card_acc_ass = _hex_to_ass_bgr(c["accent_color"]) if c.get("accent_color") else None
 
         if fullscreen_mode == "on" or bool(c.get("fullscreen")):
             events.append(f"Dialogue: 0,{t0s},{t1s},Main,,0,0,0,,{{\\an7\\pos(0,0)\\p1\\1c&H000000&\\1a&H42&\\bord0\\shad0}}m 0 0 l {width} 0 l {width} {height} l 0 {height}{{\\p0}}")
@@ -1399,17 +1436,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 rtok = words[cursor:cursor + cnt] if cursor + cnt <= len(words) else [{"w": t, "s": cap_s, "e": cap_e} for t in ptoks]
                 rm = {j for j in range(len(rtok)) if (cursor + j) in m_set_all}
                 rc = {j for j in range(len(rtok)) if (cursor + j) in cine_set_all}
+                rf = {j for j in range(len(rtok)) if (cursor + j) in fx_set_all}
                 sc_inline = 0.92 if len(rtok) > 1 else 1.0
-                rows_data.append((rtok, rm, rc, sc_inline))
+                rows_data.append((rtok, rm, rc, rf, sc_inline))
                 row_hs.append(_row_visual_h(rtok, rm, int(m_size * sc_inline)))
                 cursor += cnt
-            for (rtok, rm, rc, sc_inline), ry in zip(rows_data, _stack_rows_y(row_hs, pos_y, fx_extra)):
-                _emit_mixed_line(rtok, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=rm, inline_main_scale=sc_inline, row_fx=cap_fx, cine_local_set=rc)
+            for (rtok, rm, rc, rf, sc_inline), ry in zip(rows_data, _stack_rows_y(row_hs, pos_y, fx_extra)):
+                _emit_mixed_line(rtok, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=rm, inline_main_scale=sc_inline, row_fx=cap_fx, cine_local_set=rc, fx_local_set=rf, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
             continue
 
         if req_lines == 1 or len(words) == 1:
             [ry] = _stack_rows_y([_row_visual_h(words, m_set_all, int(m_size * 0.88))], pos_y, 0)
-            _emit_mixed_line(words, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx, cine_local_set=cine_set_all)
+            _emit_mixed_line(words, pos_x, ry, cap_s, cap_e, t0s, t1s, main_local_set=m_set_all, inline_main_scale=0.88, row_fx=cap_fx, cine_local_set=cine_set_all, fx_local_set=fx_set_all, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
             continue
 
         before, main_w, after = words[:main_idx], [words[main_idx]], words[main_idx + 1:]
@@ -1421,40 +1459,48 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 r1, r2 = _split_two_balanced(words, main_idx)
                 m1, m2 = {i for i in m_set_all if i < len(r1)}, {i - len(r1) for i in m_set_all if i >= len(r1)}
                 c1, c2 = {i for i in cine_set_all if i < len(r1)}, {i - len(r1) for i in cine_set_all if i >= len(r1)}
+                f1, f2 = {i for i in fx_set_all if i < len(r1)}, {i - len(r1) for i in fx_set_all if i >= len(r1)}
                 s1, s2 = (0.92 if m1 else 1.0), (0.92 if m2 else 1.0)
                 ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
-                _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1)
-                _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2)
+                _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+                _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
             else:
                 mb, ma = {i for i in m_set_all if i < len(before)}, {i - (main_idx + 1) for i in m_set_all if i > main_idx}
                 cb, ca = {i for i in cine_set_all if i < len(before)}, {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
+                fb, fa = {i for i in fx_set_all if i < len(before)}, {i - (main_idx + 1) for i in fx_set_all if i > main_idx}
                 cm = {0} if main_idx in cine_set_all else set()
+                fm = {0} if main_idx in fx_set_all else set()
                 ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
-                _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, inline_main_scale=0.94 if mb else 1.0, row_fx=cap_fx, cine_local_set=cb)
-                _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
-                _emit_mixed_line(after, pos_x, ys[2], cap_s, cap_e, t0s, t1s, main_local_set=ma, inline_main_scale=0.94 if ma else 1.0, row_fx=cap_fx, cine_local_set=ca)
+                _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, inline_main_scale=0.94 if mb else 1.0, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+                _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+                _emit_mixed_line(after, pos_x, ys[2], cap_s, cap_e, t0s, t1s, main_local_set=ma, inline_main_scale=0.94 if ma else 1.0, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
         elif req_lines == 2:
             r1, r2 = _split_two_balanced(words, main_idx)
             m1, m2 = {i for i in m_set_all if i < len(r1)}, {i - len(r1) for i in m_set_all if i >= len(r1)}
             c1, c2 = {i for i in cine_set_all if i < len(r1)}, {i - len(r1) for i in cine_set_all if i >= len(r1)}
+            f1, f2 = {i for i in fx_set_all if i < len(r1)}, {i - len(r1) for i in fx_set_all if i >= len(r1)}
             s1, s2 = (0.94 if m1 else 1.0), (0.94 if m2 else 1.0)
             ys = _stack_rows_y([_row_visual_h(r1, m1, int(m_size * s1)), _row_visual_h(r2, m2, int(m_size * s2))], pos_y, fx_extra)
-            _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1)
-            _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2)
+            _emit_mixed_line(r1, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=m1, inline_main_scale=s1, row_fx=cap_fx, cine_local_set=c1, fx_local_set=f1, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            _emit_mixed_line(r2, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=m2, inline_main_scale=s2, row_fx=cap_fx, cine_local_set=c2, fx_local_set=f2, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
         elif before:
             mb = {i for i in m_set_all if i < len(before)}
             cb = {i for i in cine_set_all if i < len(before)}
+            fb = {i for i in fx_set_all if i < len(before)}
             cm = {0} if main_idx in cine_set_all else set()
+            fm = {0} if main_idx in fx_set_all else set()
             ys = _stack_rows_y([_row_visual_h(before, mb, int(m_size * 0.94)), _row_visual_h(main_w, {0}, m_size)], pos_y, fx_extra)
-            _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx, cine_local_set=cb)
-            _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
+            _emit_mixed_line(before, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set=mb, row_fx=cap_fx, cine_local_set=cb, fx_local_set=fb, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            _emit_mixed_line(main_w, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
         else:
             ma = {i - (main_idx + 1) for i in m_set_all if i > main_idx}
             ca = {i - (main_idx + 1) for i in cine_set_all if i > main_idx}
+            fa = {i - (main_idx + 1) for i in fx_set_all if i > main_idx}
             cm = {0} if main_idx in cine_set_all else set()
+            fm = {0} if main_idx in fx_set_all else set()
             ys = _stack_rows_y([_row_visual_h(main_w, {0}, m_size), _row_visual_h(after, ma, int(m_size * 0.94))], pos_y, fx_extra)
-            _emit_mixed_line(main_w, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm)
-            _emit_mixed_line(after, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx, cine_local_set=ca)
+            _emit_mixed_line(main_w, pos_x, ys[0], cap_s, cap_e, t0s, t1s, main_local_set={0}, inline_main_scale=1.0, row_fx=cap_fx, cine_local_set=cm, fx_local_set=fm, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
+            _emit_mixed_line(after, pos_x, ys[1], cap_s, cap_e, t0s, t1s, main_local_set=ma, row_fx=cap_fx, cine_local_set=ca, fx_local_set=fa, card_gfx_cfg=card_gfx, card_accent_ass=card_acc_ass)
 
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
@@ -1483,7 +1529,7 @@ def render_video(
     ass_path,
     impact_times,
     hw,
-    zoom_enabled=True,
+    zoom_enabled=False,
     width=1080,
     height=1920,
     studio_audio=False,
@@ -1570,20 +1616,8 @@ def render_video(
 
     pre_scaled_done = (v_chain == "[vsel]")
 
-    # Instant jump-cut punch-in close-up focused near the speaker's upper/face framing (no bouncy keyframe drift!)
+    # Zoom dinâmico removido conforme solicitação do usuário
     zoom_filter = ""
-    if zoom_enabled and impact_times:
-        terms = []
-        for imp_s, imp_e in impact_times[:10]:
-            s_t = max(0.0, float(imp_s))
-            e_t = max(s_t + 1.2, float(imp_e))
-            terms.append(f"between(t,{s_t:.2f},{e_t:.2f})*0.24")
-        if terms:
-            z_expr = "1+" + "+".join(terms)
-            zoom_filter = (
-                f",scale=w='trunc(iw*({z_expr})/2)*2':h='trunc(ih*({z_expr})/2)*2':flags={scale_flags}:eval=frame,"
-                f"crop=w={w_even}:h={h_even}:x='(iw-ow)/2':y='max(0,(ih-oh)*0.22)'"
-            )
 
     extra_inputs = []
     next_in_idx = 1

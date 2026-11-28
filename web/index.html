@@ -42,6 +42,8 @@
     </nav>
 
     <main class="feed">
+      <div class="workspace-grid">
+        <div class="workspace-left">
       <!-- PRÉVIA SINCRONIZADA (oculta na Etapa 1) -->
       <section id="previewCard" class="card preview-card" hidden>
         <div class="pv-top-bar">
@@ -91,27 +93,55 @@
             <small>só que eu</small><strong>FARIA DIFERENTE</strong>
           </div>
         </div>
+
+        <!-- LINHA DO TEMPO SINCRONIZADA (exibida quando houver transcrição) -->
+        <div id="syncTimelineBox" class="sync-timeline" hidden>
+          <div class="stl-head">
+            <strong>⏱️ Linha do Tempo Sincronizada</strong>
+            <span id="stlPlayheadVal">0.0s</span>
+          </div>
+          <div id="syncTimelineTracks" class="stl-tracks"></div>
+        </div>
       </section>
+        </div>
+        <div class="workspace-right">
 
       <!-- ETAPA 1: Selecionar Vídeo (sem preview) -->
       <section class="card wizard-step" data-step="1">
         <div class="hero-card" style="padding: 4px 0 14px">
           <h1>Edição profissional, <em>pronta para postar</em></h1>
-          <p>Selecione seu vídeo e deixe o EU EDITO fazer a magia — legendas sincronizadas, cortes automáticos e visual impecável.</p>
+          <p>Selecione seu vídeo e escolha se quer edição <b>Automática</b>, <b>Modo Rápido</b> ou <b>Personalizada</b>.</p>
         </div>
         <div class="step-head"><span class="badge">1</span><h2>Selecionar Vídeo</h2></div>
         <label class="upload-box" id="uploadBox">
           <input type="file" id="videoFile" accept="video/*" hidden>
           <span class="upload-icon">🎬</span>
-          <strong id="uploadTitle">Escolher vídeo do celular</strong>
-          <small id="uploadSub">Toque para abrir sua galeria (iPhone ou Android)</small>
+          <strong id="uploadTitle">Escolher vídeo do celular ou computador</strong>
+          <small id="uploadSub">Toque ou arraste seu vídeo (MP4, MOV, WebM)</small>
         </label>
         <!-- Nenhum botão "Avançar" aqui — ao selecionar vídeo vai direto para etapa 2 -->
       </section>
 
-      <!-- ETAPA 2: Escolher Modelo de Legenda (preview aparece aqui) -->
+      <!-- ETAPA 2: Escolher Modo Rápido/Automático ou Modelo de Legenda -->
       <section class="card wizard-step" data-step="2" hidden>
-        <div class="step-head"><span class="badge">2</span><h2>Modelo de Legenda</h2></div>
+        <div class="mode-banner" id="modeBanner">
+          <div class="mode-banner-head">
+            <strong>⚡ Atalhos de Edição Inteligente</strong>
+            <small>Quer o vídeo pronto sem configurar etapa por etapa?</small>
+          </div>
+          <div class="mode-actions">
+            <button type="button" id="autoModeBtn" class="mode-btn mode-btn-auto">
+              <strong>🤖 Modo Automático</strong>
+              <small>App escolhe modelo, destaques, cortes e já entrega pronto</small>
+            </button>
+            <button type="button" id="quickModeBtn" class="mode-btn mode-btn-quick">
+              <strong>⚡ Modo Rápido</strong>
+              <small>Usa o modelo escolhido abaixo + destaques e já gera pronto</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="step-head" style="margin-top:12px"><span class="badge">2</span><h2>Modelo de Legenda</h2></div>
         <div class="cat-tabs cat-tabs-3" id="catTabs">
           <button type="button" class="cat-tab is-active" data-cat="traditional">🏛️ Tradicionais</button>
           <button type="button" class="cat-tab" data-cat="dynamic">⚡ Dinâmicas</button>
@@ -444,14 +474,8 @@
           </div>
         </div>
 
-        <!-- Zoom -->
-        <label class="toggle-row" style="margin-top:9px">
-          <div><strong>🔍 Zoom dinâmico (Automático)</strong><small>Aplicado automaticamente nos cortes certos</small></div>
-          <span class="switch"><input type="checkbox" id="zoomToggle" checked><span class="slider"></span></span>
-        </label>
-
         <!-- Limpeza de áudio -->
-        <label class="toggle-row">
+        <label class="toggle-row" style="margin-top:9px">
           <div><strong>🎙️ Limpeza suave de áudio (opcional)</strong><small>Ative apenas se o áudio tiver ruído</small></div>
           <span class="switch"><input type="checkbox" id="studioAudioToggle"><span class="slider"></span></span>
         </label>
@@ -608,10 +632,21 @@
         </div>
       </section>
 
-      <!-- REVISÃO DE LEGENDAS (fora das etapas do stepper) -->
+      <!-- CENTRAL DE CONTROLE DA TRANSCRIÇÃO (Cards Individuais) -->
       <section id="reviewCard" class="card" hidden>
-        <div class="step-head"><span class="badge">✓</span><h2>Revisar Legendas, Quebras &amp; Holofote</h2></div>
-        <p class="review-hint">Edite o texto (use <b>|</b> para dividir linhas), toque na palavra para destaque normal ou no ícone <b>🎬</b> para o Destaque Cinematográfico naquela palavra.</p>
+        <div class="step-head">
+          <span class="badge">✓</span>
+          <div>
+            <h2>Central de Transcrição &amp; Edição</h2>
+            <small id="reviewAnalysisSummary" style="display:block;font-size:11px;color:var(--green-bright)"></small>
+          </div>
+        </div>
+        <p class="review-hint">Toque nas palavras para destacar (pode selecionar várias ou expressões completas), abra <b>＋ Elementos</b> em cada card para vincular efeitos gráficos, holofote ou B-rolls exatamente naquela fala.</p>
+        <div class="review-toolbar">
+          <button type="button" id="applyAutoSuggestionsBtn" class="mini-pill-btn">✨ Aplicar sugestões</button>
+          <button type="button" id="prevCardBtn" class="mini-pill-btn">← Card anterior</button>
+          <button type="button" id="nextCardBtn" class="mini-pill-btn">Próximo card →</button>
+        </div>
         <div id="captionEditorList" class="caption-editor-list"></div>
       </section>
 
@@ -632,6 +667,8 @@
         <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
       </div>
       <p id="errorMsg" class="error-msg" hidden></p>
+        </div>
+      </div>
     </main>
 
     <!-- STICKY CTA -->
